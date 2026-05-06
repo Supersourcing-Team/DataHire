@@ -1,0 +1,28 @@
+from fastapi import APIRouter
+
+# Import routers here as they are created
+# from app.api.v1.endpoints import employers, jobs, resumes, users
+from app.api.v1.auth import router as auth_router
+
+api_router = APIRouter()
+
+# Include routers here as they are created
+# api_router.include_router(employers.router, prefix="/employers", tags=["employers"])
+# api_router.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
+# api_router.include_router(resumes.router, prefix="/resumes", tags=["resumes"])
+# api_router.include_router(users.router, prefix="/users", tags=["users"])
+
+# Include auth router
+api_router.include_router(auth_router, tags=["authentication"])
+
+@api_router.get("/")
+async def api_info():
+    """API information endpoint."""
+    return {
+        "message": "DataHire API v1",
+        "version": "1.0.0",
+        "endpoints": {
+            "auth": "/auth",
+            # Add more endpoints as they are created
+        }
+    }
