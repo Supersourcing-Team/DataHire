@@ -3,6 +3,7 @@ from fastapi import APIRouter
 # Import routers here as they are created
 # from app.api.v1.endpoints import employers, jobs, resumes, users
 from app.api.v1.auth import router as auth_router
+from app.api.v1.linkedin import router as linkedin_router
 
 api_router = APIRouter()
 
@@ -15,6 +16,9 @@ api_router = APIRouter()
 # Include auth router
 api_router.include_router(auth_router, tags=["authentication"])
 
+# Include LinkedIn OAuth router
+api_router.include_router(linkedin_router, tags=["linkedin-auth"])
+
 @api_router.get("/")
 async def api_info():
     """API information endpoint."""
@@ -23,6 +27,7 @@ async def api_info():
         "version": "1.0.0",
         "endpoints": {
             "auth": "/auth",
+            "linkedin": "/auth/linkedin",
             # Add more endpoints as they are created
         }
     }

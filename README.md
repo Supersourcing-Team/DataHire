@@ -59,32 +59,174 @@ Choose a self-explaining name for your project.
 Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
 
 ## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+#### Email/Password Auth
+- `POST /auth/register` - User registration
+- `POST /auth/login` - User login
+- `GET /auth/me` - Get current user profile (protected)
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+#### LinkedIn OAuth
+- `GET /auth/linkedin/login` - Initiate LinkedIn OAuth
+- `GET /auth/linkedin/callback` - OAuth callback
+- `POST /auth/linkedin/complete-registration` - Complete registration
+- `GET /auth/linkedin/profile/{temp_token}` - Verify temporary token
+- `GET /auth/linkedin/url` - Get authorization URL
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+### Interactive Documentation
+- **Swagger UI**: `http://localhost:8000/api/v1/docs`
+- **ReDoc**: `http://localhost:8000/api/v1/redoc`
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+## LinkedIn OAuth Integration
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+### Frontend Integration
+
+1. **Initiate OAuth**
+   ```javascript
+   window.location.href = '/api/v1/auth/linkedin/login?redirect_url=' + 
+       encodeURIComponent(window.location.origin + '/auth/linkedin/callback');
+   ```
+
+2. **Handle Callback**
+   ```javascript
+   // Extract from URL: /auth/linkedin/callback?temp_token=xxx&is_new_user=true
+   const tempToken = urlParams.get('temp_token');
+   const isNewUser = urlParams.get('is_new_user');
+   ```
+
+3. **Complete Registration**
+   ```javascript
+   fetch('/api/v1/auth/linkedin/complete-registration', {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({
+           temporary_token: tempToken,
+           role: 'candidate',
+           phone: '+1234567890'
+       })
+   });
+   ```
+
+### LinkedIn App Setup
+
+1. Create app at [LinkedIn Developers](https://www.linkedin.com/developers/apps/new)
+2. Configure OAuth 2.0 settings
+3. Set redirect URI: `http://yourdomain.com/api/v1/auth/linkedin/callback`
+4. Add Client ID and Secret to environment variables
+
+## Database Schema
+
+### Users Table
+- `id` - UUID primary key
+- `email` - Unique email address
+- `password_hash` - Bcrypt hash (nullable for OAuth)
+- `role` - User role (candidate/employer/admin)
+- `auth_provider` - Authentication method (local/linkedin)
+- `linkedin_id` - LinkedIn user ID
+- `is_active` - Account status
+- `is_verified` - Email verification status
+- `created_at` - Registration timestamp
+- `updated_at` - Last update timestamp
+
+### Related Tables
+- `candidates` - Candidate profiles
+- `employers` - Employer profiles
+- `refresh_tokens` - JWT refresh tokens
+
+## Security Features
+
+### Authentication
+- **JWT Tokens** with configurable expiration
+- **Refresh Tokens** for persistent sessions
+- **Password Hashing** with bcrypt
+- **OAuth Security** with state parameters
+- **Temporary Tokens** with 15-minute expiry
+
+### Data Protection
+- **Input Validation** with Pydantic schemas
+- **SQL Injection Prevention** with SQLAlchemy ORM
+- **CORS Configuration** for frontend integration
+- **Rate Limiting** (implement as needed)
+
+## Development
+
+### Running Tests
+```bash
+# Run all tests
+pytest
+
+# Run specific test file
+pytest tests/test_auth.py
+```
+
+### Database Migrations
+```bash
+# Create new migration
+alembic revision --autogenerate -m "Description"
+
+# Apply migrations
+alembic upgrade head
+
+# Rollback migration
+alembic downgrade -1
+```
+
+### Code Structure
+```bash
+app/
+├── api/v1/          # API endpoints
+│   ├── auth.py       # Email/password auth
+│   ├── linkedin.py    # LinkedIn OAuth
+│   └── api.py        # Router aggregation
+├── core/              # Core functionality
+│   ├── config.py      # Configuration
+│   ├── security.py    # JWT utilities
+│   └── dependencies.py # FastAPI dependencies
+├── models/            # Database models
+├── schemas/           # Pydantic schemas
+├── services/          # Business logic
+└── db/               # Database setup
+```
+
+## Production Deployment
+
+### Environment Setup
+1. Set `DEBUG=false` in production
+2. Use strong `SECRET_KEY`
+3. Configure production database
+4. Set up SSL/TLS
+5. Configure CORS for your domain
+
+### Docker Deployment
+```dockerfile
+FROM python:3.9-slim
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY . .
+EXPOSE 8000
+
+CMD ["python", "main.py"]
+```
+
+### Environment Variables for Production
+```env
+DEBUG=false
+SECRET_KEY=your-production-secret-key
+DATABASE_URL=postgresql://user:pass@prod-db:5432/datahire
+LINKEDIN_CLIENT_ID=prod-client-id
+LINKEDIN_CLIENT_SECRET=prod-client-secret
+LINKEDIN_REDIRECT_URI=https://yourdomain.com/api/v1/auth/linkedin/callback
+```
 
 ## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+1. Fork the repository
+2. Create feature branch
+3. Make your changes
+4. Add tests for new features
+5. Submit pull request
 
 ## License
 For open source projects, say how it is licensed.
