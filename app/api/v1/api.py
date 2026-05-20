@@ -19,6 +19,10 @@ api_router.include_router(auth_router, tags=["authentication"])
 # Include LinkedIn OAuth router
 api_router.include_router(linkedin_router, tags=["linkedin-auth"])
 
+# Include Meta router
+from app.api.v1.meta import router as meta_router
+api_router.include_router(meta_router)
+
 @api_router.get("/")
 async def api_info():
     """API information endpoint."""

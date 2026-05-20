@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.services.linkedin_oauth import LinkedInOAuthService
 from app.services.auth_service import AuthService
-from app.core.security import create_access_token, create_refresh_token
+from app.core.security import create_access_token, create_refresh_token, verify_token
 from app.core.config import settings
 from app.schemas.auth_schemas import UserResponse, TokenResponse
 from app.schemas.linkedin_schemas import LinkedInCompleteRegistration, LinkedInRegistrationComplete
@@ -99,21 +99,22 @@ async def get_temporary_profile(
     """Get user profile using temporary token."""
     try:
         # Verify temporary token
-        from app.models.refresh_token import RefreshToken
-        temp_refresh = db.query(RefreshToken).filter(
-            RefreshToken.token == f"temp_{temp_token}"
-        ).first()
+        payload = verify_token(temp_token)
         
-        if not temp_refresh or temp_refresh.expires_at < datetime.utcnow():
+        if not payload or payload.get("type") != "temporary":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired temporary token"
             )
         
-        # Return profile information (would decode from token in real implementation)
+        # Return profile information
         return {
             "message": "Temporary token valid",
-            "expires_in": int((temp_refresh.expires_at - datetime.utcnow()).total_seconds()),
+            "profile": {
+                "email": payload.get("email"),
+                "first_name": payload.get("first_name"),
+                "last_name": payload.get("last_name")
+            },
             "next_step": "Complete registration with POST /auth/linkedin/complete-registration"
         }
         

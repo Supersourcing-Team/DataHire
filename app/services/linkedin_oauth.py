@@ -10,6 +10,7 @@ from app.models.refresh_token import RefreshToken
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 import uuid
+from app.core.security import create_temporary_token, verify_token
 
 class LinkedInOAuthService:
     """LinkedIn OAuth2 integration service."""
@@ -85,6 +86,8 @@ class LinkedInOAuthService:
         """Create temporary user session after LinkedIn OAuth."""
         email = profile_data['email']
         linkedin_id = profile_data['linkedin_id']
+        first_name = profile_data['first_name']
+        last_name = profile_data['last_name']
         
         # Check if user already exists
         existing_user = db.query(User).filter(User.email == email).first()
@@ -93,34 +96,23 @@ class LinkedInOAuthService:
         if existing_user and existing_user.auth_provider != AuthProvider.LINKEDIN:
             raise ValueError("Email already registered with different authentication method")
         
-        # Generate temporary token for frontend completion
-        temp_token = str(uuid.uuid4())
+        # Generate temporary JWT for frontend completion
         temp_token_data = {
-            "sub": str(existing_user.id) if existing_user else temp_token,
             "email": email,
             "linkedin_id": linkedin_id,
-            "temp": True,
-            "exp": datetime.utcnow() + timedelta(minutes=15)  # 15 minutes expiry
+            "first_name": first_name,
+            "last_name": last_name
         }
         
-        # Store temporary token in refresh_tokens table with special flag
-        temp_refresh = RefreshToken(
-            user_id=existing_user.id if existing_user else None,
-            token=f"temp_{temp_token}",
-            expires_at=datetime.utcnow() + timedelta(minutes=15),
-            device_info="temporary_linkedin_oauth",
-            ip_address="oauth_flow"
-        )
-        db.add(temp_refresh)
-        db.commit()
+        temp_token = create_temporary_token(temp_token_data)
         
-        full_name = f"{profile_data['first_name']} {profile_data['last_name']}".strip()
+        full_name = f"{first_name} {last_name}".strip()
         
         return LinkedInProfileResponse(
             user_id=str(existing_user.id) if existing_user else None,
             email=email,
-            first_name=profile_data['first_name'],
-            last_name=profile_data['last_name'],
+            first_name=first_name,
+            last_name=last_name,
             full_name=full_name,
             linkedin_id=linkedin_id,
             profile_picture=profile_data.get('profile_picture'),
@@ -136,18 +128,21 @@ class LinkedInOAuthService:
         role = registration_data['role']
         
         # Verify temporary token
-        temp_refresh = db.query(RefreshToken).filter(
-            RefreshToken.token == f"temp_{temp_token}"
-        ).first()
+        payload = verify_token(temp_token)
         
-        if not temp_refresh or temp_refresh.expires_at < datetime.utcnow():
+        if not payload or payload.get("type") != "temporary":
             raise ValueError("Invalid or expired temporary token")
         
-        # Get LinkedIn profile from token (simplified - would decode JWT in real implementation)
-        # For now, we'll create/update the user based on the registration data
+        # Extract trusted details from the JWT
+        email = payload.get('email')
+        linkedin_id = payload.get('linkedin_id')
+        first_name = payload.get('first_name', '')
+        last_name = payload.get('last_name', '')
+        
+        if not email:
+            raise ValueError("Invalid token payload: missing email")
         
         # Check if user already exists
-        email = registration_data.get('email')  # Would get from token in real implementation
         user = db.query(User).filter(User.email == email).first()
         
         if user:
@@ -167,9 +162,10 @@ class LinkedInOAuthService:
                 employer.phone = registration_data.get('phone')
                 employer.updated_at = datetime.utcnow()
         else:
-            # Create new user (this would use LinkedIn profile data from token)
+            # Create new user based on LinkedIn profile data from token
             user = User(
                 email=email,
+                linkedin_id=linkedin_id,
                 password_hash=None,
                 role=role,
                 auth_provider=AuthProvider.LINKEDIN,
@@ -182,11 +178,16 @@ class LinkedInOAuthService:
             db.commit()
             db.refresh(user)
             
+            # Use full name from frontend payload if available, else from JWT
+            full_name = registration_data.get('full_name')
+            if not full_name:
+                full_name = f"{first_name} {last_name}".strip()
+            
             # Create role-specific profile
             if role == UserRole.CANDIDATE:
                 candidate = Candidate(
                     user_id=user.id,
-                    full_name=registration_data.get('full_name', ''),
+                    full_name=full_name,
                     phone=registration_data.get('phone'),
                     onboarding_completed=True,
                     created_at=datetime.utcnow(),
@@ -198,17 +199,15 @@ class LinkedInOAuthService:
                     user_id=user.id,
                     company_name=registration_data.get('company_name', ''),
                     company_website=registration_data.get('company_website'),
-                    contact_person=registration_data.get('full_name', ''),
+                    contact_person=full_name,
                     phone=registration_data.get('phone'),
                     onboarding_completed=True,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()
                 )
                 db.add(employer)
-        
-        # Clean up temporary token
-        db.delete(temp_refresh)
-        db.commit()
+            
+            db.commit()
         
         # Generate final JWT tokens
         from app.core.security import create_access_token, create_refresh_token
