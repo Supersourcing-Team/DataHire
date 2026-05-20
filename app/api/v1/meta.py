@@ -4,6 +4,7 @@ from typing import List, Type, Any
 from uuid import UUID
 
 from app.db.session import get_db
+from app.core.dependencies import require_admin
 from app.models.meta import (
     MetaCountry, MetaState, MetaCity, MetaEmploymentType, MetaWorkMode,
     MetaCompanySize, MetaExperienceBracket, MetaSeniorityLevel, MetaEducationLevel,
@@ -43,7 +44,7 @@ def register_crud_routes(
         return query.offset(skip).limit(limit).all()
 
     @api_router.post(f"{path_prefix}", response_model=response_schema, status_code=status.HTTP_201_CREATED, tags=tags)
-    def create(item: create_schema, db: Session = Depends(get_db)):
+    def create(item: create_schema, db: Session = Depends(get_db), current_user = Depends(require_admin)):
         db_item = db_model(**item.model_dump())
         db.add(db_item)
         db.commit()
@@ -58,7 +59,7 @@ def register_crud_routes(
         return item
         
     @api_router.put(f"{path_prefix}/{{item_id}}", response_model=response_schema, tags=tags)
-    def update(item_id: int, item_update: update_schema, db: Session = Depends(get_db)):
+    def update(item_id: int, item_update: update_schema, db: Session = Depends(get_db), current_user = Depends(require_admin)):
         db_item = db.query(db_model).filter(db_model.id == item_id).first()
         if not db_item:
             raise HTTPException(status_code=404, detail="Item not found")
@@ -72,7 +73,7 @@ def register_crud_routes(
         return db_item
         
     @api_router.delete(f"{path_prefix}/{{item_id}}", status_code=status.HTTP_204_NO_CONTENT, tags=tags)
-    def soft_delete(item_id: int, db: Session = Depends(get_db)):
+    def soft_delete(item_id: int, db: Session = Depends(get_db), current_user = Depends(require_admin)):
         db_item = db.query(db_model).filter(db_model.id == item_id).first()
         if not db_item:
             raise HTTPException(status_code=404, detail="Item not found")
