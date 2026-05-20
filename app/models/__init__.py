@@ -4,6 +4,7 @@ from app.models.candidate import Candidate
 from app.models.employer import Employer
 from app.models.refresh_token import RefreshToken
 from app.models.company import Company
+from app.models.otp import OTPToken
 from app.models.meta import (
     MetaCountry, MetaState, MetaCity, MetaEmploymentType, MetaWorkMode,
     MetaCompanySize, MetaExperienceBracket, MetaSeniorityLevel, MetaEducationLevel,
@@ -19,6 +20,7 @@ __all__ = [
     "Employer",
     "RefreshToken",
     "Company",
+    "OTPToken",
     "MetaCountry", "MetaState", "MetaCity", "MetaEmploymentType", "MetaWorkMode",
     "MetaCompanySize", "MetaExperienceBracket", "MetaSeniorityLevel", "MetaEducationLevel",
     "MetaSubscriptionPlan", "MetaIndustry", "MetaCurrency"
