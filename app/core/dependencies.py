@@ -51,3 +51,26 @@ def get_current_active_user(
             detail="Inactive user"
         )
     return current_user
+
+from typing import List
+from app.models.user import UserRole
+
+class RoleChecker:
+    def __init__(self, allowed_roles: List[str]):
+        self.allowed_roles = allowed_roles
+
+    def __call__(self, user: User = Depends(get_current_active_user)) -> User:
+        if user.role not in self.allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Operation not permitted for this role"
+            )
+        return user
+
+# Pre-configured dependencies for route protection
+require_admin = RoleChecker([UserRole.ADMIN])
+require_candidate = RoleChecker([UserRole.CANDIDATE])
+require_employer = RoleChecker([UserRole.EMPLOYER])
+
+# Note: For god-mode routes that both Admin and another role can access:
+# require_admin_or_employer = RoleChecker([UserRole.ADMIN, UserRole.EMPLOYER])

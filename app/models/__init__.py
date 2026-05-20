@@ -3,6 +3,12 @@ from app.models.user import User, UserRole, AuthProvider
 from app.models.candidate import Candidate
 from app.models.employer import Employer
 from app.models.refresh_token import RefreshToken
+from app.models.company import Company
+from app.models.meta import (
+    MetaCountry, MetaState, MetaCity, MetaEmploymentType, MetaWorkMode,
+    MetaCompanySize, MetaExperienceBracket, MetaSeniorityLevel, MetaEducationLevel,
+    MetaSubscriptionPlan, MetaIndustry, MetaCurrency
+)
 
 __all__ = [
     "Base",
@@ -11,5 +17,9 @@ __all__ = [
     "AuthProvider",
     "Candidate",
     "Employer",
-    "RefreshToken"
+    "RefreshToken",
+    "Company",
+    "MetaCountry", "MetaState", "MetaCity", "MetaEmploymentType", "MetaWorkMode",
+    "MetaCompanySize", "MetaExperienceBracket", "MetaSeniorityLevel", "MetaEducationLevel",
+    "MetaSubscriptionPlan", "MetaIndustry", "MetaCurrency"
 ]

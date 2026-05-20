@@ -11,9 +11,7 @@ class Employer(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
-    company_name = Column(String(255), nullable=False)
-    company_website = Column(String(500), nullable=True)
-    company_logo = Column(String(500), nullable=True)  # URL to company logo
+    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=True) # Nullable until they create/join a company
     contact_person = Column(String(255), nullable=True)
     phone = Column(String(20), nullable=True)
     onboarding_completed = Column(Boolean, default=False, nullable=False)
@@ -22,6 +20,7 @@ class Employer(Base):
 
     # Relationships
     user = relationship("User", back_populates="employer")
+    company = relationship("Company", back_populates="employers")
 
     def __repr__(self):
         return f"<Employer(id={self.id}, company_name={self.company_name})>"
