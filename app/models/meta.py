@@ -43,6 +43,7 @@ class MetaCity(Base):
     state_id = Column(Integer, ForeignKey("meta_states.id", ondelete="CASCADE"), nullable=False)
     country_id = Column(Integer, ForeignKey("meta_countries.id", ondelete="CASCADE"), nullable=False)
     name = Column(String(255), nullable=False)
+    pincode = Column(String(10), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -104,6 +105,14 @@ class MetaSeniorityLevel(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+class MetaOrganizationType(Base):
+    __tablename__ = "meta_organization_types"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String(255), nullable=False, unique=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 class MetaEducationLevel(Base):
     __tablename__ = "meta_education_levels"
@@ -150,3 +159,5 @@ class MetaIndustry(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+
