@@ -5,6 +5,7 @@ from app.models.employer import Employer
 from app.models.refresh_token import RefreshToken
 from app.models.company import Company
 from app.models.otp import OTPToken
+from app.models.taxonomy import TaxonomyDomain, TaxonomyJobRole, TaxonomySkill
 from app.models.meta import (
     MetaCountry, MetaState, MetaCity, MetaEmploymentType, MetaWorkMode,
     MetaCompanySize, MetaExperienceBracket, MetaSeniorityLevel, MetaOrganizationType,
@@ -21,6 +22,7 @@ __all__ = [
     "RefreshToken",
     "Company",
     "OTPToken",
+    "TaxonomyDomain", "TaxonomyJobRole", "TaxonomySkill",
     "MetaCountry", "MetaState", "MetaCity", "MetaEmploymentType", "MetaWorkMode",
     "MetaCompanySize", "MetaExperienceBracket", "MetaSeniorityLevel", "MetaOrganizationType",
     "MetaEducationLevel", "MetaSubscriptionPlan", "MetaIndustry", "MetaCurrency"
