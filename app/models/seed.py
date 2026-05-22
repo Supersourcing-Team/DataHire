@@ -13,30 +13,19 @@ load_dotenv(ROOT_DIR / ".env")
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if not DATABASE_URL:
-    raise RuntimeError("DATABASE_URL is missing. Add it to .env before running the seeder.")
+    raise RuntimeError("DATABASE_URL is missing. Add it to .env before running seed.py.")
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 session = SessionLocal()
 
 
-def clear_tables():
-    print("Deleting old data...")
+def get_existing_id(query, params):
+    return session.execute(text(query), params).scalar_one_or_none()
 
-    session.execute(text("DELETE FROM meta_subscription_plans"))
-    session.execute(text("DELETE FROM meta_cities"))
-    session.execute(text("DELETE FROM meta_states"))
-    session.execute(text("DELETE FROM meta_countries"))
-    session.execute(text("DELETE FROM meta_employment_types"))
-    session.execute(text("DELETE FROM meta_work_modes"))
-    session.execute(text("DELETE FROM meta_company_sizes"))
-    session.execute(text("DELETE FROM meta_experience_brackets"))
-    session.execute(text("DELETE FROM meta_seniority_levels"))
-    session.execute(text("DELETE FROM meta_education_levels"))
-    session.execute(text("DELETE FROM meta_industries"))
-    session.execute(text("DELETE FROM meta_currencies"))
 
-    print("Old data deleted.")
+def insert_and_get_id(query, params):
+    return session.execute(text(query), params).scalar_one()
 
 
 def seed_currencies():
@@ -51,31 +40,25 @@ def seed_currencies():
     currency_ids = []
 
     for code, symbol, name in currencies:
-        currency_id = session.execute(
-            text(
+        currency_id = get_existing_id(
+            "SELECT id FROM meta_currencies WHERE code = :code",
+            {"code": code},
+        )
+
+        if currency_id is None:
+            currency_id = insert_and_get_id(
                 """
-                INSERT INTO meta_currencies (
-                    code,
-                    symbol,
-                    name,
-                    is_active
-                )
-                VALUES (
-                    :code,
-                    :symbol,
-                    :name,
-                    :is_active
-                )
+                INSERT INTO meta_currencies (code, symbol, name, is_active)
+                VALUES (:code, :symbol, :name, :is_active)
                 RETURNING id
-                """
-            ),
-            {
-                "code": code,
-                "symbol": symbol,
-                "name": name,
-                "is_active": True,
-            },
-        ).scalar_one()
+                """,
+                {
+                    "code": code,
+                    "symbol": symbol,
+                    "name": name,
+                    "is_active": True,
+                },
+            )
 
         currency_ids.append({"id": currency_id, "code": code})
 
@@ -95,31 +78,25 @@ def seed_countries():
     country_ids = []
 
     for name, iso_code, currency_code in countries:
-        country_id = session.execute(
-            text(
+        country_id = get_existing_id(
+            "SELECT id FROM meta_countries WHERE name = :name",
+            {"name": name},
+        )
+
+        if country_id is None:
+            country_id = insert_and_get_id(
                 """
-                INSERT INTO meta_countries (
-                    name,
-                    iso_code,
-                    currency_code,
-                    is_active
-                )
-                VALUES (
-                    :name,
-                    :iso_code,
-                    :currency_code,
-                    :is_active
-                )
+                INSERT INTO meta_countries (name, iso_code, currency_code, is_active)
+                VALUES (:name, :iso_code, :currency_code, :is_active)
                 RETURNING id
-                """
-            ),
-            {
-                "name": name,
-                "iso_code": iso_code,
-                "currency_code": currency_code,
-                "is_active": True,
-            },
-        ).scalar_one()
+                """,
+                {
+                    "name": name,
+                    "iso_code": iso_code,
+                    "currency_code": currency_code,
+                    "is_active": True,
+                },
+            )
 
         country_ids.append({"id": country_id, "name": name})
 
@@ -160,31 +137,29 @@ def seed_states(country_ids):
 
     for country in country_ids:
         for name, code in state_map.get(country["name"], []):
-            state_id = session.execute(
-                text(
+            state_id = get_existing_id(
+                """
+                SELECT id
+                FROM meta_states
+                WHERE country_id = :country_id AND name = :name
+                """,
+                {"country_id": country["id"], "name": name},
+            )
+
+            if state_id is None:
+                state_id = insert_and_get_id(
                     """
-                    INSERT INTO meta_states (
-                        country_id,
-                        name,
-                        code,
-                        is_active
-                    )
-                    VALUES (
-                        :country_id,
-                        :name,
-                        :code,
-                        :is_active
-                    )
+                    INSERT INTO meta_states (country_id, name, code, is_active)
+                    VALUES (:country_id, :name, :code, :is_active)
                     RETURNING id
-                    """
-                ),
-                {
-                    "country_id": country["id"],
-                    "name": name,
-                    "code": code,
-                    "is_active": True,
-                },
-            ).scalar_one()
+                    """,
+                    {
+                        "country_id": country["id"],
+                        "name": name,
+                        "code": code,
+                        "is_active": True,
+                    },
+                )
 
             states.append(
                 {
@@ -219,30 +194,36 @@ def seed_cities(states):
 
     for state in states:
         for city_name in city_map.get(state["name"], []):
-            session.execute(
-                text(
-                    """
-                    INSERT INTO meta_cities (
-                        state_id,
-                        country_id,
-                        name,
-                        is_active
-                    )
-                    VALUES (
-                        :state_id,
-                        :country_id,
-                        :name,
-                        :is_active
-                    )
-                    """
-                ),
+            city_id = get_existing_id(
+                """
+                SELECT id
+                FROM meta_cities
+                WHERE state_id = :state_id
+                    AND country_id = :country_id
+                    AND name = :name
+                """,
                 {
                     "state_id": state["id"],
                     "country_id": state["country_id"],
                     "name": city_name,
-                    "is_active": True,
                 },
             )
+
+            if city_id is None:
+                session.execute(
+                    text(
+                        """
+                        INSERT INTO meta_cities (state_id, country_id, name, is_active)
+                        VALUES (:state_id, :country_id, :name, :is_active)
+                        """
+                    ),
+                    {
+                        "state_id": state["id"],
+                        "country_id": state["country_id"],
+                        "name": city_name,
+                        "is_active": True,
+                    },
+                )
 
     print("Cities seeded.")
 
@@ -256,22 +237,20 @@ def seed_employment_types():
         "FREELANCE",
     ]
 
-    for item in employment_types:
-        session.execute(
-            text(
-                """
-                INSERT INTO meta_employment_types (
-                    name,
-                    is_active
-                )
-                VALUES (
-                    :name,
-                    :is_active
-                )
-                """
-            ),
-            {"name": item, "is_active": True},
-        )
+    for name in employment_types:
+        if get_existing_id(
+            "SELECT id FROM meta_employment_types WHERE name = :name",
+            {"name": name},
+        ) is None:
+            session.execute(
+                text(
+                    """
+                    INSERT INTO meta_employment_types (name, is_active)
+                    VALUES (:name, :is_active)
+                    """
+                ),
+                {"name": name, "is_active": True},
+            )
 
     print("Employment types seeded.")
 
@@ -279,22 +258,20 @@ def seed_employment_types():
 def seed_work_modes():
     work_modes = ["REMOTE", "HYBRID", "ONSITE"]
 
-    for item in work_modes:
-        session.execute(
-            text(
-                """
-                INSERT INTO meta_work_modes (
-                    name,
-                    is_active
-                )
-                VALUES (
-                    :name,
-                    :is_active
-                )
-                """
-            ),
-            {"name": item, "is_active": True},
-        )
+    for name in work_modes:
+        if get_existing_id(
+            "SELECT id FROM meta_work_modes WHERE name = :name",
+            {"name": name},
+        ) is None:
+            session.execute(
+                text(
+                    """
+                    INSERT INTO meta_work_modes (name, is_active)
+                    VALUES (:name, :is_active)
+                    """
+                ),
+                {"name": name, "is_active": True},
+            )
 
     print("Work modes seeded.")
 
@@ -308,31 +285,35 @@ def seed_company_sizes():
         ("1000+", 1000, None),
     ]
 
-    for label, min_emp, max_emp in company_sizes:
-        session.execute(
-            text(
-                """
-                INSERT INTO meta_company_sizes (
-                    label,
-                    min_employees,
-                    max_employees,
-                    is_active
-                )
-                VALUES (
-                    :label,
-                    :min_employees,
-                    :max_employees,
-                    :is_active
-                )
-                """
-            ),
-            {
-                "label": label,
-                "min_employees": min_emp,
-                "max_employees": max_emp,
-                "is_active": True,
-            },
-        )
+    for label, min_employees, max_employees in company_sizes:
+        if get_existing_id(
+            "SELECT id FROM meta_company_sizes WHERE label = :label",
+            {"label": label},
+        ) is None:
+            session.execute(
+                text(
+                    """
+                    INSERT INTO meta_company_sizes (
+                        label,
+                        min_employees,
+                        max_employees,
+                        is_active
+                    )
+                    VALUES (
+                        :label,
+                        :min_employees,
+                        :max_employees,
+                        :is_active
+                    )
+                    """
+                ),
+                {
+                    "label": label,
+                    "min_employees": min_employees,
+                    "max_employees": max_employees,
+                    "is_active": True,
+                },
+            )
 
     print("Company sizes seeded.")
 
@@ -347,30 +328,34 @@ def seed_experience_brackets():
     ]
 
     for label, min_years, max_years in brackets:
-        session.execute(
-            text(
-                """
-                INSERT INTO meta_experience_brackets (
-                    label,
-                    min_years,
-                    max_years,
-                    is_active
-                )
-                VALUES (
-                    :label,
-                    :min_years,
-                    :max_years,
-                    :is_active
-                )
-                """
-            ),
-            {
-                "label": label,
-                "min_years": min_years,
-                "max_years": max_years,
-                "is_active": True,
-            },
-        )
+        if get_existing_id(
+            "SELECT id FROM meta_experience_brackets WHERE label = :label",
+            {"label": label},
+        ) is None:
+            session.execute(
+                text(
+                    """
+                    INSERT INTO meta_experience_brackets (
+                        label,
+                        min_years,
+                        max_years,
+                        is_active
+                    )
+                    VALUES (
+                        :label,
+                        :min_years,
+                        :max_years,
+                        :is_active
+                    )
+                    """
+                ),
+                {
+                    "label": label,
+                    "min_years": min_years,
+                    "max_years": max_years,
+                    "is_active": True,
+                },
+            )
 
     print("Experience brackets seeded.")
 
@@ -386,24 +371,51 @@ def seed_seniority_levels():
         "ARCHITECT",
     ]
 
-    for item in levels:
-        session.execute(
-            text(
-                """
-                INSERT INTO meta_seniority_levels (
-                    name,
-                    is_active
-                )
-                VALUES (
-                    :name,
-                    :is_active
-                )
-                """
-            ),
-            {"name": item, "is_active": True},
-        )
+    for name in levels:
+        if get_existing_id(
+            "SELECT id FROM meta_seniority_levels WHERE name = :name",
+            {"name": name},
+        ) is None:
+            session.execute(
+                text(
+                    """
+                    INSERT INTO meta_seniority_levels (name, is_active)
+                    VALUES (:name, :is_active)
+                    """
+                ),
+                {"name": name, "is_active": True},
+            )
 
     print("Seniority levels seeded.")
+
+
+def seed_organization_types():
+    organization_types = [
+        "STARTUP",
+        "PRIVATE_COMPANY",
+        "PUBLIC_COMPANY",
+        "GOVERNMENT",
+        "NON_PROFIT",
+        "EDUCATIONAL_INSTITUTE",
+        "RECRUITMENT_AGENCY",
+    ]
+
+    for name in organization_types:
+        if get_existing_id(
+            "SELECT id FROM meta_organization_types WHERE name = :name",
+            {"name": name},
+        ) is None:
+            session.execute(
+                text(
+                    """
+                    INSERT INTO meta_organization_types (name, is_active)
+                    VALUES (:name, :is_active)
+                    """
+                ),
+                {"name": name, "is_active": True},
+            )
+
+    print("Organization types seeded.")
 
 
 def seed_education_levels():
@@ -415,22 +427,20 @@ def seed_education_levels():
         "DIPLOMA",
     ]
 
-    for item in education_levels:
-        session.execute(
-            text(
-                """
-                INSERT INTO meta_education_levels (
-                    name,
-                    is_active
-                )
-                VALUES (
-                    :name,
-                    :is_active
-                )
-                """
-            ),
-            {"name": item, "is_active": True},
-        )
+    for name in education_levels:
+        if get_existing_id(
+            "SELECT id FROM meta_education_levels WHERE name = :name",
+            {"name": name},
+        ) is None:
+            session.execute(
+                text(
+                    """
+                    INSERT INTO meta_education_levels (name, is_active)
+                    VALUES (:name, :is_active)
+                    """
+                ),
+                {"name": name, "is_active": True},
+            )
 
     print("Education levels seeded.")
 
@@ -449,22 +459,20 @@ def seed_industries():
         "Energy",
     ]
 
-    for item in industries:
-        session.execute(
-            text(
-                """
-                INSERT INTO meta_industries (
-                    name,
-                    is_active
-                )
-                VALUES (
-                    :name,
-                    :is_active
-                )
-                """
-            ),
-            {"name": item, "is_active": True},
-        )
+    for name in industries:
+        if get_existing_id(
+            "SELECT id FROM meta_industries WHERE name = :name",
+            {"name": name},
+        ) is None:
+            session.execute(
+                text(
+                    """
+                    INSERT INTO meta_industries (name, is_active)
+                    VALUES (:name, :is_active)
+                    """
+                ),
+                {"name": name, "is_active": True},
+            )
 
     print("Industries seeded.")
 
@@ -477,7 +485,7 @@ def seed_subscription_plans(currency_ids):
         ("ENTERPRISE", 99.99),
     ]
 
-    default_currency = next(
+    default_currency_id = next(
         currency["id"] for currency in currency_ids if currency["code"] == "USD"
     )
 
@@ -494,33 +502,37 @@ def seed_subscription_plans(currency_ids):
             "analytics": name in {"BASIC", "PRO", "ENTERPRISE"},
         }
 
-        session.execute(
-            text(
-                """
-                INSERT INTO meta_subscription_plans (
-                    name,
-                    price,
-                    currency_id,
-                    features,
-                    is_active
-                )
-                VALUES (
-                    :name,
-                    :price,
-                    :currency_id,
-                    CAST(:features AS JSONB),
-                    :is_active
-                )
-                """
-            ),
-            {
-                "name": name,
-                "price": price,
-                "currency_id": default_currency,
-                "features": json.dumps(features),
-                "is_active": True,
-            },
-        )
+        if get_existing_id(
+            "SELECT id FROM meta_subscription_plans WHERE name = :name",
+            {"name": name},
+        ) is None:
+            session.execute(
+                text(
+                    """
+                    INSERT INTO meta_subscription_plans (
+                        name,
+                        price,
+                        currency_id,
+                        features,
+                        is_active
+                    )
+                    VALUES (
+                        :name,
+                        :price,
+                        :currency_id,
+                        CAST(:features AS JSONB),
+                        :is_active
+                    )
+                    """
+                ),
+                {
+                    "name": name,
+                    "price": price,
+                    "currency_id": default_currency_id,
+                    "features": json.dumps(features),
+                    "is_active": True,
+                },
+            )
 
     print("Subscription plans seeded.")
 
@@ -529,8 +541,6 @@ if __name__ == "__main__":
     print("Starting database seeding...\n")
 
     try:
-        clear_tables()
-
         currency_ids = seed_currencies()
         country_ids = seed_countries()
         states = seed_states(country_ids)
@@ -541,6 +551,7 @@ if __name__ == "__main__":
         seed_company_sizes()
         seed_experience_brackets()
         seed_seniority_levels()
+        seed_organization_types()
         seed_education_levels()
         seed_industries()
         seed_subscription_plans(currency_ids)
