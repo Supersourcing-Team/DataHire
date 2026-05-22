@@ -26,6 +26,7 @@ class AuthService:
         password_hash = pwd_context.hash(password)
         
         # Create user
+        
         user = User(
             email=user_data.email,
             password_hash=password_hash,
