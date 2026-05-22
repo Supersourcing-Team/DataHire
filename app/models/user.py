@@ -32,6 +32,7 @@ class User(Base):
     
     # OAuth specific fields
     linkedin_id = Column(String(100), nullable=True, index=True)  # LinkedIn user ID
+    google_id = Column(String(100), nullable=True, index=True)    # Google user ID
     profile_picture = Column(String(500), nullable=True)  # Profile picture URL
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
