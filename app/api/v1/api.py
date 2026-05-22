@@ -4,7 +4,7 @@ from fastapi import APIRouter
 # from app.api.v1.endpoints import employers, jobs, resumes, users
 from app.api.v1.auth import router as auth_router
 from app.api.v1.linkedin import router as linkedin_router
-
+from app.api.v1.google import router as google_router
 api_router = APIRouter()
 
 # Include routers here as they are created
@@ -19,6 +19,9 @@ api_router.include_router(auth_router, tags=["authentication"])
 # Include LinkedIn OAuth router
 api_router.include_router(linkedin_router, tags=["linkedin-auth"])
 
+# Include Google OAuth router
+api_router.include_router(google_router, tags=["google-auth"])
+
 # Include Meta router
 from app.api.v1.meta import router as meta_router
 api_router.include_router(meta_router)
@@ -32,6 +35,7 @@ async def api_info():
         "endpoints": {
             "auth": "/auth",
             "linkedin": "/auth/linkedin",
+            "google": "/auth/google",
             # Add more endpoints as they are created
         }
     }
