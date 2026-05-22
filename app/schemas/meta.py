@@ -174,3 +174,14 @@ class MetaIndustryUpdate(BaseModel):
 
 class MetaIndustryResponse(MetaIndustryCreate, MetaResponseBase):
     pass
+
+# 13. Organization Types
+class MetaOrganizationTypeCreate(MetaBase):
+    name: str
+
+class MetaOrganizationTypeUpdate(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class MetaOrganizationTypeResponse(MetaOrganizationTypeCreate, MetaResponseBase):
+    pass
