@@ -7,8 +7,8 @@ from app.models.company import Company
 from app.models.otp import OTPToken
 from app.models.meta import (
     MetaCountry, MetaState, MetaCity, MetaEmploymentType, MetaWorkMode,
-    MetaCompanySize, MetaExperienceBracket, MetaSeniorityLevel, MetaEducationLevel,
-    MetaSubscriptionPlan, MetaIndustry, MetaCurrency
+    MetaCompanySize, MetaExperienceBracket, MetaSeniorityLevel, MetaOrganizationType,
+    MetaEducationLevel, MetaSubscriptionPlan, MetaIndustry, MetaCurrency
 )
 
 __all__ = [
@@ -22,6 +22,6 @@ __all__ = [
     "Company",
     "OTPToken",
     "MetaCountry", "MetaState", "MetaCity", "MetaEmploymentType", "MetaWorkMode",
-    "MetaCompanySize", "MetaExperienceBracket", "MetaSeniorityLevel", "MetaEducationLevel",
-    "MetaSubscriptionPlan", "MetaIndustry", "MetaCurrency"
+    "MetaCompanySize", "MetaExperienceBracket", "MetaSeniorityLevel", "MetaOrganizationType",
+    "MetaEducationLevel", "MetaSubscriptionPlan", "MetaIndustry", "MetaCurrency"
 ]
