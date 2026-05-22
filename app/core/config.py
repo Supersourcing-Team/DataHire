@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     LINKEDIN_CLIENT_SECRET: str
     LINKEDIN_REDIRECT_URI: str
     
+    # Google OAuth
+    GOOGLE_CLIENT_ID: str
+    GOOGLE_CLIENT_SECRET: str
+    GOOGLE_REDIRECT_URI: str
+    
     # Anthropic AI
     ANTHROPIC_API_KEY: str
     
