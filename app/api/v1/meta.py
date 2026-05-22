@@ -8,7 +8,7 @@ from app.core.dependencies import require_admin
 from app.models.meta import (
     MetaCountry, MetaState, MetaCity, MetaEmploymentType, MetaWorkMode,
     MetaCompanySize, MetaExperienceBracket, MetaSeniorityLevel, MetaEducationLevel,
-    MetaSubscriptionPlan, MetaIndustry, MetaCurrency
+    MetaSubscriptionPlan, MetaIndustry, MetaCurrency, MetaOrganizationType
 )
 from app.schemas.meta import (
     MetaCountryCreate, MetaCountryUpdate, MetaCountryResponse,
@@ -22,7 +22,8 @@ from app.schemas.meta import (
     MetaEducationLevelCreate, MetaEducationLevelUpdate, MetaEducationLevelResponse,
     MetaCurrencyCreate, MetaCurrencyUpdate, MetaCurrencyResponse,
     MetaSubscriptionPlanCreate, MetaSubscriptionPlanUpdate, MetaSubscriptionPlanResponse,
-    MetaIndustryCreate, MetaIndustryUpdate, MetaIndustryResponse
+    MetaIndustryCreate, MetaIndustryUpdate, MetaIndustryResponse,
+    MetaOrganizationTypeCreate, MetaOrganizationTypeUpdate, MetaOrganizationTypeResponse
 )
 
 router = APIRouter(prefix="/meta", tags=["meta"])
@@ -96,6 +97,7 @@ meta_routes_config = [
     ("/currencies", MetaCurrency, MetaCurrencyCreate, MetaCurrencyUpdate, MetaCurrencyResponse, ["meta-currencies"]),
     ("/subscription-plans", MetaSubscriptionPlan, MetaSubscriptionPlanCreate, MetaSubscriptionPlanUpdate, MetaSubscriptionPlanResponse, ["meta-subscription-plans"]),
     ("/industries", MetaIndustry, MetaIndustryCreate, MetaIndustryUpdate, MetaIndustryResponse, ["meta-industries"]),
+    ("/organization-types", MetaOrganizationType, MetaOrganizationTypeCreate, MetaOrganizationTypeUpdate, MetaOrganizationTypeResponse, ["meta-organization-types"]),
 ]
 
 # Register all routes
