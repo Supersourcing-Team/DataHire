@@ -26,6 +26,10 @@ api_router.include_router(google_router, tags=["google-auth"])
 from app.api.v1.meta import router as meta_router
 api_router.include_router(meta_router)
 
+# Include Taxonomy router
+from app.api.v1.taxonomy import router as taxonomy_router
+api_router.include_router(taxonomy_router)
+
 @api_router.get("/")
 async def api_info():
     """API information endpoint."""
