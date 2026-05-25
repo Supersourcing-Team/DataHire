@@ -185,3 +185,14 @@ class MetaOrganizationTypeUpdate(BaseModel):
 
 class MetaOrganizationTypeResponse(MetaOrganizationTypeCreate, MetaResponseBase):
     pass
+
+# 14. Work Statuses
+class MetaWorkStatusCreate(MetaBase):
+    name: str
+
+class MetaWorkStatusUpdate(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class MetaWorkStatusResponse(MetaWorkStatusCreate, MetaResponseBase):
+    pass

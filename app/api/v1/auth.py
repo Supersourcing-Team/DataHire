@@ -1,43 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.schemas.auth_schemas import UserLogin, UserRegister, TokenResponse, UserResponse, OTPRequest, OTPVerify, ForgotPasswordRequest, ResetPasswordRequest
-from app.services.auth_service import AuthService, pwd_context
+from app.schemas.auth_schemas import UserResponse, RegisterRequest, LoginRequest, VerifyOTPRequest
+from app.services.auth_service import AuthService
 from app.services.otp_service import OTPService
 from app.core.dependencies import get_current_active_user
 from app.models.user import User
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
-
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-async def register(
-    user_data: UserRegister,
-    db: Session = Depends(get_db)
-):
-    """Register a new user."""
-    try:
-        user = await AuthService.register_user(db, user_data)
-        return UserResponse.from_orm(user)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
-        )
-
-@router.post("/login", response_model=TokenResponse)
-async def login(
-    user_data: UserLogin,
-    db: Session = Depends(get_db)
-):
-    """Authenticate user and return tokens."""
-    try:
-        tokens = await AuthService.authenticate_user(db, user_data.email, user_data.password)
-        return TokenResponse(**tokens)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e)
-        )
 
 @router.get("/me", response_model=UserResponse)
 async def get_current_user_profile(
@@ -46,13 +16,46 @@ async def get_current_user_profile(
     """Get current user profile."""
     return UserResponse.from_orm(current_user)
 
-@router.post("/otp/send", status_code=status.HTTP_200_OK)
-async def send_otp(
-    request: OTPRequest,
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+async def register_user(
+    request: RegisterRequest,
     db: Session = Depends(get_db)
 ):
-    """Generate and send an OTP code to the provided email."""
-    success = await OTPService.request_otp(db, request.email, request.purpose)
+    """Register a new user and send verification OTP."""
+    try:
+        # Create the user and their specific profile
+        await AuthService.register_user(db, request)
+        
+        # Automatically trigger an OTP email
+        success = await OTPService.request_otp(db, request.email, "LOGIN_OR_SIGNUP")
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="User registered, but failed to send OTP email. Please try logging in to trigger a new OTP."
+            )
+            
+        return {"message": "User registered successfully. Please check your email for the OTP."}
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
+@router.post("/login", status_code=status.HTTP_200_OK)
+async def request_login_otp(
+    request: LoginRequest,
+    db: Session = Depends(get_db)
+):
+    """Generate and send a login OTP code to the provided email."""
+    # Check if user exists
+    user = db.query(User).filter(User.email == request.email).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found. Please register first."
+        )
+        
+    success = await OTPService.request_otp(db, request.email, "LOGIN_OR_SIGNUP")
     if not success:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -60,48 +63,13 @@ async def send_otp(
         )
     return {"message": "OTP sent successfully"}
 
-@router.post("/otp/verify", status_code=status.HTTP_200_OK)
-async def verify_otp(
-    request: OTPVerify,
+@router.post("/verify-otp", status_code=status.HTTP_200_OK)
+async def verify_login_otp(
+    request: VerifyOTPRequest,
     db: Session = Depends(get_db)
 ):
-    """Verify an OTP code."""
-    is_valid = await OTPService.verify_otp(db, request.email, request.otp_code, request.purpose)
-    if not is_valid:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired OTP code"
-        )
-        
-    # If the purpose is account verification, update the user status
-    if request.purpose == "ACCOUNT_VERIFICATION":
-        user = db.query(User).filter(User.email == request.email).first()
-        if user and not user.is_verified:
-            user.is_verified = True
-            db.commit()
-            
-    return {"message": "OTP verified successfully"}
-
-@router.post("/forgot-password", status_code=status.HTTP_200_OK)
-async def forgot_password(
-    request: ForgotPasswordRequest,
-    db: Session = Depends(get_db)
-):
-    """Request a password reset OTP."""
-    user = db.query(User).filter(User.email == request.email).first()
-    if user:
-        # We only send OTP if the user exists, but we always return success to prevent email enumeration
-        await OTPService.request_otp(db, request.email, "PASSWORD_RESET")
-        
-    return {"message": "If that email is registered, you will receive a password reset OTP shortly."}
-
-@router.post("/reset-password", status_code=status.HTTP_200_OK)
-async def reset_password(
-    request: ResetPasswordRequest,
-    db: Session = Depends(get_db)
-):
-    """Reset the password using an OTP."""
-    is_valid = await OTPService.verify_otp(db, request.email, request.otp_code, "PASSWORD_RESET")
+    """Verify login OTP and return JWT tokens."""
+    is_valid = await OTPService.verify_otp(db, request.email, request.otp_code, "LOGIN_OR_SIGNUP")
     if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -114,10 +82,16 @@ async def reset_password(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="User not found"
         )
+    
+    # If this was their first time verifying (i.e. right after registration), mark as verified
+    if not user.is_verified:
+        user.is_verified = True
+        db.commit()
         
-    # Hash and update password
-    password = request.new_password[:72]
-    user.password_hash = pwd_context.hash(password)
-    db.commit()
-            
-    return {"message": "Password reset successfully"}
+    # Generate and return permanent tokens
+    result = await AuthService.generate_tokens(db, user)
+    return {
+        "message": "Login successful",
+        "user": result["user"],
+        "tokens": result["tokens"]
+    }

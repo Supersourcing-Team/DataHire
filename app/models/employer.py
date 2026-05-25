@@ -23,4 +23,4 @@ class Employer(Base):
     company = relationship("Company", back_populates="employers")
 
     def __repr__(self):
-        return f"<Employer(id={self.id}, company_name={self.company_name})>"
+        return f"<Employer(id={self.id}, user_id={self.user_id})>"
