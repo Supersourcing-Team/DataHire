@@ -22,7 +22,7 @@ class LinkedInOAuthService:
             'response_type': 'code',
             'client_id': settings.LINKEDIN_CLIENT_ID,
             'redirect_uri': settings.LINKEDIN_REDIRECT_URI,
-            'scope': 'r_liteprofile r_emailaddress',  # Basic profile and email
+            'scope': 'openid profile email',  # Modern OpenID Connect scopes
             'state': state or str(uuid.uuid4())
         }
         
@@ -49,9 +49,8 @@ class LinkedInOAuthService:
     
     @staticmethod
     async def get_user_profile(access_token: str) -> dict:
-        """Get user profile from LinkedIn API."""
-        # Get basic profile
-        profile_url = 'https://api.linkedin.com/v2/people/~:(id,firstName,lastName)'
+        """Get user profile from LinkedIn API using OpenID Connect."""
+        profile_url = 'https://api.linkedin.com/v2/userinfo'
         headers = {
             'Authorization': f'Bearer {access_token}',
             'Connection': 'Keep-Alive'
@@ -61,23 +60,14 @@ class LinkedInOAuthService:
         profile_response.raise_for_status()
         profile_data = profile_response.json()
         
-        # Get email address
-        email_url = 'https://api.linkedin.com/v2/emailAddress?q=members&projection=(elements*(handle~))'
-        email_response = requests.get(email_url, headers=headers)
-        email_response.raise_for_status()
-        email_data = email_response.json()
-        
-        # Extract user information
+        # Extract user information based on OIDC standard claims
         user_info = {
-            'linkedin_id': profile_data.get('id'),
-            'first_name': profile_data.get('firstName', {}).get('localized', {}).get('en_US', ''),
-            'last_name': profile_data.get('lastName', {}).get('localized', {}).get('en_US', ''),
-            'email': ''
+            'linkedin_id': profile_data.get('sub'),
+            'first_name': profile_data.get('given_name', ''),
+            'last_name': profile_data.get('family_name', ''),
+            'email': profile_data.get('email', ''),
+            'profile_picture': profile_data.get('picture', '')
         }
-        
-        # Extract email
-        if email_data.get('elements'):
-            user_info['email'] = email_data['elements'][0]['handle~']['emailAddress']
         
         return user_info
     
