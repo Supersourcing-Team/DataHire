@@ -2,15 +2,17 @@ from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 from datetime import datetime
 
-class UserLogin(BaseModel):
+class RegisterRequest(BaseModel):
     email: EmailStr
-    password: str = Field(..., min_length=1, max_length=72, description="Password (max 72 characters)")
+    full_name: str = Field(..., alias="fullName")
+    role: str = Field(..., description="User role (candidate or employer)")
 
-class UserRegister(BaseModel):
+class LoginRequest(BaseModel):
     email: EmailStr
-    password: str = Field(..., min_length=8, max_length=72, description="Password (8-72 characters)")
-    full_name: Optional[str] = None
-    role: Optional[str] = None
+
+class VerifyOTPRequest(BaseModel):
+    email: EmailStr
+    otp_code: str = Field(..., alias="otpCode", min_length=6, max_length=10, description="The 6-digit OTP code")
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -64,10 +66,3 @@ class OTPVerify(BaseModel):
     otp_code: str = Field(..., min_length=6, max_length=10, description="The OTP code")
     purpose: str = Field(..., description="Purpose of OTP, e.g., 'ACCOUNT_VERIFICATION' or 'PASSWORD_RESET'")
 
-class ForgotPasswordRequest(BaseModel):
-    email: EmailStr
-
-class ResetPasswordRequest(BaseModel):
-    email: EmailStr
-    otp_code: str = Field(..., min_length=6, max_length=10, description="The 6-digit OTP code")
-    new_password: str = Field(..., min_length=8, max_length=72, description="New Password (8-72 characters)")

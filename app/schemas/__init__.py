@@ -1,6 +1,7 @@
 from .auth_schemas import (
-    UserLogin,
-    UserRegister, 
+    RegisterRequest,
+    LoginRequest,
+    VerifyOTPRequest,
     TokenResponse,
     UserResponse,
     CandidateProfile,
