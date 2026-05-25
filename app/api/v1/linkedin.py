@@ -28,11 +28,25 @@ async def linkedin_login(redirect_url: str = None):
 
 @router.get("/callback")
 async def linkedin_callback(
-    code: str,
+    code: str = None,
     state: str = None,
+    error: str = None,
+    error_description: str = None,
     db: Session = Depends(get_db)
 ):
     """Handle LinkedIn OAuth callback and redirect to frontend."""
+    if error:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"LinkedIn OAuth error: {error} - {error_description}"
+        )
+        
+    if not code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Authorization code not found in request"
+        )
+        
     try:
         # Extract redirect_url from state if present
         redirect_url = None
