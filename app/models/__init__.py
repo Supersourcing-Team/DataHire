@@ -9,7 +9,8 @@ from app.models.taxonomy import TaxonomyDomain, TaxonomyJobRole, TaxonomySkill
 from app.models.meta import (
     MetaCountry, MetaState, MetaCity, MetaEmploymentType, MetaWorkMode,
     MetaCompanySize, MetaExperienceBracket, MetaSeniorityLevel, MetaOrganizationType,
-    MetaEducationLevel, MetaSubscriptionPlan, MetaIndustry, MetaCurrency
+    MetaEducationLevel, MetaSubscriptionPlan, MetaIndustry, MetaCurrency,
+    MetaWorkStatus, MetaVisaStatus
 )
 
 __all__ = [
@@ -25,5 +26,6 @@ __all__ = [
     "TaxonomyDomain", "TaxonomyJobRole", "TaxonomySkill",
     "MetaCountry", "MetaState", "MetaCity", "MetaEmploymentType", "MetaWorkMode",
     "MetaCompanySize", "MetaExperienceBracket", "MetaSeniorityLevel", "MetaOrganizationType",
-    "MetaEducationLevel", "MetaSubscriptionPlan", "MetaIndustry", "MetaCurrency"
+    "MetaEducationLevel", "MetaSubscriptionPlan", "MetaIndustry", "MetaCurrency",
+    "MetaWorkStatus", "MetaVisaStatus"
 ]
