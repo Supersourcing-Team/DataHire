@@ -30,6 +30,10 @@ api_router.include_router(meta_router)
 from app.api.v1.taxonomy import router as taxonomy_router
 api_router.include_router(taxonomy_router)
 
+# Include Onboarding router
+from app.api.v1.onboarding import router as onboarding_router
+api_router.include_router(onboarding_router)
+
 @api_router.get("/")
 async def api_info():
     """API information endpoint."""

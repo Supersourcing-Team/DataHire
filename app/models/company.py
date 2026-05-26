@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Integer
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -14,6 +14,14 @@ class Company(Base):
     website = Column(String(500), nullable=True)
     logo_url = Column(String(500), nullable=True)
     founded_year = Column(Integer, nullable=True)
+    description = Column(Text, nullable=True)
+    zipcode = Column(String(20), nullable=True)
+
+    # Onboarding fields
+    onboarding_step = Column(Integer, default=0, nullable=False)
+    onboarding_completed = Column(Boolean, default=False, nullable=False)
+    organization_type_id = Column(Integer, ForeignKey("meta_organization_types.id", ondelete="SET NULL"), nullable=True)
+    roles_hiring_for = Column(String(500), nullable=True)
 
     # Foreign Keys to Meta Tables
     industry_id = Column(Integer, ForeignKey("meta_industries.id", ondelete="SET NULL"), nullable=True)
@@ -32,6 +40,7 @@ class Company(Base):
     country = relationship("MetaCountry")
     state = relationship("MetaState")
     city = relationship("MetaCity")
+    organization_type = relationship("MetaOrganizationType")
 
     employers = relationship("Employer", back_populates="company")
 
