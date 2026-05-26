@@ -276,6 +276,65 @@ def seed_work_modes():
     print("Work modes seeded.")
 
 
+def seed_work_statuses():
+    work_statuses = [
+        "Student",
+        "Fresher",
+        "Currently Working",
+        "Immediate Joiner",
+        "Freelancer",
+        "Career Switcher",
+    ]
+
+    for name in work_statuses:
+        if get_existing_id(
+            "SELECT id FROM meta_work_statuses WHERE name = :name",
+            {"name": name},
+        ) is None:
+            session.execute(
+                text(
+                    """
+                    INSERT INTO meta_work_statuses (name, is_active)
+                    VALUES (:name, :is_active)
+                    """
+                ),
+                {"name": name, "is_active": True},
+            )
+
+    print("Work statuses seeded.")
+
+
+def seed_visa_statuses():
+    visa_statuses = [
+        "U.S. Citizen",
+        "Green Card",
+        "Student Visa (F-1 OPT/CPT)",
+        "L-1 Visa",
+        "O-1 Visa",
+        "TN Visa",
+        "H-1B Visa",
+        "Need Sponsorship",
+        "Other Work Visa",
+    ]
+
+    for name in visa_statuses:
+        if get_existing_id(
+            "SELECT id FROM meta_visa_statuses WHERE name = :name",
+            {"name": name},
+        ) is None:
+            session.execute(
+                text(
+                    """
+                    INSERT INTO meta_visa_statuses (name, is_active)
+                    VALUES (:name, :is_active)
+                    """
+                ),
+                {"name": name, "is_active": True},
+            )
+
+    print("Visa statuses seeded.")
+
+
 def seed_company_sizes():
     company_sizes = [
         ("1-10", 1, 10),
@@ -391,13 +450,11 @@ def seed_seniority_levels():
 
 def seed_organization_types():
     organization_types = [
-        "STARTUP",
-        "PRIVATE_COMPANY",
-        "PUBLIC_COMPANY",
-        "GOVERNMENT",
-        "NON_PROFIT",
-        "EDUCATIONAL_INSTITUTE",
-        "RECRUITMENT_AGENCY",
+       "Startup",
+       "Product",
+        "SAAS",
+        "Enterprise",
+        "Recruitment Agency"
     ]
 
     for name in organization_types:
@@ -548,6 +605,8 @@ if __name__ == "__main__":
         seed_cities(states)
         seed_employment_types()
         seed_work_modes()
+        seed_work_statuses()
+        seed_visa_statuses()
         seed_company_sizes()
         seed_experience_brackets()
         seed_seniority_levels()

@@ -8,7 +8,8 @@ from app.core.dependencies import require_admin
 from app.models.meta import (
     MetaCountry, MetaState, MetaCity, MetaEmploymentType, MetaWorkMode,
     MetaCompanySize, MetaExperienceBracket, MetaSeniorityLevel, MetaEducationLevel,
-    MetaSubscriptionPlan, MetaIndustry, MetaCurrency, MetaOrganizationType, MetaWorkStatus
+    MetaSubscriptionPlan, MetaIndustry, MetaCurrency, MetaOrganizationType, MetaWorkStatus,
+    MetaVisaStatus
 )
 from app.schemas.meta import (
     MetaCountryCreate, MetaCountryUpdate, MetaCountryResponse,
@@ -24,7 +25,8 @@ from app.schemas.meta import (
     MetaSubscriptionPlanCreate, MetaSubscriptionPlanUpdate, MetaSubscriptionPlanResponse,
     MetaIndustryCreate, MetaIndustryUpdate, MetaIndustryResponse,
     MetaOrganizationTypeCreate, MetaOrganizationTypeUpdate, MetaOrganizationTypeResponse,
-    MetaWorkStatusCreate, MetaWorkStatusUpdate, MetaWorkStatusResponse
+    MetaWorkStatusCreate, MetaWorkStatusUpdate, MetaWorkStatusResponse,
+    MetaVisaStatusCreate, MetaVisaStatusUpdate, MetaVisaStatusResponse
 )
 
 router = APIRouter(prefix="/meta", tags=["meta"])
@@ -100,6 +102,7 @@ meta_routes_config = [
     ("/industries", MetaIndustry, MetaIndustryCreate, MetaIndustryUpdate, MetaIndustryResponse, ["meta-industries"]),
     ("/organization-types", MetaOrganizationType, MetaOrganizationTypeCreate, MetaOrganizationTypeUpdate, MetaOrganizationTypeResponse, ["meta-organization-types"]),
     ("/work-statuses", MetaWorkStatus, MetaWorkStatusCreate, MetaWorkStatusUpdate, MetaWorkStatusResponse, ["meta-work-statuses"]),
+    ("/visa-statuses", MetaVisaStatus, MetaVisaStatusCreate, MetaVisaStatusUpdate, MetaVisaStatusResponse, ["meta-visa-statuses"]),
 ]
 
 # Register all routes
