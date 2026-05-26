@@ -196,3 +196,14 @@ class MetaWorkStatusUpdate(BaseModel):
 
 class MetaWorkStatusResponse(MetaWorkStatusCreate, MetaResponseBase):
     pass
+
+# 15. Visa Statuses
+class MetaVisaStatusCreate(MetaBase):
+    name: str
+
+class MetaVisaStatusUpdate(BaseModel):
+    name: Optional[str] = None
+    is_active: Optional[bool] = None
+
+class MetaVisaStatusResponse(MetaVisaStatusCreate, MetaResponseBase):
+    pass
