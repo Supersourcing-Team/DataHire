@@ -52,7 +52,6 @@ class AuthService:
             employer = Employer(
                 user_id=user.id,
                 contact_person=full_name,
-                onboarding_completed=False,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
