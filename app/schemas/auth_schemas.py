@@ -28,9 +28,21 @@ class UserResponse(BaseModel):
     is_verified: bool
     created_at: datetime
     updated_at: datetime
+    onboarding_step: int = 0
+    onboarding_completed: bool = False
     
     @classmethod
     def from_orm(cls, user):
+        onboarding_step = 0
+        onboarding_completed = False
+        
+        if user.role == "candidate" and user.candidate:
+            onboarding_step = user.candidate.onboarding_step
+            onboarding_completed = user.candidate.onboarding_completed
+        elif user.role == "employer" and user.employer and user.employer.company:
+            onboarding_step = user.employer.company.onboarding_step
+            onboarding_completed = user.employer.company.onboarding_completed
+
         return cls(
             id=str(user.id),
             email=user.email,
@@ -38,7 +50,9 @@ class UserResponse(BaseModel):
             is_active=user.is_active,
             is_verified=user.is_verified,
             created_at=user.created_at,
-            updated_at=user.updated_at
+            updated_at=user.updated_at,
+            onboarding_step=onboarding_step,
+            onboarding_completed=onboarding_completed
         )
 
 class CandidateProfile(BaseModel):
