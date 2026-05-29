@@ -166,6 +166,12 @@ async def employer_step_4(
         company.founded_year = data.founded_year
     if data.description is not None:
         company.description = data.description
+    if data.office_landline_number is not None:
+        company.office_landline_number = data.office_landline_number
+    if data.alternate_email is not None:
+        company.alternate_email = data.alternate_email
+    if data.work_mobile_number is not None:
+        company.work_mobile_number = data.work_mobile_number
         
     company.onboarding_step = 4
     company.onboarding_completed = True

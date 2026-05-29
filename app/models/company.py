@@ -17,6 +17,11 @@ class Company(Base):
     description = Column(Text, nullable=True)
     zipcode = Column(String(20), nullable=True)
 
+    # Contact fields
+    office_landline_number = Column(String(20), nullable=True)
+    alternate_email = Column(String(255), nullable=True)
+    work_mobile_number = Column(String(20), nullable=True)
+
     # Onboarding fields
     onboarding_step = Column(Integer, default=0, nullable=False)
     onboarding_completed = Column(Boolean, default=False, nullable=False)
