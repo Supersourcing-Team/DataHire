@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     GOOGLE_CLIENT_SECRET: str
     GOOGLE_REDIRECT_URI: str
     
-    # Anthropic AI
-    ANTHROPIC_API_KEY: str
+    # Google Gemini AI
+    GEMINI_API_KEY: str
     
     # AWS
     AWS_ACCESS_KEY_ID: Optional[str] = None
