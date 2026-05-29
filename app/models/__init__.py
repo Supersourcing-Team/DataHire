@@ -12,6 +12,8 @@ from app.models.meta import (
     MetaEducationLevel, MetaSubscriptionPlan, MetaIndustry, MetaCurrency,
     MetaWorkStatus, MetaVisaStatus
 )
+from app.models.job import JobPosting
+from app.models.resume import Resume, ResumeSection
 
 __all__ = [
     "Base",
@@ -27,5 +29,6 @@ __all__ = [
     "MetaCountry", "MetaState", "MetaCity", "MetaEmploymentType", "MetaWorkMode",
     "MetaCompanySize", "MetaExperienceBracket", "MetaSeniorityLevel", "MetaOrganizationType",
     "MetaEducationLevel", "MetaSubscriptionPlan", "MetaIndustry", "MetaCurrency",
-    "MetaWorkStatus", "MetaVisaStatus"
+    "MetaWorkStatus", "MetaVisaStatus",
+    "JobPosting", "Resume", "ResumeSection"
 ]
