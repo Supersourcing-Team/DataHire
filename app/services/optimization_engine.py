@@ -1,71 +1,106 @@
-import os
 import json
-import anthropic
+import logging
 from typing import Dict, Any
+import google.generativeai as genai
 
 from app.models.job import JobPosting
-from app.models.resume import ResumeSection
+from app.models.resume import ResumeSection, SectionType
 from app.core.config import settings
 
-class OptimizationEngine:
+logger = logging.getLogger(__name__)
+
+class GeminiOptimizationEngine:
     def __init__(self):
-        # We rely on settings.ANTHROPIC_API_KEY from config
-        self.client = anthropic.Anthropic(
-            api_key=settings.ANTHROPIC_API_KEY
+        # Configure Gemini with the API key from settings
+        genai.configure(api_key=settings.GEMINI_API_KEY)
+        # Use gemini-1.5-flash for fast, structured generation
+        self.model = genai.GenerativeModel('gemini-1.5-flash')
+
+    def _get_system_instruction_for_section(self, section_type: SectionType) -> str:
+        """
+        Returns a modular, task-specific prompt based on the section being optimized.
+        """
+        base_instruction = (
+            "You are an expert AI Resume Optimizer. Your goal is to review a candidate's resume section "
+            "against a target job description and provide structured JSON output.\n"
+            "You MUST output raw JSON matching exactly this schema:\n"
+            "{ \"optimized_content\": \"string\", \"missing_keywords\": [\"string\"], \"optimization_feedback\": \"string\" }\n"
         )
+
+        if section_type == SectionType.SKILLS:
+            return base_instruction + (
+                "TASK: This is the SKILLS section. Do NOT write paragraphs or bullet points. "
+                "Only extract, format, and return a clean comma-separated or newline-separated list of skills. "
+                "Compare the candidate's existing skills with the job requirements and suggest missing technical keywords."
+            )
+        elif section_type == SectionType.EXPERIENCE:
+            return base_instruction + (
+                "TASK: This is the EXPERIENCE section. Rewrite the bullet points to use strong action verbs "
+                "and quantify achievements where possible. Ensure the tone is highly professional. "
+                "If the candidate's experience falls short of the job's minimum requirement, note it in the feedback."
+            )
+        elif section_type == SectionType.SUMMARY:
+            return base_instruction + (
+                "TASK: This is the SUMMARY section. Write a compelling, concise 3-4 line professional summary "
+                "that weaves in the core requirements of the job description to hook the recruiter immediately."
+            )
+        else:
+            return base_instruction + (
+                "TASK: Optimize the provided content for professionalism, clarity, and alignment with the job description."
+            )
 
     def optimize_section(self, job: JobPosting, section: ResumeSection) -> Dict[str, Any]:
         """
-        Sends the specific ResumeSection and Job requirements to Anthropic AI to get an optimized version.
-        Returns a dictionary with the optimized text and missing keywords analysis.
+        Sends the specific ResumeSection and Job requirements to Gemini 1.5 Flash to get an optimized version.
+        Returns a dictionary with the optimized text, missing keywords, and feedback.
         """
-        
         job_skills_str = ", ".join(job.extracted_skills) if job.extracted_skills else "None specified"
         
-        system_prompt = (
-            "You are an expert AI Resume Optimizer. Your goal is to rewrite specific sections of a candidate's resume "
-            "to better match a target job description, while maintaining complete honesty. "
-            "You must output your response in raw JSON format matching exactly this schema: "
-            "{ 'optimized_content': 'string', 'missing_keywords': ['string'], 'optimization_feedback': 'string' }"
-        )
+        system_instruction = self._get_system_instruction_for_section(section.section_type)
         
         user_prompt = f"""
-        Target Job Title: {job.title}
-        Target Job Description: {job.description}
-        Target Job Required Skills: {job_skills_str}
+        {system_instruction}
         
-        Please optimize the following {section.section_type} section from the candidate's resume.
-        Add any relevant missing keywords that the candidate might possess but didn't explicitly state.
-        Paraphrase statements to have a highly professional tone.
-        Highlight if they lack required experience for this section.
+        --- TARGET JOB ---
+        Title: {job.title}
+        Requirements: {job.description}
+        Required Skills: {job_skills_str}
+        Minimum Experience: {job.min_experience_years} years
         
-        Original {section.section_type} Content:
+        --- CANDIDATE'S ORIGINAL CONTENT ({section.section_type}) ---
         {section.original_content}
+        
+        Provide the JSON output now:
         """
 
         try:
-            response = self.client.messages.create(
-                model="claude-3-haiku-20240307",
-                max_tokens=1024,
-                system=system_prompt,
-                messages=[
-                    {"role": "user", "content": user_prompt}
-                ]
+            # Enforce JSON output natively in Gemini 1.5
+            response = self.model.generate_content(
+                user_prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0.3 # Low temperature for more deterministic, professional output
+                )
             )
             
-            # Parse the JSON response
-            result_text = response.content[0].text
-            # Clean up the response in case the model added markdown blocks
-            if result_text.startswith("```json"):
-                result_text = result_text.replace("```json\n", "").replace("\n```", "")
-                
-            parsed_result = json.loads(result_text)
-            return parsed_result
+            # Parse the JSON response securely
+            parsed_result = json.loads(response.text)
+            
+            # Ensure the required keys exist in case the LLM drifted
+            return {
+                "optimized_content": parsed_result.get("optimized_content", section.original_content),
+                "missing_keywords": parsed_result.get("missing_keywords", []),
+                "optimization_feedback": parsed_result.get("optimization_feedback", "")
+            }
             
         except Exception as e:
+            logger.error(f"Gemini Optimization Failed: {e}")
             return {
                 "error": str(e),
                 "optimized_content": section.original_content,
                 "missing_keywords": [],
-                "optimization_feedback": "Failed to connect to the Optimization AI."
+                "optimization_feedback": "Failed to connect to the Gemini Optimization AI."
             }
+
+# Export singleton instance
+optimization_engine = GeminiOptimizationEngine()
