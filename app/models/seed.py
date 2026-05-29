@@ -1,3 +1,4 @@
+import argparse
 import json
 import os
 from pathlib import Path
@@ -278,28 +279,39 @@ def seed_work_modes():
 
 def seed_work_statuses():
     work_statuses = [
-        "Student",
-        "Fresher",
-        "Currently Working",
-        "Immediate Joiner",
-        "Freelancer",
-        "Career Switcher",
+        {"name": "Student", "is_active": True},
+        {"name": "Fresher", "is_active": True},
+        {"name": "Currently Working", "is_active": True},
+        {"name": "Immediate Joiner", "is_active": True},
+        {"name": "Freelancer", "is_active": True},
+        {"name": "Laid off", "is_active": True},
+        {"name": "career switcher men", "is_active": True},
+        {"name": "career switcher women", "is_active": True},
     ]
 
-    for name in work_statuses:
-        if get_existing_id(
-            "SELECT id FROM meta_work_statuses WHERE name = :name",
-            {"name": name},
-        ) is None:
-            session.execute(
-                text(
-                    """
-                    INSERT INTO meta_work_statuses (name, is_active)
-                    VALUES (:name, :is_active)
-                    """
-                ),
-                {"name": name, "is_active": True},
+    for work_status in work_statuses:
+        columns = ", ".join(work_status.keys())
+        values = ", ".join(f":{key}" for key in work_status.keys())
+        update_columns = [key for key in work_status.keys() if key != "name"]
+
+        if update_columns:
+            update_clause = ", ".join(
+                f"{column} = EXCLUDED.{column}" for column in update_columns
             )
+            query = f"""
+                INSERT INTO meta_work_statuses ({columns})
+                VALUES ({values})
+                ON CONFLICT (name) DO UPDATE
+                SET {update_clause}
+            """
+        else:
+            query = f"""
+                INSERT INTO meta_work_statuses ({columns})
+                VALUES ({values})
+                ON CONFLICT (name) DO NOTHING
+            """
+
+        session.execute(text(query), work_status)
 
     print("Work statuses seeded.")
 
@@ -594,26 +606,90 @@ def seed_subscription_plans(currency_ids):
     print("Subscription plans seeded.")
 
 
+SEEDERS = {
+    "currencies": seed_currencies,
+    "countries": seed_countries,
+    "employment_types": seed_employment_types,
+    "work_modes": seed_work_modes,
+    "work_statuses": seed_work_statuses,
+    "visa_statuses": seed_visa_statuses,
+    "company_sizes": seed_company_sizes,
+    "experience_brackets": seed_experience_brackets,
+    "seniority_levels": seed_seniority_levels,
+    "organization_types": seed_organization_types,
+    "education_levels": seed_education_levels,
+    "industries": seed_industries,
+}
+
+
+def run_selected_seeders(only=None):
+    if only:
+        if only == "subscription_plans":
+            currency_ids = seed_currencies()
+            seed_subscription_plans(currency_ids)
+            return
+
+        if only == "states":
+            country_ids = seed_countries()
+            seed_states(country_ids)
+            return
+
+        if only == "cities":
+            country_ids = seed_countries()
+            states = seed_states(country_ids)
+            seed_cities(states)
+            return
+
+        SEEDERS[only]()
+        return
+
+    currency_ids = seed_currencies()
+    country_ids = seed_countries()
+    states = seed_states(country_ids)
+
+    seed_cities(states)
+    seed_employment_types()
+    seed_work_modes()
+    seed_work_statuses()
+    seed_visa_statuses()
+    seed_company_sizes()
+    seed_experience_brackets()
+    seed_seniority_levels()
+    seed_organization_types()
+    seed_education_levels()
+    seed_industries()
+    seed_subscription_plans(currency_ids)
+
+
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Seed DataHire metadata tables.")
+    parser.add_argument(
+        "--only",
+        choices=[
+            "currencies",
+            "countries",
+            "states",
+            "cities",
+            "employment_types",
+            "work_modes",
+            "work_statuses",
+            "visa_statuses",
+            "company_sizes",
+            "experience_brackets",
+            "seniority_levels",
+            "organization_types",
+            "education_levels",
+            "industries",
+            "subscription_plans",
+        ],
+        help="Run only one seeder. Dependency seeders are run automatically when required.",
+    )
+    args = parser.parse_args()
+
     print("Starting database seeding...\n")
 
     try:
-        currency_ids = seed_currencies()
-        country_ids = seed_countries()
-        states = seed_states(country_ids)
-
-        seed_cities(states)
-        seed_employment_types()
-        seed_work_modes()
-        seed_work_statuses()
-        seed_visa_statuses()
-        seed_company_sizes()
-        seed_experience_brackets()
-        seed_seniority_levels()
-        seed_organization_types()
-        seed_education_levels()
-        seed_industries()
-        seed_subscription_plans(currency_ids)
+        run_selected_seeders(args.only)
 
         session.commit()
         print("\nDatabase seeding completed successfully!")

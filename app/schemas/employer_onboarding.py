@@ -20,3 +20,7 @@ class EmployerStep4Schema(BaseModel):
     industry_id: Optional[int] = None
     founded_year: Optional[int] = None
     description: Optional[str] = None
+    office_landline_number: Optional[str] = None
+    alternate_email: Optional[str] = None  
+    work_mobile_number: Optional[str] = None
+    
