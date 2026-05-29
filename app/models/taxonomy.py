@@ -12,7 +12,7 @@ class TaxonomyDomain(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String(255), nullable=False)
     slug = Column(String(255), nullable=False, unique=True, index=True)
-    embedding = Column(Vector(1536), nullable=True) # Assuming standard OpenAI text-embedding-ada-002 size or similar
+    embedding = Column(Vector(384), nullable=True) # Matching all-MiniLM-L6-v2 dimension
     metadata_ = Column("metadata", JSONB, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
@@ -38,7 +38,7 @@ class TaxonomyJobRole(Base):
     optional_skills = Column(JSONB, nullable=True)
     weights = Column(JSONB, nullable=True)
     
-    embedding = Column(Vector(1536), nullable=True)
+    embedding = Column(Vector(384), nullable=True)
     metadata_ = Column("metadata", JSONB, nullable=True)
     
     is_active = Column(Boolean, default=True, nullable=False)
@@ -66,7 +66,7 @@ class TaxonomySkill(Base):
     aliases = Column(JSONB, nullable=True) # e.g., ["ReactJS", "React.js"]
     related_skills = Column(JSONB, nullable=True)
     
-    embedding = Column(Vector(1536), nullable=True)
+    embedding = Column(Vector(384), nullable=True)
     metadata_ = Column("metadata", JSONB, nullable=True)
     
     is_active = Column(Boolean, default=True, nullable=False)
