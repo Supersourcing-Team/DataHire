@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Integer, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
 import uuid
 
@@ -48,6 +48,13 @@ class Company(Base):
     organization_type = relationship("MetaOrganizationType")
 
     employers = relationship("Employer", back_populates="company")
+
+    @validates("organization_type_id", "industry_id", "size_id", "country_id", "state_id", "city_id")
+    def validate_dropdown_fks(self, key, value):
+        """Convert 0 or empty values to None to prevent ForeignKey constraints errors"""
+        if value in (0, "0", ""):
+            return None
+        return value
 
     def __repr__(self):
         return f"<Company(id={self.id}, name={self.name})>"
