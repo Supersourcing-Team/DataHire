@@ -1,5 +1,5 @@
 from pydantic import BaseModel, AnyUrl
-from typing import Optional
+from typing import Optional, List
 
 class EmployerStep1Schema(BaseModel):
     organization_type_id: int
@@ -8,7 +8,7 @@ class EmployerStep2Schema(BaseModel):
     size_id: int
 
 class EmployerStep3Schema(BaseModel):
-    roles_hiring_for: str
+    taxonomy_domain_ids: List[int]
 
 class EmployerStep4Schema(BaseModel):
     name: str

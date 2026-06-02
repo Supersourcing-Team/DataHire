@@ -1,10 +1,17 @@
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Integer, Text
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Integer, Text, Table
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
 import uuid
 
 from app.db.base_class import Base
+
+company_taxonomy_domains = Table(
+    "company_taxonomy_domains",
+    Base.metadata,
+    Column("company_id", UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), primary_key=True),
+    Column("taxonomy_domain_id", Integer, ForeignKey("taxonomy_domains.id", ondelete="CASCADE"), primary_key=True)
+)
 
 class Company(Base):
     __tablename__ = "companies"
@@ -26,7 +33,9 @@ class Company(Base):
     onboarding_step = Column(Integer, default=0, nullable=False)
     onboarding_completed = Column(Boolean, default=False, nullable=False)
     organization_type_id = Column(Integer, ForeignKey("meta_organization_types.id", ondelete="SET NULL"), nullable=True)
-    roles_hiring_for = Column(String(500), nullable=True)
+
+    # Many-to-Many Relationship with Taxonomy Domains (Step 3)
+    hiring_domains = relationship("TaxonomyDomain", secondary=company_taxonomy_domains)
 
     # Foreign Keys to Meta Tables
     industry_id = Column(Integer, ForeignKey("meta_industries.id", ondelete="SET NULL"), nullable=True)
