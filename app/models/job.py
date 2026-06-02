@@ -2,7 +2,7 @@ from sqlalchemy import Column, String, Integer, Text, ForeignKey, DateTime, Bool
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 import uuid
 
 from app.db.base_class import Base
@@ -68,6 +68,16 @@ class JobPosting(Base):
     state = relationship("MetaState")
     country = relationship("MetaCountry")
     currency = relationship("MetaCurrency")
+
+    @validates(
+        "employment_type_id", "seniority_level_id", "work_mode_id", 
+        "city_id", "state_id", "country_id", "currency_id", "taxonomy_domain_id"
+    )
+    def validate_dropdown_fks(self, key, value):
+        """Convert 0 or empty values to None to prevent ForeignKey constraints errors"""
+        if value in (0, "0", ""):
+            return None
+        return value
 
     def __repr__(self):
         return f"<JobPosting(id={self.id}, title={self.title})>"

@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api.v1.auth import router as auth_router
 from app.api.v1.linkedin import router as linkedin_router
 from app.api.v1.google import router as google_router
+from app.api.v1.jobs import router as jobs_router
 api_router = APIRouter()
 
 # Include routers here as they are created
@@ -38,6 +39,9 @@ api_router.include_router(onboarding_router)
 from app.api.v1.upload import router as upload_router
 api_router.include_router(upload_router)
 
+# Include Jobs router
+api_router.include_router(jobs_router)
+
 @api_router.get("/")
 async def api_info():
     """API information endpoint."""
@@ -48,6 +52,7 @@ async def api_info():
             "auth": "/auth",
             "linkedin": "/auth/linkedin",
             "google": "/auth/google",
+            "jobs_dashboard": "/jobs/dashboard",
             # Add more endpoints as they are created
         }
     }

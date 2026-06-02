@@ -133,7 +133,11 @@ async def employer_step_3(
         raise HTTPException(status_code=400, detail="Must complete Step 1 first")
         
     company = db.query(Company).filter(Company.id == employer.company_id).first()
-    company.roles_hiring_for = data.roles_hiring_for
+    
+    from app.models.meta import TaxonomyDomain
+    domains = db.query(TaxonomyDomain).filter(TaxonomyDomain.id.in_(data.taxonomy_domain_ids)).all()
+    company.hiring_domains = domains
+    
     company.onboarding_step = 3
     db.commit()
     return {"message": "Step 3 completed successfully"}

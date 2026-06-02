@@ -7,3 +7,4 @@ from .auth_schemas import (
     CandidateProfile,
     EmployerProfile
 )
+from .job import JobDashboardCardResponse
