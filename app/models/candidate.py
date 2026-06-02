@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, Boolean, DateTime, Text, ForeignKey, Integer
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
 import uuid
 
@@ -30,6 +30,13 @@ class Candidate(Base):
     user = relationship("User", back_populates="candidate")
     work_status = relationship("MetaWorkStatus")
     taxonomy_domain = relationship("TaxonomyDomain")
+
+    @validates("taxonomy_domain_id", "work_status_id", "visa_status_id")
+    def validate_dropdown_fks(self, key, value):
+        """Convert 0 or empty values to None to prevent ForeignKey constraints errors"""
+        if value in (0, "0", ""):
+            return None
+        return value
 
     def __repr__(self):
         return f"<Candidate(id={self.id}, full_name={self.full_name})>"

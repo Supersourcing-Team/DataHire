@@ -2,7 +2,7 @@ from sqlalchemy import Column, String, Integer, Text, ForeignKey, DateTime, Bool
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 import uuid
 import enum
 
@@ -45,6 +45,13 @@ class Resume(Base):
     candidate = relationship("Candidate")
     taxonomy_domain = relationship("TaxonomyDomain")
     sections = relationship("ResumeSection", back_populates="resume", cascade="all, delete-orphan")
+
+    @validates("taxonomy_domain_id")
+    def validate_dropdown_fks(self, key, value):
+        """Convert 0 or empty values to None to prevent ForeignKey constraints errors"""
+        if value in (0, "0", ""):
+            return None
+        return value
 
     def __repr__(self):
         return f"<Resume(id={self.id}, candidate_id={self.candidate_id}, version={self.version_number})>"
