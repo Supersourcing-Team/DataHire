@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime
 
 class LinkedInProfileResponse(BaseModel):
@@ -37,3 +37,29 @@ class LinkedInRegistrationComplete(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     expires_in: int
+
+class LinkedInAuthRequest(BaseModel):
+    """Request payload for LinkedIn OAuth callback from frontend."""
+    code: str = Field(..., description="Authorization code from LinkedIn")
+    redirectUri: str = Field(..., description="Frontend redirect URI used to request the code")
+    role: Optional[str] = Field("candidate", description="User role (defaults to candidate)")
+
+class AuthTokenDetails(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "Bearer"
+    expires_in: int
+
+class AuthUser(BaseModel):
+    id: str
+    email: str
+    fullName: str
+    role: str
+    onboardingCompleted: bool
+    onboardingStep: int
+
+class LinkedInAuthResponse(BaseModel):
+    """Standard authentication response."""
+    token: str
+    tokens: AuthTokenDetails
+    user: AuthUser
