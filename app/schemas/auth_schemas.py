@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional
+from typing import Optional, List
 from datetime import datetime
 
 class RegisterRequest(BaseModel):
@@ -20,6 +20,42 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     expires_in: int
 
+class CandidateProfile(BaseModel):
+    user_id: str
+    full_name: str
+    phone: Optional[str] = None
+    profile_picture: Optional[str] = None
+    resume_url: Optional[str] = None
+    resume_name: Optional[str] = None
+    work_status_id: Optional[int] = None
+    taxonomy_domain_id: Optional[int] = None
+    visa_status_id: Optional[int] = None
+    onboarding_step: int
+    onboarding_completed: bool
+
+class EmployerProfile(BaseModel):
+    user_id: str
+    company_name: Optional[str] = None
+    company_website: Optional[str] = None
+    company_logo: Optional[str] = None
+    contact_person: Optional[str] = None
+    phone: Optional[str] = None
+    organization_type_id: Optional[int] = None
+    size_id: Optional[int] = None
+    hiring_domains: List[int] = []
+    country_id: Optional[int] = None
+    state_id: Optional[int] = None
+    city_id: Optional[int] = None
+    zipcode: Optional[str] = None
+    industry_id: Optional[int] = None
+    founded_year: Optional[int] = None
+    description: Optional[str] = None
+    office_landline_number: Optional[str] = None
+    alternate_email: Optional[str] = None
+    work_mobile_number: Optional[str] = None
+    onboarding_step: int
+    onboarding_completed: bool
+
 class UserResponse(BaseModel):
     id: str
     email: str
@@ -31,17 +67,80 @@ class UserResponse(BaseModel):
     onboarding_step: int = 0
     onboarding_completed: bool = False
     
+    # We will include full onboarding data in the profile fields
+    candidate_profile: Optional[CandidateProfile] = None
+    employer_profile: Optional[EmployerProfile] = None
+    
     @classmethod
     def from_orm(cls, user):
         onboarding_step = 0
         onboarding_completed = False
         
+        candidate_data = None
+        employer_data = None
+        
         if user.role == "candidate" and user.candidate:
             onboarding_step = user.candidate.onboarding_step
             onboarding_completed = user.candidate.onboarding_completed
-        elif user.role == "employer" and user.employer and user.employer.company:
-            onboarding_step = user.employer.company.onboarding_step
-            onboarding_completed = user.employer.company.onboarding_completed
+            
+            # Find primary resume
+            from app.models.resume import Resume
+            primary_resume = next((r for r in user.candidate.resumes if r.is_primary), None) if hasattr(user.candidate, 'resumes') else None
+            
+            resume_url = primary_resume.file_url if primary_resume else None
+            resume_name = primary_resume.file_name if primary_resume else None
+            
+            candidate_data = CandidateProfile(
+                user_id=str(user.candidate.user_id),
+                full_name=user.candidate.full_name,
+                phone=user.candidate.phone,
+                profile_picture=user.candidate.profile_picture,
+                resume_url=resume_url,
+                resume_name=resume_name,
+                work_status_id=user.candidate.work_status_id,
+                taxonomy_domain_id=user.candidate.taxonomy_domain_id,
+                visa_status_id=user.candidate.visa_status_id,
+                onboarding_step=user.candidate.onboarding_step,
+                onboarding_completed=user.candidate.onboarding_completed
+            )
+        elif user.role == "employer" and user.employer:
+            if user.employer.company:
+                onboarding_step = user.employer.company.onboarding_step
+                onboarding_completed = user.employer.company.onboarding_completed
+                
+                hiring_domain_ids = [d.id for d in user.employer.company.hiring_domains] if user.employer.company.hiring_domains else []
+                
+                employer_data = EmployerProfile(
+                    user_id=str(user.employer.user_id),
+                    company_name=user.employer.company.name,
+                    company_website=user.employer.company.website,
+                    company_logo=user.employer.company.logo_url,
+                    contact_person=user.employer.contact_person,
+                    phone=user.employer.phone,
+                    organization_type_id=user.employer.company.organization_type_id,
+                    size_id=user.employer.company.size_id,
+                    hiring_domains=hiring_domain_ids,
+                    country_id=user.employer.company.country_id,
+                    state_id=user.employer.company.state_id,
+                    city_id=user.employer.company.city_id,
+                    zipcode=user.employer.company.zipcode,
+                    industry_id=user.employer.company.industry_id,
+                    founded_year=user.employer.company.founded_year,
+                    description=user.employer.company.description,
+                    office_landline_number=user.employer.company.office_landline_number,
+                    alternate_email=user.employer.company.alternate_email,
+                    work_mobile_number=user.employer.company.work_mobile_number,
+                    onboarding_step=user.employer.company.onboarding_step,
+                    onboarding_completed=user.employer.company.onboarding_completed
+                )
+            else:
+                employer_data = EmployerProfile(
+                    user_id=str(user.employer.user_id),
+                    contact_person=user.employer.contact_person,
+                    phone=user.employer.phone,
+                    onboarding_step=0,
+                    onboarding_completed=False
+                )
 
         return cls(
             id=str(user.id),
@@ -52,24 +151,10 @@ class UserResponse(BaseModel):
             created_at=user.created_at,
             updated_at=user.updated_at,
             onboarding_step=onboarding_step,
-            onboarding_completed=onboarding_completed
+            onboarding_completed=onboarding_completed,
+            candidate_profile=candidate_data,
+            employer_profile=employer_data
         )
-
-class CandidateProfile(BaseModel):
-    user_id: str
-    full_name: str
-    phone: Optional[str] = None
-    profile_picture: Optional[str] = None
-    onboarding_completed: bool
-
-class EmployerProfile(BaseModel):
-    user_id: str
-    company_name: str
-    company_website: Optional[str] = None
-    company_logo: Optional[str] = None
-    contact_person: Optional[str] = None
-    phone: Optional[str] = None
-    onboarding_completed: bool
 
 class OTPRequest(BaseModel):
     email: EmailStr
@@ -79,4 +164,3 @@ class OTPVerify(BaseModel):
     email: EmailStr
     otp_code: str = Field(..., min_length=6, max_length=10, description="The OTP code")
     purpose: str = Field(..., description="Purpose of OTP, e.g., 'ACCOUNT_VERIFICATION' or 'PASSWORD_RESET'")
-

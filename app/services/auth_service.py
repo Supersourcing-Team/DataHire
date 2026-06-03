@@ -19,7 +19,13 @@ class AuthService:
         user = db.query(User).filter(User.email == email).first()
         
         if user:
-            raise ValueError("User already exists with this email")
+            if user.is_verified:
+                raise ValueError("User already exists with this email")
+            else:
+                # User exists but never verified the OTP (e.g., dropped off, network timeout)
+                # Safely delete the unverified record (which cascades) and start fresh
+                db.delete(user)
+                db.commit()
             
         # Create new user
         user = User(

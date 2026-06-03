@@ -59,6 +59,31 @@ class S3Service:
             # Reset file pointer just in case it's used again
             await file.seek(0)
 
+    async def upload_bytes(self, contents: bytes, filename: str, folder: S3Folder, content_type: str = "image/png") -> str:
+        """Uploads raw bytes to a specific S3 folder and returns the public URL."""
+        if not self.bucket_name:
+            raise HTTPException(status_code=500, detail="S3_BUCKET_NAME is not configured")
+
+        try:
+            file_extension = filename.split('.')[-1] if '.' in filename else 'bin'
+            unique_filename = f"{uuid.uuid4()}.{file_extension}"
+            s3_key = f"{folder.value}/{unique_filename}"
+            
+            self.s3_client.put_object(
+                Bucket=self.bucket_name,
+                Key=s3_key,
+                Body=contents,
+                ContentType=content_type
+            )
+            
+            s3_url = f"https://{self.bucket_name}.s3.{settings.AWS_REGION}.amazonaws.com/{s3_key}"
+            return s3_url
+            
+        except NoCredentialsError:
+            raise HTTPException(status_code=500, detail="AWS credentials not available")
+        except ClientError as e:
+            raise HTTPException(status_code=500, detail=f"S3 byte upload failed: {str(e)}")
+
     async def delete_file(self, url: str) -> bool:
         """Deletes a file from S3 given its public URL."""
         if not self.bucket_name:

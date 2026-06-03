@@ -23,6 +23,10 @@ class Resume(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False)
     
+    # File details
+    file_url = Column(String(500), nullable=True)
+    file_name = Column(String(255), nullable=True)
+    
     # Versioning
     parent_resume_id = Column(UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="SET NULL"), nullable=True)
     version_number = Column(Integer, default=1, nullable=False)
