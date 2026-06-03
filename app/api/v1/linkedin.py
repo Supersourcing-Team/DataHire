@@ -152,26 +152,14 @@ async def linkedin_token_exchange(
         # Get user profile from LinkedIn
         profile_data = await LinkedInOAuthService.get_user_profile(access_token)
         
-        # Create or update user
-        user = await LinkedInOAuthService.create_or_update_user(db, profile_data)
+        # Create temporary user session
+        temp_profile = await LinkedInOAuthService.create_temporary_user_session(db, profile_data)
         
-        # Generate JWT tokens
-        access_token_data = {
-            "sub": str(user.id),
-            "email": user.email,
-            "role": user.role,
-            "provider": "linkedin"
+        return {
+            "message": "LinkedIn authentication successful",
+            "profile": temp_profile,
+            "next_step": "Complete registration using the temporary token"
         }
-        
-        jwt_access_token = create_access_token(access_token_data)
-        jwt_refresh_token = create_refresh_token({"sub": str(user.id)})
-        
-        return TokenResponse(
-            access_token=jwt_access_token,
-            refresh_token=jwt_refresh_token,
-            token_type="bearer",
-            expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
-        )
         
     except Exception as e:
         raise HTTPException(

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.core.dependencies import get_current_active_user
@@ -122,9 +122,11 @@ async def employer_step_2(
     db.commit()
     return {"message": "Step 2 completed successfully"}
 
+from typing import List
+
 @router.post("/company/step3")
 async def employer_step_3(
-    data: EmployerStep3Schema,
+    data: List[int] = Body(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -134,8 +136,8 @@ async def employer_step_3(
         
     company = db.query(Company).filter(Company.id == employer.company_id).first()
     
-    from app.models.meta import TaxonomyDomain
-    domains = db.query(TaxonomyDomain).filter(TaxonomyDomain.id.in_(data.taxonomy_domain_ids)).all()
+    from app.models.taxonomy import TaxonomyDomain
+    domains = db.query(TaxonomyDomain).filter(TaxonomyDomain.id.in_(data)).all()
     company.hiring_domains = domains
     
     company.onboarding_step = 3

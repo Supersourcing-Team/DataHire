@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from typing import List, Type, Any
 
 from app.db.session import get_db
@@ -33,8 +34,12 @@ def register_crud_routes(
     def create(item: create_schema, db: Session = Depends(get_db), current_user = Depends(require_admin)):
         db_item = db_model(**item.model_dump())
         db.add(db_item)
-        db.commit()
-        db.refresh(db_item)
+        try:
+            db.commit()
+            db.refresh(db_item)
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Item with this unique identifier (e.g., slug) already exists.")
         return db_item
         
     @api_router.get(f"{path_prefix}/{{item_id}}", response_model=response_schema, tags=tags)
@@ -54,8 +59,12 @@ def register_crud_routes(
         for key, value in update_data.items():
             setattr(db_item, key, value)
             
-        db.commit()
-        db.refresh(db_item)
+        try:
+            db.commit()
+            db.refresh(db_item)
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Item with this unique identifier (e.g., slug) already exists.")
         return db_item
         
     @api_router.delete(f"{path_prefix}/{{item_id}}", status_code=status.HTTP_204_NO_CONTENT, tags=tags)

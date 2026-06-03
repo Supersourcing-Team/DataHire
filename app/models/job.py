@@ -15,6 +15,7 @@ class JobPosting(Base):
     
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=False)
+    job_description_url = Column(String(500), nullable=True) # URL to uploaded JD file
     
     # Core Job Details
     employment_type_id = Column(Integer, ForeignKey("meta_employment_types.id", ondelete="SET NULL"), nullable=True)
