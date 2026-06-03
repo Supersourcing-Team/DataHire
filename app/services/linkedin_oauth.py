@@ -115,7 +115,7 @@ class LinkedInOAuthService:
     async def complete_linkedin_registration(db: Session, registration_data: dict) -> dict:
         """Complete LinkedIn user registration with additional details."""
         temp_token = registration_data['temporary_token']
-        role = registration_data['role']
+        role = registration_data.get('role')
         
         # Verify temporary token
         payload = verify_token(temp_token)
@@ -136,6 +136,7 @@ class LinkedInOAuthService:
         user = db.query(User).filter(User.email == email).first()
         
         if user:
+            role = user.role
             # Update existing user
             user.last_login = datetime.utcnow()
             user.updated_at = datetime.utcnow()
@@ -143,15 +144,21 @@ class LinkedInOAuthService:
             # Update role-specific profile
             if role == UserRole.CANDIDATE and user.candidate:
                 candidate = user.candidate
-                candidate.phone = registration_data.get('phone')
+                if registration_data.get('phone'):
+                    candidate.phone = registration_data.get('phone')
                 candidate.updated_at = datetime.utcnow()
             elif role == UserRole.EMPLOYER and user.employer:
                 employer = user.employer
-                employer.company_name = registration_data.get('company_name')
-                employer.company_website = registration_data.get('company_website')
-                employer.phone = registration_data.get('phone')
+                if registration_data.get('company_name'):
+                    employer.company_name = registration_data.get('company_name')
+                if registration_data.get('company_website'):
+                    employer.company_website = registration_data.get('company_website')
+                if registration_data.get('phone'):
+                    employer.phone = registration_data.get('phone')
                 employer.updated_at = datetime.utcnow()
         else:
+            if not role:
+                raise ValueError("Role is required for new users")
             # Create new user based on LinkedIn profile data from token
             user = User(
                 email=email,

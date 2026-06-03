@@ -63,6 +63,33 @@ async def request_login_otp(
         )
     return {"message": "OTP sent successfully"}
 
+@router.post("/otp/send", status_code=status.HTTP_200_OK)
+async def resend_otp(
+    request: LoginRequest,
+    db: Session = Depends(get_db)
+):
+    """Resend OTP code to the provided email with a 60-second cooldown."""
+    user = db.query(User).filter(User.email == request.email).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found. Please register first."
+        )
+        
+    if not OTPService.can_request_otp(db, request.email, "LOGIN_OR_SIGNUP", cooldown_seconds=60):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Please wait 60 seconds before requesting a new OTP."
+        )
+        
+    success = await OTPService.request_otp(db, request.email, "LOGIN_OR_SIGNUP")
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to resend OTP email. Please try again later."
+        )
+    return {"message": "OTP resent successfully"}
+
 @router.post("/verify-otp", status_code=status.HTTP_200_OK)
 async def verify_login_otp(
     request: VerifyOTPRequest,

@@ -35,6 +35,10 @@ def init_db():
     # Import all models to ensure they are registered
     from app.models import Base
     
+    # Register event listeners for automatic embedding generation
+    from app.db.embedding_listener import register_embedding_listeners
+    register_embedding_listeners()
+    
     # Create all tables
     Base.metadata.create_all(bind=engine)
     print("✅ Database tables created successfully")
