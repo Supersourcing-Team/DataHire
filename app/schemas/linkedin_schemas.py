@@ -21,7 +21,7 @@ class LinkedInCompleteRegistration(BaseModel):
     phone: Optional[str] = Field(None, max_length=20, description="Phone number")
     company_name: Optional[str] = Field(None, max_length=255, description="Company name (for employers)")
     company_website: Optional[str] = Field(None, max_length=500, description="Company website")
-    role: str = Field(..., description="Role: candidate or employer")
+    role: Optional[str] = Field(None, description="Role: candidate or employer")
     additional_info: Optional[dict] = Field(None, description="Additional user information")
 
 class LinkedInRegistrationComplete(BaseModel):

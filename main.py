@@ -17,6 +17,12 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
     logger.info("Starting DataHire application...")
+    
+    # Register automatic embedding generation listeners
+    from app.db.embedding_listener import register_embedding_listeners
+    register_embedding_listeners()
+    logger.info("Registered SQLAlchemy embedding listeners")
+    
     yield
     logger.info("Shutting down DataHire application...")
 

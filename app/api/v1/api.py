@@ -39,6 +39,10 @@ api_router.include_router(onboarding_router)
 from app.api.v1.upload import router as upload_router
 api_router.include_router(upload_router)
 
+# Include Files router
+from app.api.v1.files import router as files_router
+api_router.include_router(files_router)
+
 # Include Jobs router
 api_router.include_router(jobs_router)
 

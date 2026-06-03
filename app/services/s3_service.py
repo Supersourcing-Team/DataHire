@@ -58,3 +58,30 @@ class S3Service:
         finally:
             # Reset file pointer just in case it's used again
             await file.seek(0)
+
+    async def delete_file(self, url: str) -> bool:
+        """Deletes a file from S3 given its public URL."""
+        if not self.bucket_name:
+            raise HTTPException(status_code=500, detail="S3_BUCKET_NAME is not configured")
+            
+        try:
+            # Extract the S3 key from the URL
+            # Format: https://{bucket_name}.s3.{region}.amazonaws.com/{key}
+            domain = f"{self.bucket_name}.s3.{settings.AWS_REGION}.amazonaws.com/"
+            if domain not in url:
+                raise ValueError("Invalid S3 URL or does not match current bucket")
+                
+            s3_key = url.split(domain)[-1]
+            
+            self.s3_client.delete_object(
+                Bucket=self.bucket_name,
+                Key=s3_key
+            )
+            return True
+            
+        except NoCredentialsError:
+            raise HTTPException(status_code=500, detail="AWS credentials not available")
+        except ClientError as e:
+            raise HTTPException(status_code=500, detail=f"S3 deletion failed: {str(e)}")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to delete file: {str(e)}")

@@ -13,6 +13,23 @@ class OTPService:
         return ''.join(random.choices(string.digits, k=length))
 
     @staticmethod
+    def can_request_otp(db: Session, email: str, purpose: str, cooldown_seconds: int = 60) -> bool:
+        """Checks if enough time has passed since the last OTP request to allow a new one."""
+        latest_otp = db.query(OTPToken).filter(
+            OTPToken.email == email,
+            OTPToken.purpose == purpose
+        ).order_by(OTPToken.created_at.desc()).first()
+        
+        if not latest_otp:
+            return True
+            
+        now = datetime.now(timezone.utc)
+        created_at_utc = latest_otp.created_at.replace(tzinfo=timezone.utc) if latest_otp.created_at.tzinfo is None else latest_otp.created_at.astimezone(timezone.utc)
+        
+        elapsed = (now - created_at_utc).total_seconds()
+        return elapsed >= cooldown_seconds
+
+    @staticmethod
     async def request_otp(db: Session, email: str, purpose: str) -> bool:
         """
         Invalidates previous OTPs for this email+purpose, generates a new one,
@@ -29,7 +46,7 @@ class OTPService:
         
         # Generate new OTP
         code = OTPService.generate_otp_code()
-        expires = datetime.now(timezone.utc) + timedelta(minutes=10)
+        expires = datetime.now(timezone.utc) + timedelta(seconds=60)
 
         # Save to DB
         otp = OTPToken(
