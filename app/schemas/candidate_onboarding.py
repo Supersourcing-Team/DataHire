@@ -2,7 +2,8 @@ from pydantic import BaseModel, AnyUrl
 from typing import Optional
 
 class CandidateStep1Schema(BaseModel):
-    resume_url: AnyUrl
+    resume_url: str
+    resume_name: str
 
 class CandidateStep2Schema(BaseModel):
     work_status_id: int

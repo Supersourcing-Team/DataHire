@@ -18,7 +18,6 @@ class Candidate(Base):
     # Onboarding fields
     onboarding_step = Column(Integer, default=0, nullable=False)
     onboarding_completed = Column(Boolean, default=False, nullable=False)
-    resume_url = Column(String(500), nullable=True)
     work_status_id = Column(Integer, ForeignKey("meta_work_statuses.id", ondelete="SET NULL"), nullable=True)
     taxonomy_domain_id = Column(Integer, ForeignKey("taxonomy_domains.id", ondelete="SET NULL"), nullable=True)
     visa_status_id = Column(Integer, ForeignKey("meta_visa_statuses.id", ondelete="SET NULL"), nullable=True)
@@ -30,6 +29,7 @@ class Candidate(Base):
     user = relationship("User", back_populates="candidate")
     work_status = relationship("MetaWorkStatus")
     taxonomy_domain = relationship("TaxonomyDomain")
+    resumes = relationship("Resume", back_populates="candidate", cascade="all, delete-orphan")
 
     @validates("taxonomy_domain_id", "work_status_id", "visa_status_id")
     def validate_dropdown_fks(self, key, value):

@@ -23,37 +23,39 @@ async def delete_file(
 
     # Verify ownership and update database
     if folder == S3Folder.RESUME:
-        candidate = db.query(Candidate).filter(Candidate.user_id == current_user.id).first()
-        if not candidate or candidate.resume_url != url_str:
-            raise HTTPException(status_code=403, detail="Unauthorized to delete this resume or file not found")
-        candidate.resume_url = None
+        from app.models.resume import Resume
+        linked_resume = db.query(Resume).filter(Resume.file_url == url_str).first()
+        if linked_resume:
+            if linked_resume.candidate.user_id != current_user.id:
+                raise HTTPException(status_code=403, detail="Unauthorized to delete this resume")
+            db.delete(linked_resume)
 
     elif folder == S3Folder.PROFILE_IMG:
-        if current_user.profile_picture != url_str:
-            raise HTTPException(status_code=403, detail="Unauthorized to delete this profile picture")
-        current_user.profile_picture = None
-        if current_user.candidate and current_user.candidate.profile_picture == url_str:
-            current_user.candidate.profile_picture = None
+        linked_user = db.query(User).filter(User.profile_picture == url_str).first()
+        if linked_user:
+            if linked_user.id != current_user.id:
+                raise HTTPException(status_code=403, detail="Unauthorized to delete this profile picture")
+            linked_user.profile_picture = None
+            
+        linked_candidate = db.query(Candidate).filter(Candidate.profile_picture == url_str).first()
+        if linked_candidate:
+            if linked_candidate.user_id != current_user.id:
+                raise HTTPException(status_code=403, detail="Unauthorized to delete this profile picture")
+            linked_candidate.profile_picture = None
 
     elif folder == S3Folder.COMPANY_LOGO:
-        if not current_user.employer or not current_user.employer.company_id:
-            raise HTTPException(status_code=403, detail="Unauthorized to delete this company logo")
-        company = db.query(Company).filter(Company.id == current_user.employer.company_id).first()
-        if not company or company.logo_url != url_str:
-            raise HTTPException(status_code=403, detail="Unauthorized to delete this company logo")
-        company.logo_url = None
+        linked_company = db.query(Company).filter(Company.logo_url == url_str).first()
+        if linked_company:
+            if not current_user.employer or current_user.employer.company_id != linked_company.id:
+                raise HTTPException(status_code=403, detail="Unauthorized to delete this company logo")
+            linked_company.logo_url = None
 
     elif folder == S3Folder.JOB_DESCRIPTION:
-        if not current_user.employer or not current_user.employer.company_id:
-            raise HTTPException(status_code=403, detail="Unauthorized to delete this job description")
-        # Find the job posting belonging to this company that has this URL
-        job = db.query(JobPosting).filter(
-            JobPosting.company_id == current_user.employer.company_id,
-            JobPosting.job_description_url == url_str
-        ).first()
-        if not job:
-            raise HTTPException(status_code=403, detail="Unauthorized to delete this job description or file not found")
-        job.job_description_url = None
+        linked_job = db.query(JobPosting).filter(JobPosting.job_description_url == url_str).first()
+        if linked_job:
+            if not current_user.employer or current_user.employer.company_id != linked_job.company_id:
+                raise HTTPException(status_code=403, detail="Unauthorized to delete this job description")
+            linked_job.job_description_url = None
 
     else:
         raise HTTPException(status_code=400, detail="Invalid folder type")

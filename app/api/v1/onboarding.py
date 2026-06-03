@@ -40,7 +40,23 @@ async def candidate_step_1(
     current_user: User = Depends(get_current_active_user)
 ):
     candidate = get_candidate(current_user, db)
-    candidate.resume_url = str(data.resume_url)
+    
+    from app.models.resume import Resume
+    # Deactivate existing primary resumes
+    existing_resumes = db.query(Resume).filter(Resume.candidate_id == candidate.id).all()
+    for r in existing_resumes:
+        r.is_primary = False
+        
+    # Create new primary resume
+    new_resume = Resume(
+        candidate_id=candidate.id,
+        file_url=str(data.resume_url),
+        file_name=data.resume_name,
+        is_primary=True,
+        version_number=len(existing_resumes) + 1
+    )
+    db.add(new_resume)
+    
     candidate.onboarding_step = 1
     db.commit()
     return {"message": "Step 1 completed successfully"}
@@ -179,6 +195,37 @@ async def employer_step_4(
     if data.work_mobile_number is not None:
         company.work_mobile_number = data.work_mobile_number
         
+    # Attempt to fetch logo if website is provided and logo_url is not set
+    if data.website and not company.logo_url:
+        import httpx
+        from urllib.parse import urlparse
+        from app.services.s3_service import S3Service, S3Folder
+        import asyncio
+        
+        # Extract domain from website url
+        parsed_uri = urlparse(str(data.website))
+        domain = parsed_uri.netloc or parsed_uri.path
+        if domain.startswith("www."):
+            domain = domain[4:]
+            
+        if domain:
+            try:
+                # Use a small timeout so we don't block onboarding
+                async with httpx.AsyncClient(timeout=3.0) as client:
+                    response = await client.get(f"https://logos.hunter.io/{domain}")
+                    if response.status_code == 200 and response.content:
+                        s3_service = S3Service()
+                        logo_url = await s3_service.upload_bytes(
+                            contents=response.content,
+                            filename=f"{domain}.png",
+                            folder=S3Folder.COMPANY_LOGO,
+                            content_type=response.headers.get("Content-Type", "image/png")
+                        )
+                        company.logo_url = logo_url
+            except Exception as e:
+                # Log the error but continue onboarding silently
+                print(f"Failed to fetch or upload logo for {domain}: {e}")
+
     company.onboarding_step = 4
     company.onboarding_completed = True
     db.commit()
