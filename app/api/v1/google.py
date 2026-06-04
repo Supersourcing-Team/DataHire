@@ -6,12 +6,45 @@ from app.services.google_oauth import GoogleOAuthService
 from app.core.security import create_access_token, create_refresh_token, verify_token
 from app.core.config import settings
 from app.schemas.auth_schemas import UserResponse, TokenResponse
-from app.schemas.google_schemas import GoogleCompleteRegistration, GoogleRegistrationComplete
+from app.schemas.google_schemas import GoogleCompleteRegistration, GoogleRegistrationComplete, GoogleAuthRequest, GoogleAuthResponse
 from urllib.parse import urlencode, parse_qs
 from datetime import datetime
 import uuid
 
 router = APIRouter(prefix="/auth/google", tags=["google-auth"])
+
+@router.post("", response_model=GoogleAuthResponse)
+async def authenticate_google(
+    request: GoogleAuthRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Handle Google OAuth callback from frontend.
+    Exchanges code for tokens, fetches profile, and returns app session.
+    """
+    try:
+        result = await GoogleOAuthService.authenticate_with_google(
+            db=db,
+            code=request.code,
+            redirect_uri=request.redirectUri,
+            role=request.role
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except ConnectionError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An unexpected error occurred: {str(e)}"
+        )
 
 @router.get("/login")
 async def google_login(redirect_url: str = None):
