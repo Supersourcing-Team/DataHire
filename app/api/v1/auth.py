@@ -100,7 +100,7 @@ async def verify_login_otp(
     if not is_valid:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired OTP code"
+            detail="Check your OTP and try again."
         )
         
     user = db.query(User).filter(User.email == request.email).first()
