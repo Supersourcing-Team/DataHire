@@ -31,14 +31,14 @@ class GoogleOAuthService:
         return f"{base_url}?{urlencode(params)}"
     
     @staticmethod
-    async def exchange_code_for_tokens(code: str) -> dict:
+    async def exchange_code_for_tokens(code: str, redirect_uri: str = None) -> dict:
         """Exchange authorization code for access tokens."""
         token_url = 'https://oauth2.googleapis.com/token'
         
         data = {
             'grant_type': 'authorization_code',
             'code': code,
-            'redirect_uri': settings.GOOGLE_REDIRECT_URI,
+            'redirect_uri': redirect_uri or settings.GOOGLE_REDIRECT_URI,
             'client_id': settings.GOOGLE_CLIENT_ID,
             'client_secret': settings.GOOGLE_CLIENT_SECRET
         }
@@ -225,5 +225,129 @@ class GoogleOAuthService:
                 "refresh_token": refresh_token,
                 "token_type": "bearer",
                 "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+            }
+        }
+
+    @staticmethod
+    async def authenticate_with_google(db: Session, code: str, redirect_uri: str, role: str = "candidate") -> dict:
+        """Authenticate user with Google authorization code."""
+        try:
+            # Exchange code for tokens using dynamic redirect URI
+            token_data = await GoogleOAuthService.exchange_code_for_tokens(code, redirect_uri)
+            access_token = token_data['access_token']
+        except requests.exceptions.RequestException as e:
+            if hasattr(e, 'response') and e.response is not None and e.response.status_code >= 400 and e.response.status_code < 500:
+                raise ValueError("Failed to exchange authorization code: Code has expired or is invalid.")
+            raise ConnectionError("External authentication provider is temporarily unavailable.")
+            
+        try:
+            # Get user profile from Google
+            profile_data = await GoogleOAuthService.get_user_profile(access_token)
+        except requests.exceptions.RequestException:
+            raise ConnectionError("External authentication provider is temporarily unavailable.")
+            
+        email = profile_data.get('email')
+        google_id = profile_data.get('google_id')
+        first_name = profile_data.get('first_name', '')
+        last_name = profile_data.get('last_name', '')
+        full_name = f"{first_name} {last_name}".strip()
+        profile_picture = profile_data.get('profile_picture')
+        
+        # Check if user already exists
+        user = db.query(User).filter(User.email == email).first()
+        
+        if user:
+            # Update last login
+            user.last_login = datetime.utcnow()
+            user.updated_at = datetime.utcnow()
+            if not user.profile_picture and profile_picture:
+                user.profile_picture = profile_picture
+            
+            # Fetch onboarding status based on role
+            onboarding_completed = False
+            onboarding_step = 1
+            
+            if user.role == UserRole.CANDIDATE and user.candidate:
+                onboarding_completed = user.candidate.onboarding_completed
+                onboarding_step = user.candidate.onboarding_step
+            elif user.role == UserRole.EMPLOYER and user.employer:
+                onboarding_completed = getattr(user.employer, 'onboarding_completed', True)
+                onboarding_step = getattr(user.employer, 'onboarding_step', 1)
+        else:
+            # Create new user
+            user = User(
+                email=email,
+                google_id=google_id,
+                password_hash=None,
+                role=role,
+                auth_provider=AuthProvider.GOOGLE,
+                is_active=True,
+                is_verified=True,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+                profile_picture=profile_picture
+            )
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            
+            onboarding_completed = False
+            onboarding_step = 1
+            
+            # Create role-specific profile
+            if role == UserRole.CANDIDATE:
+                candidate = Candidate(
+                    user_id=user.id,
+                    full_name=full_name,
+                    onboarding_completed=False,
+                    onboarding_step=1,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow(),
+                    profile_picture=profile_picture
+                )
+                db.add(candidate)
+            elif role == UserRole.EMPLOYER:
+                employer = Employer(
+                    user_id=user.id,
+                    contact_person=full_name,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                db.add(employer)
+                
+            db.commit()
+            db.refresh(user)
+            
+        # Generate final JWT tokens
+        from app.core.security import create_access_token, create_refresh_token
+        from app.core.config import settings
+        
+        access_token_data = {
+            "sub": str(user.id),
+            "email": user.email,
+            "role": user.role,
+            "provider": "google"
+        }
+        
+        app_access_token = create_access_token(access_token_data)
+        app_refresh_token = create_refresh_token({"sub": str(user.id)})
+        
+        expires_in = settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+        
+        return {
+            "token": app_access_token,
+            "tokens": {
+                "access_token": app_access_token,
+                "refresh_token": app_refresh_token,
+                "token_type": "Bearer",
+                "expires_in": expires_in
+            },
+            "user": {
+                "id": str(user.id),
+                "email": user.email,
+                "fullName": full_name,
+                "role": user.role,
+                "onboardingCompleted": onboarding_completed,
+                "onboardingStep": onboarding_step
             }
         }

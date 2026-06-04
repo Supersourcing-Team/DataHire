@@ -32,3 +32,29 @@ class GoogleRegistrationComplete(BaseModel):
     message: str
     user: dict
     tokens: dict
+
+class GoogleAuthRequest(BaseModel):
+    """Request payload for Google OAuth callback from frontend."""
+    code: str = Field(..., description="Authorization code from Google")
+    redirectUri: str = Field(..., description="Frontend redirect URI used to request the code")
+    role: Optional[str] = Field("candidate", description="User role (defaults to candidate)")
+
+class AuthTokenDetails(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "Bearer"
+    expires_in: int
+
+class AuthUser(BaseModel):
+    id: str
+    email: str
+    fullName: str
+    role: str
+    onboardingCompleted: bool
+    onboardingStep: int
+
+class GoogleAuthResponse(BaseModel):
+    """Standard authentication response."""
+    token: str
+    tokens: AuthTokenDetails
+    user: AuthUser
