@@ -9,6 +9,7 @@ class EmployerStep2Schema(BaseModel):
 
 class EmployerStep3Schema(BaseModel):
     taxonomy_domain_ids: List[int]
+    custom_roles: Optional[str] = None
 
 class EmployerStep4Schema(BaseModel):
     name: str

@@ -36,6 +36,7 @@ class Company(Base):
 
     # Many-to-Many Relationship with Taxonomy Domains (Step 3)
     hiring_domains = relationship("TaxonomyDomain", secondary=company_taxonomy_domains)
+    custom_roles_hiring_for = Column(String(500), nullable=True)
 
     # Foreign Keys to Meta Tables
     industry_id = Column(Integer, ForeignKey("meta_industries.id", ondelete="SET NULL"), nullable=True)

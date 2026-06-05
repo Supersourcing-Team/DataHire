@@ -142,7 +142,7 @@ from typing import List
 
 @router.post("/company/step3")
 async def employer_step_3(
-    data: List[int] = Body(...),
+    data: EmployerStep3Schema,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
@@ -152,9 +152,17 @@ async def employer_step_3(
         
     company = db.query(Company).filter(Company.id == employer.company_id).first()
     
+    # Filter out 0 which represents "Other"
+    valid_ids = [domain_id for domain_id in data.taxonomy_domain_ids if domain_id != 0]
+    
     from app.models.taxonomy import TaxonomyDomain
-    domains = db.query(TaxonomyDomain).filter(TaxonomyDomain.id.in_(data)).all()
-    company.hiring_domains = domains
+    if valid_ids:
+        domains = db.query(TaxonomyDomain).filter(TaxonomyDomain.id.in_(valid_ids)).all()
+        company.hiring_domains = domains
+    else:
+        company.hiring_domains = []
+        
+    company.custom_roles_hiring_for = data.custom_roles
     
     company.onboarding_step = 3
     db.commit()
