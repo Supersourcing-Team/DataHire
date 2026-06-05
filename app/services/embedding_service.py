@@ -12,7 +12,7 @@ class EmbeddingService:
     """
     _instance = None
 
-    def __new__(cls, model_name: str = "models/text-embedding-004"):
+    def __new__(cls, model_name: str = "models/gemini-embedding-2"):
         if cls._instance is None:
             cls._instance = super(EmbeddingService, cls).__new__(cls)
             cls._instance._initialize(model_name)
