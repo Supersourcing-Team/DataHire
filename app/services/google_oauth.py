@@ -265,14 +265,14 @@ class GoogleOAuthService:
             
             # Fetch onboarding status based on role
             onboarding_completed = False
-            onboarding_step = 1
+            onboarding_step = 0
             
             if user.role == UserRole.CANDIDATE and user.candidate:
                 onboarding_completed = user.candidate.onboarding_completed
                 onboarding_step = user.candidate.onboarding_step
             elif user.role == UserRole.EMPLOYER and user.employer:
                 onboarding_completed = getattr(user.employer, 'onboarding_completed', True)
-                onboarding_step = getattr(user.employer, 'onboarding_step', 1)
+                onboarding_step = getattr(user.employer, 'onboarding_step', 0)
         else:
             # Create new user
             user = User(
@@ -292,7 +292,7 @@ class GoogleOAuthService:
             db.refresh(user)
             
             onboarding_completed = False
-            onboarding_step = 1
+            onboarding_step = 0
             
             # Create role-specific profile
             if role == UserRole.CANDIDATE:
@@ -300,7 +300,7 @@ class GoogleOAuthService:
                     user_id=user.id,
                     full_name=full_name,
                     onboarding_completed=False,
-                    onboarding_step=1,
+                    onboarding_step=0,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow(),
                     profile_picture=profile_picture

@@ -264,7 +264,7 @@ class LinkedInOAuthService:
             
             # Fetch onboarding status based on role
             onboarding_completed = False
-            onboarding_step = 1
+            onboarding_step = 0
             
             if user.role == UserRole.CANDIDATE and user.candidate:
                 onboarding_completed = user.candidate.onboarding_completed
@@ -272,7 +272,7 @@ class LinkedInOAuthService:
             elif user.role == UserRole.EMPLOYER and user.employer:
                 # Assuming employer also has an onboarding_completed field based on current implementation
                 onboarding_completed = getattr(user.employer, 'onboarding_completed', True)
-                onboarding_step = getattr(user.employer, 'onboarding_step', 1)
+                onboarding_step = getattr(user.employer, 'onboarding_step', 0)
         else:
             # Create new user
             user = User(
@@ -292,7 +292,7 @@ class LinkedInOAuthService:
             db.refresh(user)
             
             onboarding_completed = False
-            onboarding_step = 1
+            onboarding_step = 0
             
             # Create role-specific profile
             if role == UserRole.CANDIDATE:
@@ -300,7 +300,7 @@ class LinkedInOAuthService:
                     user_id=user.id,
                     full_name=full_name,
                     onboarding_completed=False,
-                    onboarding_step=1,
+                    onboarding_step=0,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow(),
                     profile_picture=profile_data.get('profile_picture')
