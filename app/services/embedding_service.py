@@ -1,16 +1,18 @@
 import logging
 from typing import List
+import google.generativeai as genai
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 class EmbeddingService:
     """
     Singleton service for generating vector embeddings across the platform.
-    Using all-MiniLM-L6-v2 which produces 384-dimensional vectors.
+    Using Gemini text-embedding-004 with 384 dimensions.
     """
     _instance = None
 
-    def __new__(cls, model_name: str = "all-MiniLM-L6-v2"):
+    def __new__(cls, model_name: str = "models/text-embedding-004"):
         if cls._instance is None:
             cls._instance = super(EmbeddingService, cls).__new__(cls)
             cls._instance._initialize(model_name)
@@ -18,18 +20,13 @@ class EmbeddingService:
 
     def _initialize(self, model_name: str):
         self.model_name = model_name
-        self.dimension = 1536  # Fixed dimension for all-MiniLM-L6-v2
-        logger.info(f"Initializing EmbeddingService with model: {model_name}")
+        self.dimension = 384  # Matches database schema
+        logger.info(f"Initializing EmbeddingService with Gemini model: {model_name}")
         try:
-            from sentence_transformers import SentenceTransformer
-            # Load the model (this will download it on first run)
-            self.model = SentenceTransformer(self.model_name)
-            logger.info("SentenceTransformer model loaded successfully.")
-        except ImportError:
-            logger.error("sentence-transformers is not installed. Please install it.")
-            raise
+            genai.configure(api_key=settings.GEMINI_API_KEY)
+            logger.info("Gemini Embedding configured successfully.")
         except Exception as e:
-            logger.error(f"Failed to load embedding model: {e}")
+            logger.error(f"Failed to configure Gemini embedding model: {e}")
             raise e
 
     def get_embedding(self, text: str) -> List[float]:
@@ -41,9 +38,13 @@ class EmbeddingService:
             # Return zero vector if text is empty, or handle as needed
             return [0.0] * self.dimension
         
-        # encode returns a numpy array, convert to list
-        embedding = self.model.encode(text)
-        return embedding.tolist()
+        response = genai.embed_content(
+            model=self.model_name,
+            content=text,
+            task_type="retrieval_document",
+            output_dimensionality=self.dimension
+        )
+        return response['embedding']
 
     def get_embeddings(self, texts: List[str]) -> List[List[float]]:
         """
@@ -52,8 +53,13 @@ class EmbeddingService:
         if not texts:
             return []
             
-        embeddings = self.model.encode(texts)
-        return embeddings.tolist()
+        response = genai.embed_content(
+            model=self.model_name,
+            content=texts,
+            task_type="retrieval_document",
+            output_dimensionality=self.dimension
+        )
+        return response['embedding']
 
 # Export a default instance for easy imports across the app
 embedding_service = EmbeddingService()

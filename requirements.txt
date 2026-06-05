@@ -22,7 +22,6 @@ python-multipart==0.0.6
 # AI and PDF processing
 google-generativeai>=0.5.2
 PyPDF2==3.0.1  # Simple PDF processing
-sentence-transformers>=2.2.2  # For local embeddings
 
 # HTTP client
 httpx==0.25.2
