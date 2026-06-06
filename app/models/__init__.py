@@ -16,6 +16,7 @@ from app.models.job import JobPosting
 from app.models.resume import Resume, ResumeSection
 from app.models.application import JobApplication
 from app.models.saved_job import SavedJob
+from app.models.cover_letter import CoverLetter
 
 __all__ = [
     "Base",
@@ -33,5 +34,6 @@ __all__ = [
     "MetaEducationLevel", "MetaSubscriptionPlan", "MetaIndustry", "MetaCurrency",
     "MetaWorkStatus", "MetaVisaStatus",
     "JobPosting", "Resume", "ResumeSection",
-    "JobApplication", "SavedJob"
+    "JobApplication", "SavedJob", "CoverLetter"
 ]
+

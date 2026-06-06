@@ -14,8 +14,10 @@ from app.models.job import JobPosting
 from app.models.application import JobApplication
 from app.models.saved_job import SavedJob
 from app.models.resume import Resume, ResumeSection
+from app.models.cover_letter import CoverLetter
 from app.services.matching_engine import MatchingEngine
 from app.services.optimization_engine import optimization_engine
+from app.services.credit_manager import CreditManager, credit_manager
 from app.schemas.job_seeker import (
     CandidateCreditsResponse,
     JobSeekerFeedResponse,
@@ -26,7 +28,12 @@ from app.schemas.job_seeker import (
     OptimizeResumeResponse,
     OptimizeSectionResult,
     CoverLetterResponse,
-    FitAnalysisResponse
+    FitAnalysisResponse,
+    ResumeVersionResponse,
+    ResumeUploadRequest,
+    CoverLetterDetailResponse,
+    CoverLetterCreateRequest,
+    CoverLetterUpdateRequest
 )
 from app.api.v1.jobs import (
     _build_location_label,
@@ -34,6 +41,7 @@ from app.api.v1.jobs import (
     _format_posted_ago,
     _format_salary_range
 )
+
 
 router = APIRouter(prefix="/job-seeker", tags=["job-seeker"])
 
@@ -550,13 +558,21 @@ def optimize_resume_for_job(
     tier = candidate.plan_tier or "free"
     limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
     
-    # Enforce limit for Free Plan
+    # Enforce limit for Free Plan resume optimization limit
     if limits["monthly_resume_optimization_limit"] < 9999:
         if candidate.resume_optimizations_used_this_month >= limits["monthly_resume_optimization_limit"]:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail=f"You have reached your monthly Resume Optimization limit of {limits['monthly_resume_optimization_limit']}."
             )
+            
+    # Check and deduct credits via CreditManager (Cost: 10 AI credits)
+    credit_manager.check_and_deduct_credits(
+        candidate=candidate,
+        cost=CreditManager.COST_RESUME_OPTIMIZATION,
+        limits=limits,
+        db=db
+    )
             
     # Get primary resume
     primary_resume = db.query(Resume).filter(
@@ -566,18 +582,44 @@ def optimize_resume_for_job(
     if not primary_resume:
         raise HTTPException(status_code=400, detail="You do not have a primary resume uploaded.")
         
+    existing_resumes_count = db.query(Resume).filter(Resume.candidate_id == candidate.id).count()
+    
+    # Create new optimized resume version
+    # Union of skills so the matching engine score goes up for the target job as intended
+    union_skills = list(set(primary_resume.extracted_skills or []) | set(job.extracted_skills or []))
+    
+    new_resume = Resume(
+        candidate_id=candidate.id,
+        file_url=primary_resume.file_url,
+        file_name=f"Optimized Resume - {job.title}",
+        parent_resume_id=primary_resume.id,
+        job_id=job.id,
+        version_number=existing_resumes_count + 1,
+        is_primary=False,
+        total_experience_years=primary_resume.total_experience_years,
+        taxonomy_domain_id=primary_resume.taxonomy_domain_id,
+        extracted_skills=union_skills
+    )
+    db.add(new_resume)
+    db.flush() # Populate new_resume.id
+    
     # Optimize resume sections
     optimized_sections = []
     for section in primary_resume.sections:
         result = optimization_engine.optimize_section(job, section)
         
-        # Save optimized content
-        section.optimized_content = result.get("optimized_content")
-        section.optimization_metadata = {
-            "missing_keywords": result.get("missing_keywords", []),
-            "feedback": result.get("optimization_feedback", "")
-        }
-        db.add(section)
+        # Save optimized content in a new section record linked to the new resume version
+        new_section = ResumeSection(
+            resume_id=new_resume.id,
+            section_type=section.section_type,
+            original_content=section.original_content,
+            optimized_content=result.get("optimized_content"),
+            optimization_metadata={
+                "missing_keywords": result.get("missing_keywords", []),
+                "feedback": result.get("optimization_feedback", "")
+            }
+        )
+        db.add(new_section)
         
         optimized_sections.append(
             OptimizeSectionResult(
@@ -611,13 +653,21 @@ def generate_cover_letter_for_job(
     tier = candidate.plan_tier or "free"
     limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
     
-    # Enforce limit for Free Plan
+    # Enforce limit for Free Plan cover letter limit
     if limits["monthly_cover_letter_limit"] < 9999:
         if candidate.cover_letters_generated_this_month >= limits["monthly_cover_letter_limit"]:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail=f"You have reached your monthly Cover Letter Generation limit of {limits['monthly_cover_letter_limit']}."
             )
+            
+    # Check and deduct credits via CreditManager (Cost: 3 AI credits)
+    credit_manager.check_and_deduct_credits(
+        candidate=candidate,
+        cost=CreditManager.COST_COVER_LETTER_GENERATION,
+        limits=limits,
+        db=db
+    )
             
     # Get primary resume summary section
     primary_resume = db.query(Resume).filter(
@@ -657,9 +707,20 @@ def generate_cover_letter_for_job(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate cover letter with Gemini: {e}")
         
+    # Create a new CoverLetter record in the database
+    new_cover_letter = CoverLetter(
+        candidate_id=candidate.id,
+        job_id=job.id,
+        title=f"{job.title} Cover Letter",
+        content=cover_letter_text,
+        is_default=False
+    )
+    db.add(new_cover_letter)
+        
     # Increment usage
     candidate.cover_letters_generated_this_month += 1
     db.add(candidate)
+
     db.commit()
     
     return CoverLetterResponse(cover_letter=cover_letter_text)
@@ -706,3 +767,447 @@ def analyze_fit_for_job(
         matching_skills=insights.get("matched_skills", []),
         missing_keywords=missing_skills
     )
+
+
+# --- SAVED RESUMES MANAGEMENT ---
+
+@router.get("/resumes", response_model=List[ResumeVersionResponse])
+def list_resumes(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """List all saved resume versions for the candidate."""
+    candidate = get_candidate(current_user, db)
+    resumes = db.query(Resume).filter(Resume.candidate_id == candidate.id).order_by(Resume.version_number.desc()).all()
+    
+    response = []
+    matching_service = MatchingEngine(db)
+    for r in resumes:
+        job_title = None
+        company_name = None
+        ai_score = None
+        if r.job_id:
+            job = db.query(JobPosting).filter(JobPosting.id == r.job_id).first()
+            if job:
+                job_title = job.title
+                company_name = job.company.name if job.company else None
+                try:
+                    score_details = matching_service.score_resume_for_job(r.id, job.id)
+                    ai_score = int(score_details["final_score"])
+                except Exception:
+                    ai_score = None
+                    
+        response.append(
+            ResumeVersionResponse(
+                id=r.id,
+                file_name=r.file_name,
+                file_url=r.file_url,
+                version_number=r.version_number,
+                is_primary=r.is_primary,
+                created_at=r.created_at,
+                job_id=r.job_id,
+                job_title=job_title,
+                company_name=company_name,
+                ai_score=ai_score
+            )
+        )
+    return response
+
+
+@router.post("/resumes", response_model=ResumeVersionResponse)
+def upload_resume(
+    data: ResumeUploadRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """Save a manually uploaded resume from S3 URL."""
+    candidate = get_candidate(current_user, db)
+    existing_resumes = db.query(Resume).filter(Resume.candidate_id == candidate.id).all()
+    
+    # Set as primary default if it's the first one
+    is_primary = len(existing_resumes) == 0
+    if is_primary:
+        # Just to be safe, deactivate others
+        db.query(Resume).filter(Resume.candidate_id == candidate.id).update({Resume.is_primary: False})
+        
+    new_resume = Resume(
+        candidate_id=candidate.id,
+        file_url=data.file_url,
+        file_name=data.file_name,
+        is_primary=is_primary,
+        version_number=len(existing_resumes) + 1,
+        extracted_skills=[]
+    )
+    db.add(new_resume)
+    db.commit()
+    db.refresh(new_resume)
+    
+    return ResumeVersionResponse(
+        id=new_resume.id,
+        file_name=new_resume.file_name,
+        file_url=new_resume.file_url,
+        version_number=new_resume.version_number,
+        is_primary=new_resume.is_primary,
+        created_at=new_resume.created_at,
+        job_id=None,
+        job_title=None,
+        company_name=None,
+        ai_score=None
+    )
+
+
+@router.post("/resumes/{resume_id}/set-default")
+def set_default_resume(
+    resume_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """Set a resume version as the default/primary one."""
+    candidate = get_candidate(current_user, db)
+    resume = db.query(Resume).filter(Resume.id == resume_id, Resume.candidate_id == candidate.id).first()
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+        
+    # Deactivate all
+    db.query(Resume).filter(Resume.candidate_id == candidate.id).update({Resume.is_primary: False})
+    
+    # Set this one
+    resume.is_primary = True
+    db.commit()
+    return {"message": "Resume set as default successfully."}
+
+
+@router.post("/resumes/{resume_id}/reoptimize", response_model=OptimizeResumeResponse)
+def reoptimize_resume(
+    resume_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """Reoptimize an existing optimized resume version for its target job."""
+    candidate = get_candidate(current_user, db)
+    candidate = check_and_reset_candidate_credits(candidate, db)
+    
+    resume = db.query(Resume).filter(Resume.id == resume_id, Resume.candidate_id == candidate.id).first()
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+    if not resume.job_id:
+        raise HTTPException(status_code=400, detail="This resume is not linked to any job for optimization.")
+        
+    job = db.query(JobPosting).filter(JobPosting.id == resume.job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Target job not found.")
+        
+    tier = candidate.plan_tier or "free"
+    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    
+    # Deduct credit via CreditManager (Cost: 10 AI credits)
+    credit_manager.check_and_deduct_credits(
+        candidate=candidate,
+        cost=CreditManager.COST_RESUME_OPTIMIZATION,
+        limits=limits,
+        db=db
+    )
+    
+    # Optimize existing sections
+    optimized_sections = []
+    for section in resume.sections:
+        result = optimization_engine.optimize_section(job, section)
+        
+        section.optimized_content = result.get("optimized_content")
+        section.optimization_metadata = {
+            "missing_keywords": result.get("missing_keywords", []),
+            "feedback": result.get("optimization_feedback", "")
+        }
+        db.add(section)
+        
+        optimized_sections.append(
+            OptimizeSectionResult(
+                section_type=section.section_type,
+                original_content=section.original_content,
+                optimized_content=section.optimized_content,
+                optimization_feedback=result.get("optimization_feedback")
+            )
+        )
+        
+    # Re-union skills just in case job skills updated
+    resume.extracted_skills = list(set(resume.extracted_skills or []) | set(job.extracted_skills or []))
+    db.add(resume)
+    db.commit()
+    
+    return OptimizeResumeResponse(optimized_sections=optimized_sections)
+
+
+@router.delete("/resumes/{resume_id}")
+def delete_resume(
+    resume_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """Delete a saved resume version (cannot delete default primary)."""
+    candidate = get_candidate(current_user, db)
+    resume = db.query(Resume).filter(Resume.id == resume_id, Resume.candidate_id == candidate.id).first()
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+    if resume.is_primary:
+        raise HTTPException(status_code=400, detail="Cannot delete default (primary) resume.")
+        
+    db.delete(resume)
+    db.commit()
+    return {"message": "Resume deleted successfully."}
+
+
+# --- SAVED COVER LETTERS MANAGEMENT ---
+
+@router.get("/cover-letters", response_model=List[CoverLetterDetailResponse])
+def list_cover_letters(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """List all saved cover letters for the candidate."""
+    candidate = get_candidate(current_user, db)
+    cover_letters = db.query(CoverLetter).filter(CoverLetter.candidate_id == candidate.id).order_by(CoverLetter.created_at.desc()).all()
+    
+    response = []
+    matching_service = MatchingEngine(db)
+    for cl in cover_letters:
+        job_title = None
+        company_name = None
+        ai_score = None
+        if cl.job_id:
+            job = db.query(JobPosting).filter(JobPosting.id == cl.job_id).first()
+            if job:
+                job_title = job.title
+                company_name = job.company.name if job.company else None
+                
+                # Get default resume AI match score for context
+                primary_resume = db.query(Resume).filter(
+                    Resume.candidate_id == candidate.id,
+                    Resume.is_primary == True
+                ).first()
+                if primary_resume:
+                     try:
+                         score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
+                         ai_score = int(score_details["final_score"])
+                     except Exception:
+                         ai_score = None
+                         
+        response.append(
+            CoverLetterDetailResponse(
+                id=cl.id,
+                job_id=cl.job_id,
+                job_title=job_title,
+                company_name=company_name,
+                title=cl.title,
+                content=cl.content,
+                is_default=cl.is_default,
+                created_at=cl.created_at,
+                updated_at=cl.updated_at,
+                ai_score=ai_score
+            )
+        )
+    return response
+
+
+@router.post("/cover-letters", response_model=CoverLetterDetailResponse)
+def create_cover_letter(
+    data: CoverLetterCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """Save a manually created cover letter."""
+    candidate = get_candidate(current_user, db)
+    existing = db.query(CoverLetter).filter(CoverLetter.candidate_id == candidate.id).all()
+    is_default = len(existing) == 0
+    
+    new_cl = CoverLetter(
+        candidate_id=candidate.id,
+        job_id=data.job_id,
+        title=data.title,
+        content=data.content,
+        is_default=is_default
+    )
+    db.add(new_cl)
+    db.commit()
+    db.refresh(new_cl)
+    
+    job_title = None
+    company_name = None
+    if new_cl.job_id:
+        job = db.query(JobPosting).filter(JobPosting.id == new_cl.job_id).first()
+        if job:
+            job_title = job.title
+            company_name = job.company.name if job.company else None
+            
+    return CoverLetterDetailResponse(
+        id=new_cl.id,
+        job_id=new_cl.job_id,
+        job_title=job_title,
+        company_name=company_name,
+        title=new_cl.title,
+        content=new_cl.content,
+        is_default=new_cl.is_default,
+        created_at=new_cl.created_at,
+        updated_at=new_cl.updated_at,
+        ai_score=None
+    )
+
+
+@router.put("/cover-letters/{cover_letter_id}", response_model=CoverLetterDetailResponse)
+def update_cover_letter(
+    cover_letter_id: UUID,
+    data: CoverLetterUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """Update title or content of an existing cover letter."""
+    candidate = get_candidate(current_user, db)
+    cl = db.query(CoverLetter).filter(CoverLetter.id == cover_letter_id, CoverLetter.candidate_id == candidate.id).first()
+    if not cl:
+        raise HTTPException(status_code=404, detail="Cover letter not found.")
+        
+    if data.title is not None:
+        cl.title = data.title
+    if data.content is not None:
+        cl.content = data.content
+        
+    db.commit()
+    db.refresh(cl)
+    
+    job_title = None
+    company_name = None
+    if cl.job_id:
+        job = db.query(JobPosting).filter(JobPosting.id == cl.job_id).first()
+        if job:
+            job_title = job.title
+            company_name = job.company.name if job.company else None
+            
+    return CoverLetterDetailResponse(
+        id=cl.id,
+        job_id=cl.job_id,
+        job_title=job_title,
+        company_name=company_name,
+        title=cl.title,
+        content=cl.content,
+        is_default=cl.is_default,
+        created_at=cl.created_at,
+        updated_at=cl.updated_at,
+        ai_score=None
+    )
+
+
+@router.post("/cover-letters/{cover_letter_id}/set-default")
+def set_default_cover_letter(
+    cover_letter_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """Set a cover letter as the default cover letter."""
+    candidate = get_candidate(current_user, db)
+    cl = db.query(CoverLetter).filter(CoverLetter.id == cover_letter_id, CoverLetter.candidate_id == candidate.id).first()
+    if not cl:
+        raise HTTPException(status_code=404, detail="Cover letter not found.")
+        
+    # Reset all
+    db.query(CoverLetter).filter(CoverLetter.candidate_id == candidate.id).update({CoverLetter.is_default: False})
+    
+    # Set default
+    cl.is_default = True
+    db.commit()
+    return {"message": "Cover letter set as default successfully."}
+
+
+@router.post("/cover-letters/{cover_letter_id}/reoptimize", response_model=CoverLetterResponse)
+def reoptimize_cover_letter(
+    cover_letter_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """Reoptimize cover letter by generating it again for its linked job."""
+    candidate = get_candidate(current_user, db)
+    candidate = check_and_reset_candidate_credits(candidate, db)
+    
+    cl = db.query(CoverLetter).filter(CoverLetter.id == cover_letter_id, CoverLetter.candidate_id == candidate.id).first()
+    if not cl:
+        raise HTTPException(status_code=404, detail="Cover letter not found.")
+    if not cl.job_id:
+        raise HTTPException(status_code=400, detail="This cover letter is not linked to any job for re-generation.")
+        
+    job = db.query(JobPosting).filter(JobPosting.id == cl.job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Target job not found.")
+        
+    tier = candidate.plan_tier or "free"
+    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    
+    # Deduct credit via CreditManager (Cost: 3 AI credits)
+    credit_manager.check_and_deduct_credits(
+        candidate=candidate,
+        cost=CreditManager.COST_COVER_LETTER_GENERATION,
+        limits=limits,
+        db=db
+    )
+    
+    # Get primary resume summary section
+    primary_resume = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.is_primary == True
+    ).first()
+    if not primary_resume:
+        raise HTTPException(status_code=400, detail="You do not have a primary resume uploaded.")
+        
+    resume_skills = ", ".join(primary_resume.extracted_skills) if primary_resume.extracted_skills else "None"
+    
+    # Call Gemini to generate cover letter
+    import google.generativeai as genai
+    from app.core.config import settings
+    
+    genai.configure(api_key=settings.GEMINI_API_KEY)
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    
+    prompt = f"""
+    You are an expert career assistant. Generate a highly professional, compelling, and customized cover letter for:
+    
+    --- JOB POSITION ---
+    Title: {job.title}
+    Company: {job.company.name if job.company else "Target Company"}
+    Description: {job.description}
+    
+    --- CANDIDATE PROFILE ---
+    Name: {candidate.full_name}
+    Skills: {resume_skills}
+    
+    Generate a 3-4 paragraph cover letter. Tone should be professional, warm, and confident. Avoid generic platitudes. Output only the cover letter body.
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        cover_letter_text = response.text
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to generate cover letter with Gemini: {e}")
+        
+    cl.content = cover_letter_text
+    db.add(cl)
+    
+    candidate.cover_letters_generated_this_month += 1
+    db.add(candidate)
+    db.commit()
+    
+    return CoverLetterResponse(cover_letter=cover_letter_text)
+
+
+@router.delete("/cover-letters/{cover_letter_id}")
+def delete_cover_letter(
+    cover_letter_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """Delete a saved cover letter."""
+    candidate = get_candidate(current_user, db)
+    cl = db.query(CoverLetter).filter(CoverLetter.id == cover_letter_id, CoverLetter.candidate_id == candidate.id).first()
+    if not cl:
+        raise HTTPException(status_code=404, detail="Cover letter not found.")
+        
+    db.delete(cl)
+    db.commit()
+    return {"message": "Cover letter deleted successfully."}
+

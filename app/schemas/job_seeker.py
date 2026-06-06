@@ -112,3 +112,50 @@ class FitAnalysisResponse(BaseModel):
     resume_alignment_percent: int
     matching_skills: List[str]
     missing_keywords: List[str]
+
+
+class ResumeVersionResponse(BaseModel):
+    id: UUID
+    file_name: Optional[str] = None
+    file_url: Optional[str] = None
+    version_number: int
+    is_primary: bool
+    created_at: datetime
+    job_id: Optional[UUID] = None
+    job_title: Optional[str] = None
+    company_name: Optional[str] = None
+    ai_score: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ResumeUploadRequest(BaseModel):
+    file_name: str
+    file_url: str
+
+
+class CoverLetterDetailResponse(BaseModel):
+    id: UUID
+    job_id: Optional[UUID] = None
+    job_title: Optional[str] = None
+    company_name: Optional[str] = None
+    title: str
+    content: str
+    is_default: bool
+    created_at: datetime
+    updated_at: datetime
+    ai_score: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CoverLetterCreateRequest(BaseModel):
+    job_id: Optional[UUID] = None
+    title: str
+    content: str
+
+
+class CoverLetterUpdateRequest(BaseModel):
+    title: Optional[str] = None
+    content: Optional[str] = None
+
