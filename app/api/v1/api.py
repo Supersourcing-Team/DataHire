@@ -46,6 +46,10 @@ api_router.include_router(files_router)
 # Include Jobs router
 api_router.include_router(jobs_router)
 
+# Include Admin router
+from app.api.v1.admin import router as admin_router
+api_router.include_router(admin_router)
+
 @api_router.get("/")
 async def api_info():
     """API information endpoint."""
@@ -57,6 +61,10 @@ async def api_info():
             "linkedin": "/auth/linkedin",
             "google": "/auth/google",
             "jobs_dashboard": "/jobs/dashboard",
+            "admin_candidates": "/admin/candidates",
+            "admin_companies": "/admin/companies",
+            "admin_jobs": "/admin/jobs",
             # Add more endpoints as they are created
         }
     }
+

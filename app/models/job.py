@@ -7,6 +7,12 @@ import uuid
 
 from app.db.base_class import Base
 
+class JobStatus:
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    CLOSED = "closed"
+
+
 class JobPosting(Base):
     __tablename__ = "job_postings"
 
@@ -14,8 +20,19 @@ class JobPosting(Base):
     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
     
     title = Column(String(255), nullable=False)
-    description = Column(Text, nullable=False)
+    description = Column(Text, nullable=True)
     job_description_url = Column(String(500), nullable=True) # URL to uploaded JD file
+    
+    # Job Description Sections (Step 2)
+    job_overview = Column(Text, nullable=True)
+    about_role = Column(Text, nullable=True)
+    requirements = Column(JSONB, nullable=True) # Array of requirements
+    responsibilities = Column(JSONB, nullable=True) # Array of responsibilities
+    benefits = Column(JSONB, nullable=True) # Array of benefits
+
+    # Cover Letter Configuration (Step 4 & 5)
+    include_cover_letter = Column(Boolean, default=False, nullable=False)
+    cover_letter_required = Column(Boolean, default=False, nullable=False)
     
     # Core Job Details
     employment_type_id = Column(Integer, ForeignKey("meta_employment_types.id", ondelete="SET NULL"), nullable=True)
@@ -54,6 +71,10 @@ class JobPosting(Base):
     requires_visa_sponsorship = Column(Boolean, default=False)
     us_citizen_or_pr_only = Column(Boolean, default=False)
     security_clearance_required = Column(Boolean, default=False)
+    
+    # Custom fields for positions & status
+    num_positions = Column(Integer, default=1, nullable=False)
+    status = Column(String(20), default=JobStatus.DRAFT, nullable=False)
     
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

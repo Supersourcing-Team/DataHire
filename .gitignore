@@ -150,3 +150,6 @@ workflows/*
 .windsurf/
 .winds
 
+
+graphify-out/
+.agents/

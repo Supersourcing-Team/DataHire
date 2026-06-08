@@ -1,12 +1,14 @@
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import get_db
 from app.models.job import JobPosting
-from app.schemas.job import JobDashboardCardResponse
+from app.models.user import User
+from app.schemas.job import JobDashboardCardResponse, JobCreate, JobResponse
+from app.core.dependencies import require_employer
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -141,3 +143,30 @@ def get_dashboard_jobs(
         )
 
     return response
+
+
+@router.post("/", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
+def create_job(
+    job_in: JobCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_employer),
+):
+    # 1. Resolve company_id from current_user.employer.company_id
+    if not current_user.employer or not current_user.employer.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Employer must create or join a company before posting a job."
+        )
+    
+    # 2. Create the JobPosting object
+    db_job = JobPosting(
+        **job_in.model_dump(),
+        company_id=current_user.employer.company_id
+    )
+    
+    db.add(db_job)
+    db.commit()
+    db.refresh(db_job)
+    
+    return db_job
+
