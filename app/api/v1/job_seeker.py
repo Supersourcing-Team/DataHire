@@ -822,25 +822,32 @@ def upload_resume(
 ):
     """Save a manually uploaded resume from S3 URL."""
     candidate = get_candidate(current_user, db)
-    existing_resumes = db.query(Resume).filter(Resume.candidate_id == candidate.id).all()
     
-    # Set as primary default if it's the first one
-    is_primary = len(existing_resumes) == 0
-    if is_primary:
-        # Just to be safe, deactivate others
-        db.query(Resume).filter(Resume.candidate_id == candidate.id).update({Resume.is_primary: False})
+    # Check if this resume was already parsed during the upload stage
+    existing_resume = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.file_url == data.file_url
+    ).first()
+    
+    if existing_resume:
+        if data.file_name and existing_resume.file_name != data.file_name:
+            existing_resume.file_name = data.file_name
+            db.add(existing_resume)
+            db.commit()
+            db.refresh(existing_resume)
+        new_resume = existing_resume
+    else:
+        existing_resumes = db.query(Resume).filter(Resume.candidate_id == candidate.id).all()
+        is_primary = len(existing_resumes) == 0
         
-    new_resume = Resume(
-        candidate_id=candidate.id,
-        file_url=data.file_url,
-        file_name=data.file_name,
-        is_primary=is_primary,
-        version_number=len(existing_resumes) + 1,
-        extracted_skills=[]
-    )
-    db.add(new_resume)
-    db.commit()
-    db.refresh(new_resume)
+        from app.services.resume_parser import resume_parser_service
+        new_resume = resume_parser_service.parse_and_save_resume(
+            db=db,
+            candidate=candidate,
+            file_url=data.file_url,
+            file_name=data.file_name,
+            is_primary=is_primary
+        )
     
     return ResumeVersionResponse(
         id=new_resume.id,

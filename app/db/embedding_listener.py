@@ -22,6 +22,14 @@ def _get_text_to_embed(target) -> str:
         if isinstance(skills, list):
             parts.append(" ".join(str(s) for s in skills))
             
+    # Check associated sections (e.g. Resume.sections)
+    if hasattr(target, "sections") and getattr(target, "sections"):
+        sections = getattr(target, "sections")
+        if isinstance(sections, list):
+            for sec in sections:
+                if hasattr(sec, "original_content") and getattr(sec, "original_content"):
+                    parts.append(str(getattr(sec, "original_content")))
+            
     # Check job sections list fields
     for field in ["requirements", "responsibilities", "benefits"]:
         if hasattr(target, field) and getattr(target, field):
