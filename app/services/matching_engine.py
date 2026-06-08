@@ -18,7 +18,7 @@ class MatchingEngine:
 
     def calculate_cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
         """Calculate cosine similarity between two vectors."""
-        if not vec1 or not vec2:
+        if vec1 is None or vec2 is None or len(vec1) == 0 or len(vec2) == 0:
             return 0.0
         v1 = np.array(vec1)
         v2 = np.array(vec2)
@@ -36,7 +36,7 @@ class MatchingEngine:
         Calculates Semantic Context & Fit Score (0-100 scale).
         Includes domain multiplier and seniority penalty.
         """
-        if not job.embedding or not resume.overall_embedding:
+        if job.embedding is None or resume.overall_embedding is None:
             return 0.0
             
         # Base Cosine Similarity (-1 to 1) normalized to (0 to 100)

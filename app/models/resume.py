@@ -29,6 +29,7 @@ class Resume(Base):
     
     # Versioning
     parent_resume_id = Column(UUID(as_uuid=True), ForeignKey("resumes.id", ondelete="SET NULL"), nullable=True)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("job_postings.id", ondelete="SET NULL"), nullable=True)
     version_number = Column(Integer, default=1, nullable=False)
     is_primary = Column(Boolean, default=False, nullable=False)
     
@@ -48,7 +49,9 @@ class Resume(Base):
     # Relationships
     candidate = relationship("Candidate")
     taxonomy_domain = relationship("TaxonomyDomain")
+    job = relationship("JobPosting")
     sections = relationship("ResumeSection", back_populates="resume", cascade="all, delete-orphan")
+
 
     @validates("taxonomy_domain_id")
     def validate_dropdown_fks(self, key, value):

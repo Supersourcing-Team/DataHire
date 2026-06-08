@@ -42,22 +42,33 @@ async def candidate_step_1(
     candidate = get_candidate(current_user, db)
     
     from app.models.resume import Resume
-    # Deactivate existing primary resumes
-    existing_resumes = db.query(Resume).filter(Resume.candidate_id == candidate.id).all()
-    for r in existing_resumes:
-        r.is_primary = False
-        
-    # Create new primary resume
-    new_resume = Resume(
-        candidate_id=candidate.id,
-        file_url=str(data.resume_url),
-        file_name=data.resume_name,
-        is_primary=True,
-        version_number=len(existing_resumes) + 1
-    )
-    db.add(new_resume)
+    # Check if this resume was already parsed during the upload stage
+    existing_resume = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.file_url == str(data.resume_url)
+    ).first()
     
+    if existing_resume:
+        db.query(Resume).filter(Resume.candidate_id == candidate.id).update({Resume.is_primary: False})
+        existing_resume.is_primary = True
+        if data.resume_name and existing_resume.file_name != data.resume_name:
+            existing_resume.file_name = data.resume_name
+        db.add(existing_resume)
+        
+        if existing_resume.taxonomy_domain_id:
+            candidate.taxonomy_domain_id = existing_resume.taxonomy_domain_id
+    else:
+        from app.services.resume_parser import resume_parser_service
+        new_resume = resume_parser_service.parse_and_save_resume(
+            db=db,
+            candidate=candidate,
+            file_url=str(data.resume_url),
+            file_name=data.resume_name,
+            is_primary=True
+        )
+        
     candidate.onboarding_step = 1
+    db.add(candidate)
     db.commit()
     return {"message": "Step 1 completed successfully"}
 
