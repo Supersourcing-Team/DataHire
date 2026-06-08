@@ -13,8 +13,8 @@ class GeminiOptimizationEngine:
     def __init__(self):
         # Configure Gemini with the API key from settings
         genai.configure(api_key=settings.GEMINI_API_KEY)
-        # Use gemini-1.5-flash for fast, structured generation
-        self.model = genai.GenerativeModel('gemini-1.5-flash')
+        # Use gemini-2.5-flash for fast, structured generation
+        self.model = genai.GenerativeModel('gemini-2.5-flash')
 
     def _get_system_instruction_for_section(self, section_type: SectionType) -> str:
         """

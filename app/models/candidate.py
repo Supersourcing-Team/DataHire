@@ -22,6 +22,15 @@ class Candidate(Base):
     taxonomy_domain_id = Column(Integer, ForeignKey("taxonomy_domains.id", ondelete="SET NULL"), nullable=True)
     visa_status_id = Column(Integer, ForeignKey("meta_visa_statuses.id", ondelete="SET NULL"), nullable=True)
 
+    # Subscription and Credit System
+    plan_tier = Column(String(20), default="free", nullable=False)  # free, pro, premium
+    daily_apply_credits_used = Column(Integer, default=0, nullable=False)
+    monthly_ai_credits_used = Column(Integer, default=0, nullable=False)
+    resume_optimizations_used_this_month = Column(Integer, default=0, nullable=False)
+    cover_letters_generated_this_month = Column(Integer, default=0, nullable=False)
+    last_credits_reset_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    monthly_credits_reset_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -30,6 +39,8 @@ class Candidate(Base):
     work_status = relationship("MetaWorkStatus")
     taxonomy_domain = relationship("TaxonomyDomain")
     resumes = relationship("Resume", back_populates="candidate", cascade="all, delete-orphan")
+    applications = relationship("JobApplication", back_populates="candidate", cascade="all, delete-orphan")
+    saved_jobs = relationship("SavedJob", back_populates="candidate", cascade="all, delete-orphan")
 
     @validates("taxonomy_domain_id", "work_status_id", "visa_status_id")
     def validate_dropdown_fks(self, key, value):

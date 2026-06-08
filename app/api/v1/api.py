@@ -46,6 +46,10 @@ api_router.include_router(files_router)
 # Include Jobs router
 api_router.include_router(jobs_router)
 
+# Include Job Seeker router
+from app.api.v1.job_seeker import router as job_seeker_router
+api_router.include_router(job_seeker_router)
+
 # Include Admin router
 from app.api.v1.admin import router as admin_router
 api_router.include_router(admin_router)
