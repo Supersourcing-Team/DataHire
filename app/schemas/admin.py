@@ -23,6 +23,19 @@ class AdminCandidateResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AdminCandidateDashboardResponse(BaseModel):
+    title: str
+    total_candidates: int
+    active_ratio: float
+    active_ratio_label: str
+    active_candidates: int
+    active_label: str
+    suspended_candidates: int
+    suspended_label: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class AdminCompanyResponse(BaseModel):
     id: UUID
     name: str
