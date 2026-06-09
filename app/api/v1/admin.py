@@ -138,7 +138,7 @@ def suspend_company(
             detail="Organization not found."
         )
     
-    if not company.is_active:
+    if company.is_active is False:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Organization is already suspended."
@@ -183,7 +183,7 @@ def revoke_company(
             detail="Organization not found."
         )
     
-    if company.is_active:
+    if company.is_active is True:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Organization is already active."
