@@ -47,8 +47,15 @@ class S3Service:
             )
             
             # Construct the public URL
-            s3_url = f"https://{self.bucket_name}.s3.{settings.AWS_REGION}.amazonaws.com/{s3_key}"
-            
+            s3_url = self.s3_client.generate_presigned_url(
+                "get_object",
+                Params={
+                    "Bucket": self.bucket_name,
+                    "Key": s3_key,
+                },
+                ExpiresIn=3600,
+            )
+
             return s3_url
             
         except NoCredentialsError:

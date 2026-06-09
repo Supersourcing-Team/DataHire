@@ -81,6 +81,9 @@ class LinkedInOAuthService:
         
         # Check if user already exists
         existing_user = db.query(User).filter(User.email == email).first()
+        if existing_user and not existing_user.is_active:
+            raise ValueError("Inactive user")
+            
         is_new_user = existing_user is None
         
         if existing_user and existing_user.auth_provider != AuthProvider.LINKEDIN:
@@ -136,6 +139,8 @@ class LinkedInOAuthService:
         user = db.query(User).filter(User.email == email).first()
         
         if user:
+            if not user.is_active:
+                raise ValueError("Inactive user")
             role = user.role
             # Update existing user
             user.last_login = datetime.utcnow()
@@ -258,6 +263,8 @@ class LinkedInOAuthService:
         user = db.query(User).filter(User.email == email).first()
         
         if user:
+            if not user.is_active:
+                raise ValueError("Inactive user")
             # Update last login
             user.last_login = datetime.utcnow()
             user.updated_at = datetime.utcnow()
