@@ -138,7 +138,7 @@ def suspend_company(
             detail="Organization not found."
         )
     
-    if not company.is_active:
+    if company.is_active is False:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Organization is already suspended."
@@ -169,7 +169,7 @@ def suspend_company(
     return _format_company_response(updated_company)
 
 
-@router.post("/companies/{company_id}/revoke", response_model=AdminCompanyResponse)
+@router.post("/companies/{company_id}/revoke-suspension", response_model=AdminCompanyResponse)
 def revoke_company(
     company_id: UUID,
     db: Session = Depends(get_db),
@@ -183,7 +183,7 @@ def revoke_company(
             detail="Organization not found."
         )
     
-    if company.is_active:
+    if company.is_active is True:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Organization is already active."
