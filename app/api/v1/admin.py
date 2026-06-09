@@ -1,5 +1,4 @@
 from typing import List
-from fastapi import APIRouter, Depends
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
@@ -10,10 +9,12 @@ from app.models.candidate import Candidate
 from app.models.company import Company
 from app.models.job import JobPosting
 from app.models.user import User
+from app.models.refresh_token import RefreshToken
 from app.schemas.admin import (
     AdminCandidateResponse,
     AdminCompanyResponse,
-    AdminJobResponse
+    AdminJobResponse,
+    AdminUserSuspensionResponse
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -266,3 +267,66 @@ def get_all_jobs(
             )
         )
     return response
+
+
+@router.post("/users/{user_id}/suspend", response_model=AdminUserSuspensionResponse)
+def suspend_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminUserSuspensionResponse:
+    """Suspend a user (soft delete) and invalidate all their active sessions (Admin only)."""
+    # Guard against self-suspension
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Admins cannot suspend themselves"
+        )
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    # Suspend user
+    user.is_active = False
+    
+    # Invalidate active refresh tokens
+    db.query(RefreshToken).filter(RefreshToken.user_id == user.id).delete()
+    
+    db.commit()
+    db.refresh(user)
+
+    return AdminUserSuspensionResponse(
+        message="User suspended successfully",
+        user_id=user.id,
+        is_active=user.is_active
+    )
+
+
+@router.post("/users/{user_id}/revoke-suspension", response_model=AdminUserSuspensionResponse)
+def revoke_user_suspension(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminUserSuspensionResponse:
+    """Revoke user suspension (Admin only)."""
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+
+    # Activate user
+    user.is_active = True
+    db.commit()
+    db.refresh(user)
+
+    return AdminUserSuspensionResponse(
+        message="User suspension revoked successfully",
+        user_id=user.id,
+        is_active=user.is_active
+    )

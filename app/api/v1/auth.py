@@ -110,6 +110,12 @@ async def verify_login_otp(
             detail="User not found"
         )
     
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Inactive user"
+        )
+        
     # If this was their first time verifying (i.e. right after registration), mark as verified
     if not user.is_verified:
         user.is_verified = True
