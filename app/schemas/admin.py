@@ -55,6 +55,19 @@ class AdminCompanyResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AdminOrganizationDashboardResponse(BaseModel):
+    title: str
+    total_organizations: int
+    active_ratio: float
+    active_ratio_label: str
+    active_organizations: int
+    active_label: str
+    suspended_organizations: int
+    suspended_label: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class AdminJobResponse(BaseModel):
     id: UUID
     company_id: UUID
