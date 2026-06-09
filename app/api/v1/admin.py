@@ -20,6 +20,37 @@ from app.schemas.admin import (
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
+def _format_company_response(comp: Company) -> AdminCompanyResponse:
+    return AdminCompanyResponse(
+        id=comp.id,
+        name=comp.name,
+        website=comp.website,
+        logo_url=comp.logo_url,
+        founded_year=comp.founded_year,
+        description=comp.description,
+        zipcode=comp.zipcode,
+        office_landline_number=comp.office_landline_number,
+        alternate_email=comp.alternate_email,
+        work_mobile_number=comp.work_mobile_number,
+        onboarding_step=comp.onboarding_step,
+        onboarding_completed=comp.onboarding_completed,
+        organization_type_id=comp.organization_type_id,
+        organization_type_name=comp.organization_type.name if comp.organization_type else None,
+        industry_id=comp.industry_id,
+        industry_name=comp.industry.name if comp.industry else None,
+        size_id=comp.size_id,
+        size_label=comp.size.label if comp.size else None,
+        country_id=comp.country_id,
+        country_name=comp.country.name if comp.country else None,
+        state_id=comp.state_id,
+        state_name=comp.state.name if comp.state else None,
+        city_id=comp.city_id,
+        city_name=comp.city.name if comp.city else None,
+        is_active=comp.is_active,
+        created_at=comp.created_at,
+        updated_at=comp.updated_at
+    )
+
 @router.get("/candidates", response_model=List[AdminCandidateResponse])
 def get_all_candidates(
     skip: int = 0,
@@ -89,39 +120,92 @@ def get_all_companies(
 
     response = []
     for comp in companies:
-        response.append(
-            AdminCompanyResponse(
-                id=comp.id,
-                name=comp.name,
-                website=comp.website,
-                logo_url=comp.logo_url,
-                founded_year=comp.founded_year,
-                description=comp.description,
-                zipcode=comp.zipcode,
-                office_landline_number=comp.office_landline_number,
-                alternate_email=comp.alternate_email,
-                work_mobile_number=comp.work_mobile_number,
-                onboarding_step=comp.onboarding_step,
-                onboarding_completed=comp.onboarding_completed,
-                organization_type_id=comp.organization_type_id,
-                organization_type_name=comp.organization_type.name if comp.organization_type else None,
-                industry_id=comp.industry_id,
-                industry_name=comp.industry.name if comp.industry else None,
-                size_id=comp.size_id,
-                size_label=comp.size.label if comp.size else None,
-                country_id=comp.country_id,
-                country_name=comp.country.name if comp.country else None,
-                state_id=comp.state_id,
-                state_name=comp.state.name if comp.state else None,
-                city_id=comp.city_id,
-                city_name=comp.city.name if comp.city else None,
-                is_active=comp.is_active,
-                created_at=comp.created_at,
-                updated_at=comp.updated_at
-            )
-        )
+        response.append(_format_company_response(comp))
     return response
 
+
+@router.post("/companies/{company_id}/suspend", response_model=AdminCompanyResponse)
+def suspend_company(
+    company_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminCompanyResponse:
+    """Suspend an organization (Admin only)."""
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found."
+        )
+    
+    if not company.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Organization is already suspended."
+        )
+        
+    company.is_active = False
+    
+    # Soft delete (deactivate) all job postings created by this organization
+    db.query(JobPosting).filter(JobPosting.company_id == company_id).update(
+        {"is_active": False}, synchronize_session=False
+    )
+    
+    db.commit()
+    
+    updated_company = (
+        db.query(Company)
+        .options(
+            joinedload(Company.industry),
+            joinedload(Company.size),
+            joinedload(Company.country),
+            joinedload(Company.state),
+            joinedload(Company.city),
+            joinedload(Company.organization_type)
+        )
+        .filter(Company.id == company_id)
+        .first()
+    )
+    return _format_company_response(updated_company)
+
+
+@router.post("/companies/{company_id}/revoke", response_model=AdminCompanyResponse)
+def revoke_company(
+    company_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminCompanyResponse:
+    """Activate/Revoke suspension of an organization (Admin only)."""
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found."
+        )
+    
+    if company.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Organization is already active."
+        )
+        
+    company.is_active = True
+    db.commit()
+    
+    updated_company = (
+        db.query(Company)
+        .options(
+            joinedload(Company.industry),
+            joinedload(Company.size),
+            joinedload(Company.country),
+            joinedload(Company.state),
+            joinedload(Company.city),
+            joinedload(Company.organization_type)
+        )
+        .filter(Company.id == company_id)
+        .first()
+    )
+    return _format_company_response(updated_company)
 
 @router.get("/jobs", response_model=List[AdminJobResponse])
 def get_all_jobs(
