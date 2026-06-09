@@ -11,6 +11,7 @@ from app.models.job import JobPosting
 from app.models.user import User
 from app.models.refresh_token import RefreshToken
 from app.schemas.admin import (
+    AdminCandidateDashboardResponse,
     AdminCandidateResponse,
     AdminCompanyResponse,
     AdminJobResponse,
@@ -50,6 +51,38 @@ def _format_company_response(comp: Company) -> AdminCompanyResponse:
         is_active=comp.is_active,
         created_at=comp.created_at,
         updated_at=comp.updated_at
+    )
+
+
+@router.get("/dashboard/candidates", response_model=AdminCandidateDashboardResponse)
+def get_candidate_dashboard_details(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminCandidateDashboardResponse:
+    """Get candidate summary card details for the admin dashboard."""
+    total_candidates = db.query(Candidate).count()
+    active_candidates = (
+        db.query(Candidate)
+        .join(Candidate.user)
+        .filter(User.is_active == True)
+        .count()
+    )
+    suspended_candidates = total_candidates - active_candidates
+    active_ratio = (
+        round((active_candidates / total_candidates) * 100, 1)
+        if total_candidates
+        else 0.0
+    )
+
+    return AdminCandidateDashboardResponse(
+        title="CANDIDATES",
+        total_candidates=total_candidates,
+        active_ratio=active_ratio,
+        active_ratio_label=f"{active_ratio:.1f}%",
+        active_candidates=active_candidates,
+        active_label=f"{active_candidates} Active",
+        suspended_candidates=suspended_candidates,
+        suspended_label=f"{suspended_candidates} Suspended"
     )
 
 
