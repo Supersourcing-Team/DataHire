@@ -14,6 +14,7 @@ from app.schemas.admin import (
     AdminCandidateResponse,
     AdminCompanyResponse,
     AdminJobResponse,
+    AdminOrganizationDashboardResponse,
     AdminUserSuspensionResponse
 )
 
@@ -50,6 +51,38 @@ def _format_company_response(comp: Company) -> AdminCompanyResponse:
         created_at=comp.created_at,
         updated_at=comp.updated_at
     )
+
+
+@router.get("/dashboard/organizations", response_model=AdminOrganizationDashboardResponse)
+def get_organization_dashboard_details(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminOrganizationDashboardResponse:
+    """Get organization summary card details for the admin dashboard."""
+    total_organizations = db.query(Company).count()
+    active_organizations = (
+        db.query(Company)
+        .filter(Company.is_active == True)
+        .count()
+    )
+    suspended_organizations = total_organizations - active_organizations
+    active_ratio = (
+        round((active_organizations / total_organizations) * 100, 1)
+        if total_organizations
+        else 0.0
+    )
+
+    return AdminOrganizationDashboardResponse(
+        title="ORGANIZATIONS",
+        total_organizations=total_organizations,
+        active_ratio=active_ratio,
+        active_ratio_label=f"{active_ratio:.1f}%",
+        active_organizations=active_organizations,
+        active_label=f"{active_organizations} Active",
+        suspended_organizations=suspended_organizations,
+        suspended_label=f"{suspended_organizations} Suspended"
+    )
+
 
 @router.get("/candidates", response_model=List[AdminCandidateResponse])
 def get_all_candidates(
