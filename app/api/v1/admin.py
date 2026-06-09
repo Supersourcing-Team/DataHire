@@ -1,5 +1,5 @@
 from datetime import date, datetime, timezone, timedelta
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
@@ -489,15 +489,28 @@ def get_all_candidates(
 
 @router.get("/companies", response_model=List[AdminCompanyResponse])
 def get_all_companies(
+    search: Optional[str] = None,
+    organization_type_id: Optional[int] = None,
+    industry_id: Optional[int] = None,
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ) -> List[AdminCompanyResponse]:
     """List all companies registered in the platform (Admin only)."""
+    query = db.query(Company)
+
+    if search:
+        query = query.filter(Company.name.ilike(f"%{search}%"))
+
+    if organization_type_id not in (None, 0):
+        query = query.filter(Company.organization_type_id == organization_type_id)
+
+    if industry_id not in (None, 0):
+        query = query.filter(Company.industry_id == industry_id)
+
     companies = (
-        db.query(Company)
-        .options(
+        query.options(
             joinedload(Company.industry),
             joinedload(Company.size),
             joinedload(Company.country),
