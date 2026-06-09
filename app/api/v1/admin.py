@@ -169,7 +169,7 @@ def suspend_company(
     return _format_company_response(updated_company)
 
 
-@router.post("/companies/{company_id}/revoke", response_model=AdminCompanyResponse)
+@router.post("/companies/{company_id}/revoke-suspension", response_model=AdminCompanyResponse)
 def revoke_company(
     company_id: UUID,
     db: Session = Depends(get_db),
