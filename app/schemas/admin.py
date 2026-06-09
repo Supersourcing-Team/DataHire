@@ -87,3 +87,12 @@ class AdminJobResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class AdminUserSuspensionResponse(BaseModel):
+    message: str
+    user_id: UUID
+    is_active: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
