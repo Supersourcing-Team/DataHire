@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import get_db
 from app.core.dependencies import require_admin
+from app.models.application import JobApplication
 from app.models.candidate import Candidate
 from app.models.company import Company
 from app.models.employer import Employer
@@ -17,8 +18,16 @@ from app.schemas.admin import (
     AdminCandidateDashboardResponse,
     AdminCandidateResponse,
     AdminCompanyResponse,
+    AdminHiringFunnelAnalyticsResponse,
+    AdminHiringFunnelDataPoint,
     AdminJobResponse,
+    AdminOrganizationAboutCompany,
+    AdminOrganizationBadge,
+    AdminOrganizationCorporateDetail,
     AdminOrganizationDashboardResponse,
+    AdminOrganizationDetailResponse,
+    AdminOrganizationHeader,
+    AdminOrganizationJobOpeningsSummary,
     AdminPlatformGrowthAnalyticsResponse,
     AdminPlatformGrowthDataPoint,
     AdminUserSuspensionResponse
@@ -49,6 +58,66 @@ def _get_registration_counts(db: Session, model, trunc_unit: str, start: datetim
         .all()
     )
     return {_normalize_bucket_key(row.bucket): row.total for row in rows}
+
+
+def _format_count_label(count: int) -> str:
+    return f"{count:,}"
+
+
+def _format_created_label(created_at: datetime) -> str:
+    created_at_utc = (
+        created_at.astimezone(timezone.utc)
+        if created_at.tzinfo
+        else created_at.replace(tzinfo=timezone.utc)
+    )
+    return f"Created on {created_at_utc.strftime('%b')} {created_at_utc.day}, {created_at_utc.year}"
+
+
+def _format_display_value(value) -> str:
+    return str(value) if value not in (None, "") else "Not Specified"
+
+
+def _build_company_initials(name: str) -> str:
+    words = [word for word in name.replace("-", " ").split() if word]
+    if not words:
+        return "NA"
+    if len(words) == 1:
+        return words[0][:2].upper()
+    return "".join(word[0] for word in words[:2]).upper()
+
+
+def _build_company_location_label(comp: Company) -> str:
+    parts = [
+        comp.city.name if comp.city else None,
+        comp.state.name if comp.state else None,
+        comp.country.name if comp.country else None
+    ]
+    location = ", ".join(part for part in parts if part)
+    return location or "Not Specified"
+
+
+def _build_status_badge(is_active: bool) -> AdminOrganizationBadge:
+    if is_active:
+        return AdminOrganizationBadge(label="Active", variant="success")
+    return AdminOrganizationBadge(label="Suspended", variant="danger")
+
+
+def _build_onboarding_badge(onboarding_step: int, onboarding_completed: bool) -> AdminOrganizationBadge:
+    if onboarding_completed:
+        return AdminOrganizationBadge(label="Onboarding Complete", variant="success")
+    return AdminOrganizationBadge(
+        label=f"Onboarding: Step {onboarding_step}",
+        variant="warning"
+    )
+
+
+def _get_application_status_count(db: Session, statuses: List[str]) -> int:
+    normalized_statuses = [status_value.lower() for status_value in statuses]
+    return (
+        db.query(JobApplication)
+        .filter(func.lower(JobApplication.status).in_(normalized_statuses))
+        .count()
+    )
 
 
 def _build_growth_buckets(period: str) -> tuple:
@@ -105,6 +174,137 @@ def _format_company_response(comp: Company) -> AdminCompanyResponse:
         is_active=comp.is_active,
         created_at=comp.created_at,
         updated_at=comp.updated_at
+    )
+
+
+def _format_organization_detail_response(comp: Company, job_openings_count: int) -> AdminOrganizationDetailResponse:
+    organization_type_label = _format_display_value(
+        comp.organization_type.name if comp.organization_type else None
+    )
+    industry_name = comp.industry.name if comp.industry else None
+    size_label = comp.size.label if comp.size else None
+    country_name = comp.country.name if comp.country else None
+    state_name = comp.state.name if comp.state else None
+    city_name = comp.city.name if comp.city else None
+    location_label = _build_company_location_label(comp)
+    status_badge = _build_status_badge(comp.is_active)
+    onboarding_badge = _build_onboarding_badge(
+        comp.onboarding_step,
+        comp.onboarding_completed
+    )
+    job_count_label = _format_count_label(job_openings_count)
+    jobs_endpoint = f"/admin/companies/{comp.id}/jobs"
+
+    corporate_details = [
+        AdminOrganizationCorporateDetail(
+            key="industry_sector",
+            label="Industry Sector",
+            value=industry_name,
+            value_label=_format_display_value(industry_name)
+        ),
+        AdminOrganizationCorporateDetail(
+            key="website",
+            label="Website",
+            value=comp.website,
+            value_label=_format_display_value(comp.website)
+        ),
+        AdminOrganizationCorporateDetail(
+            key="alternate_contact_email",
+            label="Alternate Contact Email",
+            value=comp.alternate_email,
+            value_label=_format_display_value(comp.alternate_email)
+        ),
+        AdminOrganizationCorporateDetail(
+            key="work_mobile",
+            label="Work Mobile",
+            value=comp.work_mobile_number,
+            value_label=_format_display_value(comp.work_mobile_number)
+        ),
+        AdminOrganizationCorporateDetail(
+            key="office_landline",
+            label="Office Landline",
+            value=comp.office_landline_number,
+            value_label=_format_display_value(comp.office_landline_number)
+        ),
+        AdminOrganizationCorporateDetail(
+            key="company_size",
+            label="Company Size",
+            value=size_label,
+            value_label=_format_display_value(size_label)
+        ),
+        AdminOrganizationCorporateDetail(
+            key="founded_in",
+            label="Founded In",
+            value=str(comp.founded_year) if comp.founded_year else None,
+            value_label=_format_display_value(comp.founded_year)
+        ),
+        AdminOrganizationCorporateDetail(
+            key="location",
+            label="Location",
+            value=location_label if location_label != "Not Specified" else None,
+            value_label=location_label
+        ),
+    ]
+
+    return AdminOrganizationDetailResponse(
+        id=comp.id,
+        name=comp.name,
+        website=comp.website,
+        logo_url=comp.logo_url,
+        founded_year=comp.founded_year,
+        description=comp.description,
+        zipcode=comp.zipcode,
+        office_landline_number=comp.office_landline_number,
+        alternate_email=comp.alternate_email,
+        work_mobile_number=comp.work_mobile_number,
+        onboarding_step=comp.onboarding_step,
+        onboarding_completed=comp.onboarding_completed,
+        organization_type_id=comp.organization_type_id,
+        organization_type_name=comp.organization_type.name if comp.organization_type else None,
+        industry_id=comp.industry_id,
+        industry_name=industry_name,
+        size_id=comp.size_id,
+        size_label=size_label,
+        country_id=comp.country_id,
+        country_name=country_name,
+        state_id=comp.state_id,
+        state_name=state_name,
+        city_id=comp.city_id,
+        city_name=city_name,
+        location_label=location_label,
+        is_active=comp.is_active,
+        created_at=comp.created_at,
+        updated_at=comp.updated_at,
+        header=AdminOrganizationHeader(
+            id=comp.id,
+            name=comp.name,
+            initials=_build_company_initials(comp.name),
+            logo_url=comp.logo_url,
+            organization_type_id=comp.organization_type_id,
+            organization_type_name=comp.organization_type.name if comp.organization_type else None,
+            organization_type_label=organization_type_label,
+            is_active=comp.is_active,
+            status_label=status_badge.label,
+            status_badge=status_badge,
+            onboarding_step=comp.onboarding_step,
+            onboarding_completed=comp.onboarding_completed,
+            onboarding_badge=onboarding_badge,
+            created_at=comp.created_at,
+            created_label=_format_created_label(comp.created_at)
+        ),
+        corporate_details=corporate_details,
+        about_company=AdminOrganizationAboutCompany(
+            title="About the Company",
+            description=comp.description,
+            description_label=comp.description or "No description provided for this organization yet."
+        ),
+        job_openings_summary=AdminOrganizationJobOpeningsSummary(
+            title=f"Job Openings ({job_count_label})",
+            count=job_openings_count,
+            count_label=job_count_label,
+            description="Manage active recruitment listings published by this organization.",
+            jobs_endpoint=jobs_endpoint
+        )
     )
 
 
@@ -206,6 +406,43 @@ def get_platform_growth_analytics(
     )
 
 
+@router.get("/dashboard/hiring-funnel", response_model=AdminHiringFunnelAnalyticsResponse)
+def get_hiring_funnel_analytics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminHiringFunnelAnalyticsResponse:
+    """Get platform-level hiring funnel analytics for the admin dashboard."""
+    stages = [
+        ("Organizations", db.query(Company).count()),
+        ("Jobs Posted", db.query(JobPosting).count()),
+        ("Applications", db.query(JobApplication).count()),
+        ("Shortlisted", _get_application_status_count(db, ["under_review", "shortlisted"])),
+        ("Interviewed", _get_application_status_count(db, ["interviewing", "interviewed"])),
+        ("Hired", _get_application_status_count(db, ["offered", "hired"])),
+    ]
+
+    data = []
+    for title, count in stages:
+        count_label = _format_count_label(count)
+        data.append(
+            AdminHiringFunnelDataPoint(
+                title=title,
+                count=count,
+                count_label=count_label,
+                platform_count=count,
+                platform_count_label=count_label,
+                tooltip_title=title,
+                tooltip_platform_count_label=f"Platform Count: {count_label}"
+            )
+        )
+
+    return AdminHiringFunnelAnalyticsResponse(
+        title="Hiring Funnel Analytics",
+        description="Visual drop-off from platform onboarding down to successful hires.",
+        data=data
+    )
+
+
 @router.get("/candidates", response_model=List[AdminCandidateResponse])
 def get_all_candidates(
     skip: int = 0,
@@ -277,6 +514,41 @@ def get_all_companies(
     for comp in companies:
         response.append(_format_company_response(comp))
     return response
+
+
+@router.get("/companies/{company_id}/details", response_model=AdminOrganizationDetailResponse)
+def get_company_details(
+    company_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminOrganizationDetailResponse:
+    """Get full organization details for the admin organization detail page."""
+    company = (
+        db.query(Company)
+        .options(
+            joinedload(Company.industry),
+            joinedload(Company.size),
+            joinedload(Company.country),
+            joinedload(Company.state),
+            joinedload(Company.city),
+            joinedload(Company.organization_type)
+        )
+        .filter(Company.id == company_id)
+        .first()
+    )
+    if not company:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Organization not found."
+        )
+
+    job_openings_count = (
+        db.query(JobPosting)
+        .filter(JobPosting.company_id == company_id)
+        .count()
+    )
+
+    return _format_organization_detail_response(company, job_openings_count)
 
 
 @router.post("/companies/{company_id}/suspend", response_model=AdminCompanyResponse)

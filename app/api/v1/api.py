@@ -65,10 +65,12 @@ async def api_info():
             "linkedin": "/auth/linkedin",
             "google": "/auth/google",
             "jobs_dashboard": "/jobs/dashboard",
+            "admin_hiring_funnel": "/admin/dashboard/hiring-funnel",
             "admin_growth_analytics": "/admin/dashboard/growth-analytics",
             "admin_candidate_dashboard": "/admin/dashboard/candidates",
             "admin_candidates": "/admin/candidates",
             "admin_companies": "/admin/companies",
+            "admin_company_details": "/admin/companies/{company_id}/details",
             "admin_organization_dashboard": "/admin/dashboard/organizations",
             "admin_jobs": "/admin/jobs",
             # Add more endpoints as they are created
