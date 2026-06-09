@@ -1,12 +1,12 @@
 # FastAPI and core dependencies
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-python-multipart
+python-multipart==0.0.6
 
 # Database
 sqlalchemy==2.0.23
 alembic==1.12.1
-# psycopg2==2.9.9  # Use psycopg2 instead of psycopg2-binary
+psycopg2==2.9.9  # Use psycopg2 instead of psycopg2-binary
 pgvector>=0.2.3
 
 # Pydantic and validation
