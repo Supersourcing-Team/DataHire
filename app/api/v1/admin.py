@@ -1,12 +1,15 @@
+from datetime import date, datetime, timezone, timedelta
 from typing import List
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import get_db
 from app.core.dependencies import require_admin
 from app.models.candidate import Candidate
 from app.models.company import Company
+from app.models.employer import Employer
 from app.models.job import JobPosting
 from app.models.user import User
 from app.models.refresh_token import RefreshToken
@@ -16,10 +19,61 @@ from app.schemas.admin import (
     AdminCompanyResponse,
     AdminJobResponse,
     AdminOrganizationDashboardResponse,
+    AdminPlatformGrowthAnalyticsResponse,
+    AdminPlatformGrowthDataPoint,
     AdminUserSuspensionResponse
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _add_months(value: datetime, months: int) -> datetime:
+    month_index = value.month - 1 + months
+    year = value.year + month_index // 12
+    month = month_index % 12 + 1
+    return value.replace(year=year, month=month)
+
+
+def _normalize_bucket_key(value) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    return value
+
+
+def _get_registration_counts(db: Session, model, trunc_unit: str, start: datetime, end: datetime) -> dict:
+    bucket = func.date_trunc(trunc_unit, model.created_at)
+    rows = (
+        db.query(bucket.label("bucket"), func.count(model.id).label("total"))
+        .filter(model.created_at >= start, model.created_at < end)
+        .group_by(bucket)
+        .all()
+    )
+    return {_normalize_bucket_key(row.bucket): row.total for row in rows}
+
+
+def _build_growth_buckets(period: str) -> tuple:
+    now = datetime.now(timezone.utc)
+
+    if period == "weekly":
+        current_week = datetime.combine(
+            (now - timedelta(days=now.weekday())).date(),
+            datetime.min.time(),
+            tzinfo=timezone.utc
+        )
+        buckets = [current_week - timedelta(weeks=offset) for offset in range(7, -1, -1)]
+        labels = [bucket.strftime("%b %d") for bucket in buckets]
+        return "week", buckets, labels, current_week + timedelta(weeks=1)
+
+    if period == "monthly":
+        current_month = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
+        buckets = [_add_months(current_month, offset) for offset in range(-11, 1)]
+        labels = [bucket.strftime("%b") for bucket in buckets]
+        return "month", buckets, labels, _add_months(current_month, 1)
+
+    today = datetime.combine(now.date(), datetime.min.time(), tzinfo=timezone.utc)
+    buckets = [today - timedelta(days=offset) for offset in range(6, -1, -1)]
+    labels = [bucket.strftime("%a") for bucket in buckets]
+    return "day", buckets, labels, today + timedelta(days=1)
 
 
 def _format_company_response(comp: Company) -> AdminCompanyResponse:
@@ -114,6 +168,41 @@ def get_organization_dashboard_details(
         active_label=f"{active_organizations} Active",
         suspended_organizations=suspended_organizations,
         suspended_label=f"{suspended_organizations} Suspended"
+    )
+
+
+@router.get("/dashboard/growth-analytics", response_model=AdminPlatformGrowthAnalyticsResponse)
+def get_platform_growth_analytics(
+    period: str = Query("daily", regex="^(daily|weekly|monthly)$"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminPlatformGrowthAnalyticsResponse:
+    """Get candidate and employer registration analytics for the admin dashboard."""
+    trunc_unit, buckets, labels, end = _build_growth_buckets(period)
+    start = buckets[0]
+
+    candidate_counts = _get_registration_counts(db, Candidate, trunc_unit, start, end)
+    employer_counts = _get_registration_counts(db, Employer, trunc_unit, start, end)
+
+    data = []
+    for bucket, label in zip(buckets, labels):
+        bucket_key = bucket.date()
+        data.append(
+            AdminPlatformGrowthDataPoint(
+                label=label,
+                bucket_start=bucket,
+                candidates=candidate_counts.get(bucket_key, 0),
+                employers=employer_counts.get(bucket_key, 0)
+            )
+        )
+
+    return AdminPlatformGrowthAnalyticsResponse(
+        title="Platform Growth Analytics",
+        description="Track the registration pace of Candidates and Employers.",
+        period=period,
+        candidates_label="Candidates",
+        employers_label="Employers",
+        data=data
     )
 
 
