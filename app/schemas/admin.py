@@ -68,6 +68,97 @@ class AdminCompanyResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AdminOrganizationBadge(BaseModel):
+    label: str
+    variant: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminOrganizationHeader(BaseModel):
+    id: UUID
+    name: str
+    initials: str
+    logo_url: Optional[str] = None
+    organization_type_id: Optional[int] = None
+    organization_type_name: Optional[str] = None
+    organization_type_label: str
+    is_active: bool
+    status_label: str
+    status_badge: AdminOrganizationBadge
+    onboarding_step: int
+    onboarding_completed: bool
+    onboarding_badge: AdminOrganizationBadge
+    created_at: datetime
+    created_label: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminOrganizationCorporateDetail(BaseModel):
+    key: str
+    label: str
+    value: Optional[str] = None
+    value_label: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminOrganizationAboutCompany(BaseModel):
+    title: str
+    description: Optional[str] = None
+    description_label: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminOrganizationJobOpeningsSummary(BaseModel):
+    title: str
+    count: int
+    count_label: str
+    description: str
+    jobs_endpoint: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminOrganizationDetailResponse(BaseModel):
+    id: UUID
+    name: str
+    website: Optional[str] = None
+    logo_url: Optional[str] = None
+    founded_year: Optional[int] = None
+    description: Optional[str] = None
+    zipcode: Optional[str] = None
+    office_landline_number: Optional[str] = None
+    alternate_email: Optional[str] = None
+    work_mobile_number: Optional[str] = None
+    onboarding_step: int
+    onboarding_completed: bool
+    organization_type_id: Optional[int] = None
+    organization_type_name: Optional[str] = None
+    industry_id: Optional[int] = None
+    industry_name: Optional[str] = None
+    size_id: Optional[int] = None
+    size_label: Optional[str] = None
+    country_id: Optional[int] = None
+    country_name: Optional[str] = None
+    state_id: Optional[int] = None
+    state_name: Optional[str] = None
+    city_id: Optional[int] = None
+    city_name: Optional[str] = None
+    location_label: str
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
+    header: AdminOrganizationHeader
+    corporate_details: List[AdminOrganizationCorporateDetail]
+    about_company: AdminOrganizationAboutCompany
+    job_openings_summary: AdminOrganizationJobOpeningsSummary
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class AdminOrganizationDashboardResponse(BaseModel):
     title: str
     total_organizations: int
@@ -97,6 +188,26 @@ class AdminPlatformGrowthAnalyticsResponse(BaseModel):
     candidates_label: str
     employers_label: str
     data: List[AdminPlatformGrowthDataPoint]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminHiringFunnelDataPoint(BaseModel):
+    title: str
+    count: int
+    count_label: str
+    platform_count: int
+    platform_count_label: str
+    tooltip_title: str
+    tooltip_platform_count_label: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminHiringFunnelAnalyticsResponse(BaseModel):
+    title: str
+    description: str
+    data: List[AdminHiringFunnelDataPoint]
 
     model_config = ConfigDict(from_attributes=True)
 
