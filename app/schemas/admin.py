@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
@@ -77,6 +77,26 @@ class AdminOrganizationDashboardResponse(BaseModel):
     active_label: str
     suspended_organizations: int
     suspended_label: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminPlatformGrowthDataPoint(BaseModel):
+    label: str
+    bucket_start: datetime
+    candidates: int
+    employers: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminPlatformGrowthAnalyticsResponse(BaseModel):
+    title: str
+    description: str
+    period: str
+    candidates_label: str
+    employers_label: str
+    data: List[AdminPlatformGrowthDataPoint]
 
     model_config = ConfigDict(from_attributes=True)
 

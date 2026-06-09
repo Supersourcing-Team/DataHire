@@ -65,6 +65,7 @@ async def api_info():
             "linkedin": "/auth/linkedin",
             "google": "/auth/google",
             "jobs_dashboard": "/jobs/dashboard",
+            "admin_growth_analytics": "/admin/dashboard/growth-analytics",
             "admin_candidate_dashboard": "/admin/dashboard/candidates",
             "admin_candidates": "/admin/candidates",
             "admin_companies": "/admin/companies",
