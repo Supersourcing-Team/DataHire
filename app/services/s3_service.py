@@ -67,7 +67,7 @@ class S3Service:
             await file.seek(0)
 
     async def upload_bytes(self, contents: bytes, filename: str, folder: S3Folder, content_type: str = "image/png") -> str:
-        """Uploads raw bytes to a specific S3 folder and returns the public URL."""
+        """Uploads raw bytes to a specific S3 folder and returns the presigned URL."""
         if not self.bucket_name:
             raise HTTPException(status_code=500, detail="S3_BUCKET_NAME is not configured")
 
@@ -83,7 +83,14 @@ class S3Service:
                 ContentType=content_type
             )
             
-            s3_url = f"https://{self.bucket_name}.s3.{settings.AWS_REGION}.amazonaws.com/{s3_key}"
+            s3_url = self.s3_client.generate_presigned_url(
+                "get_object",
+                Params={
+                    "Bucket": self.bucket_name,
+                    "Key": s3_key,
+                },
+                ExpiresIn=3600,
+            )
             return s3_url
             
         except NoCredentialsError:
@@ -92,7 +99,7 @@ class S3Service:
             raise HTTPException(status_code=500, detail=f"S3 byte upload failed: {str(e)}")
 
     async def delete_file(self, url: str) -> bool:
-        """Deletes a file from S3 given its public URL."""
+        """Deletes a file from S3 given its URL."""
         if not self.bucket_name:
             raise HTTPException(status_code=500, detail="S3_BUCKET_NAME is not configured")
             
@@ -103,7 +110,7 @@ class S3Service:
             if domain not in url:
                 raise ValueError("Invalid S3 URL or does not match current bucket")
                 
-            s3_key = url.split(domain)[-1]
+            s3_key = url.split(domain)[-1].split("?")[0]
             
             self.s3_client.delete_object(
                 Bucket=self.bucket_name,
@@ -117,3 +124,39 @@ class S3Service:
             raise HTTPException(status_code=500, detail=f"S3 deletion failed: {str(e)}")
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Failed to delete file: {str(e)}")
+
+    def get_presigned_url(self, url: str, expires_in: int = 3600) -> str:
+        """Generates a presigned URL from a static S3 URL."""
+        if not url or not self.bucket_name:
+            return url
+        
+        # Check if the URL is an S3 URL for our bucket and region
+        domain = f"s3.{settings.AWS_REGION}.amazonaws.com"
+        if self.bucket_name not in url or domain not in url:
+            return url
+            
+        try:
+            # Extract key.
+            prefix = f"{self.bucket_name}.s3.{settings.AWS_REGION}.amazonaws.com/"
+            if prefix in url:
+                s3_key = url.split(prefix)[-1]
+            else:
+                parts = url.split("amazonaws.com/")
+                if len(parts) >= 2:
+                    s3_key = parts[-1]
+                else:
+                    return url
+            
+            s3_key = s3_key.split("?")[0]
+            
+            presigned_url = self.s3_client.generate_presigned_url(
+                "get_object",
+                Params={
+                    "Bucket": self.bucket_name,
+                    "Key": s3_key,
+                },
+                ExpiresIn=expires_in,
+            )
+            return presigned_url
+        except Exception:
+            return url

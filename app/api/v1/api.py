@@ -74,6 +74,8 @@ async def api_info():
             "admin_company_details": "/admin/companies/{company_id}/details",
             "admin_organization_dashboard": "/admin/dashboard/organizations",
             "admin_jobs": "/admin/jobs",
+            "admin_job_details": "/admin/jobs/{job_id}",
+            "admin_job_dashboard": "/admin/dashboard/jobs",
             # Add more endpoints as they are created
         }
     }
