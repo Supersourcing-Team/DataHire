@@ -69,6 +69,7 @@ async def api_info():
             "admin_growth_analytics": "/admin/dashboard/growth-analytics",
             "admin_candidate_dashboard": "/admin/dashboard/candidates",
             "admin_candidates": "/admin/candidates",
+            "admin_candidate_details": "/admin/candidates/{candidate_id}",
             "admin_companies": "/admin/companies",
             "admin_company_details": "/admin/companies/{company_id}/details",
             "admin_organization_dashboard": "/admin/dashboard/organizations",

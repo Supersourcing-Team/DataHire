@@ -3,7 +3,7 @@ from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.db.session import get_db
 from app.core.dependencies import require_admin
@@ -14,9 +14,13 @@ from app.models.employer import Employer
 from app.models.job import JobPosting
 from app.models.user import User
 from app.models.refresh_token import RefreshToken
+from app.models.resume import Resume
 from app.schemas.admin import (
     AdminCandidateDashboardResponse,
     AdminCandidateResponse,
+    AdminCandidateDetailResponse,
+    AdminCandidateResumeResponse,
+    AdminCandidateApplicationResponse,
     AdminCompanyResponse,
     AdminHiringFunnelAnalyticsResponse,
     AdminHiringFunnelDataPoint,
@@ -445,15 +449,20 @@ def get_hiring_funnel_analytics(
 
 @router.get("/candidates", response_model=List[AdminCandidateResponse])
 def get_all_candidates(
+    search: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ) -> List[AdminCandidateResponse]:
     """List all candidates registered in the platform (Admin only)."""
+    query = db.query(Candidate)
+
+    if search:
+        query = query.filter(Candidate.full_name.ilike(f"%{search}%"))
+
     candidates = (
-        db.query(Candidate)
-        .options(
+        query.options(
             joinedload(Candidate.user),
             joinedload(Candidate.work_status),
             joinedload(Candidate.taxonomy_domain)
@@ -485,6 +494,90 @@ def get_all_candidates(
             )
         )
     return response
+
+
+@router.get("/candidates/{candidate_id}", response_model=AdminCandidateDetailResponse)
+def get_candidate_details(
+    candidate_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminCandidateDetailResponse:
+    """Get full candidate details for the admin candidate detail page (Admin only)."""
+    cand = (
+        db.query(Candidate)
+        .options(
+            joinedload(Candidate.user),
+            joinedload(Candidate.work_status),
+            joinedload(Candidate.taxonomy_domain),
+            joinedload(Candidate.visa_status),
+            selectinload(Candidate.resumes).joinedload(Resume.taxonomy_domain),
+            selectinload(Candidate.applications).joinedload(JobApplication.job).joinedload(JobPosting.company)
+        )
+        .filter(Candidate.id == candidate_id)
+        .first()
+    )
+    if not cand:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Candidate not found."
+        )
+
+    resumes_list = []
+    for r in cand.resumes:
+        resumes_list.append(
+            AdminCandidateResumeResponse(
+                id=r.id,
+                file_name=r.file_name,
+                file_url=r.file_url,
+                version_number=r.version_number,
+                is_primary=r.is_primary,
+                total_experience_years=r.total_experience_years,
+                taxonomy_domain_name=r.taxonomy_domain.name if r.taxonomy_domain else None,
+                created_at=r.created_at
+            )
+        )
+
+    apps_list = []
+    for app in cand.applications:
+        apps_list.append(
+            AdminCandidateApplicationResponse(
+                id=app.id,
+                job_id=app.job_id,
+                job_title=app.job.title if app.job else "Unknown Position",
+                company_name=app.job.company.name if app.job and app.job.company else None,
+                status=app.status,
+                created_at=app.created_at
+            )
+        )
+
+    return AdminCandidateDetailResponse(
+        id=cand.id,
+        user_id=cand.user_id,
+        user_email=cand.user.email,
+        full_name=cand.full_name,
+        phone=cand.phone,
+        profile_picture=cand.profile_picture,
+        onboarding_step=cand.onboarding_step,
+        onboarding_completed=cand.onboarding_completed,
+        work_status_id=cand.work_status_id,
+        work_status_name=cand.work_status.name if cand.work_status else None,
+        taxonomy_domain_id=cand.taxonomy_domain_id,
+        taxonomy_domain_name=cand.taxonomy_domain.name if cand.taxonomy_domain else None,
+        visa_status_id=cand.visa_status_id,
+        visa_status_name=cand.visa_status.name if cand.visa_status else None,
+        is_active=cand.user.is_active,
+        plan_tier=cand.plan_tier,
+        daily_apply_credits_used=cand.daily_apply_credits_used,
+        monthly_ai_credits_used=cand.monthly_ai_credits_used,
+        resume_optimizations_used_this_month=cand.resume_optimizations_used_this_month,
+        cover_letters_generated_this_month=cand.cover_letters_generated_this_month,
+        last_credits_reset_at=cand.last_credits_reset_at,
+        monthly_credits_reset_at=cand.monthly_credits_reset_at,
+        created_at=cand.created_at,
+        updated_at=cand.updated_at,
+        resumes=resumes_list,
+        applications=apps_list
+    )
 
 
 @router.get("/companies", response_model=List[AdminCompanyResponse])

@@ -253,3 +253,59 @@ class AdminUserSuspensionResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class AdminCandidateResumeResponse(BaseModel):
+    id: UUID
+    file_name: Optional[str] = None
+    file_url: Optional[str] = None
+    version_number: int
+    is_primary: bool
+    total_experience_years: int
+    taxonomy_domain_name: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminCandidateApplicationResponse(BaseModel):
+    id: UUID
+    job_id: UUID
+    job_title: str
+    company_name: Optional[str] = None
+    status: str
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminCandidateDetailResponse(BaseModel):
+    id: UUID
+    user_id: UUID
+    user_email: str
+    full_name: str
+    phone: Optional[str] = None
+    profile_picture: Optional[str] = None
+    onboarding_step: int
+    onboarding_completed: bool
+    work_status_id: Optional[int] = None
+    work_status_name: Optional[str] = None
+    taxonomy_domain_id: Optional[int] = None
+    taxonomy_domain_name: Optional[str] = None
+    visa_status_id: Optional[int] = None
+    visa_status_name: Optional[str] = None
+    is_active: bool
+    plan_tier: str
+    daily_apply_credits_used: int
+    monthly_ai_credits_used: int
+    resume_optimizations_used_this_month: int
+    cover_letters_generated_this_month: int
+    last_credits_reset_at: datetime
+    monthly_credits_reset_at: datetime
+    created_at: datetime
+    updated_at: datetime
+
+    resumes: List[AdminCandidateResumeResponse] = []
+    applications: List[AdminCandidateApplicationResponse] = []
+
+    model_config = ConfigDict(from_attributes=True)
+
