@@ -38,6 +38,7 @@ class Candidate(Base):
     user = relationship("User", back_populates="candidate")
     work_status = relationship("MetaWorkStatus")
     taxonomy_domain = relationship("TaxonomyDomain")
+    visa_status = relationship("MetaVisaStatus")
     resumes = relationship("Resume", back_populates="candidate", cascade="all, delete-orphan")
     applications = relationship("JobApplication", back_populates="candidate", cascade="all, delete-orphan")
     saved_jobs = relationship("SavedJob", back_populates="candidate", cascade="all, delete-orphan")
