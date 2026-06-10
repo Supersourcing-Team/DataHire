@@ -742,15 +742,49 @@ def revoke_company(
 
 @router.get("/jobs", response_model=List[AdminJobResponse])
 def get_all_jobs(
+    search: Optional[str] = None,
+    work_mode_id: Optional[int] = None,
+    visa: Optional[str] = None,
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ) -> List[AdminJobResponse]:
     """List all jobs (active, inactive, draft) posted in the platform (Admin only)."""
+    query = db.query(JobPosting)
+
+    if search:
+        from app.models.company import Company
+        from app.models.meta import MetaCity, MetaState, MetaCountry
+
+        query = (
+            query.join(Company, JobPosting.company_id == Company.id)
+            .outerjoin(MetaCity, JobPosting.city_id == MetaCity.id)
+            .outerjoin(MetaState, JobPosting.state_id == MetaState.id)
+            .outerjoin(MetaCountry, JobPosting.country_id == MetaCountry.id)
+            .filter(
+                or_(
+                    JobPosting.title.ilike(f"%{search}%"),
+                    Company.name.ilike(f"%{search}%"),
+                    MetaCity.name.ilike(f"%{search}%"),
+                    MetaState.name.ilike(f"%{search}%"),
+                    MetaCountry.name.ilike(f"%{search}%")
+                )
+            )
+        )
+
+    if work_mode_id not in (None, 0):
+        query = query.filter(JobPosting.work_mode_id == work_mode_id)
+
+    if visa is not None:
+        val = str(visa).lower().strip()
+        if val in ("true", "1", "yes", "sponsorship_required", "requires_visa_sponsorship", "requires_visa"):
+            query = query.filter(JobPosting.requires_visa_sponsorship == True)
+        elif val in ("false", "0", "no", "no_sponsorship", "does_not_require"):
+            query = query.filter(JobPosting.requires_visa_sponsorship == False)
+
     jobs = (
-        db.query(JobPosting)
-        .options(
+        query.options(
             joinedload(JobPosting.company),
             joinedload(JobPosting.employment_type),
             joinedload(JobPosting.work_mode),
