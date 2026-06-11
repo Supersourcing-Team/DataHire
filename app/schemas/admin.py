@@ -317,6 +317,9 @@ class AdminJobDashboardResponse(BaseModel):
     active_label: str
     total_positions_open: int
     visa_sponsored_roles: int
+class AdminJobAnalyticsByDomainDataPoint(BaseModel):
+    domain_name: str
+    count: int
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -338,4 +341,99 @@ class AdminJobDetailResponse(AdminJobResponse):
     must_be_authorized_to_work: bool
     us_citizen_or_pr_only: bool
     security_clearance_required: bool
+class AdminJobAnalyticsByDomainResponse(BaseModel):
+    title: str
+    description: str
+    data: List[AdminJobAnalyticsByDomainDataPoint]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminSkillCategoryDataPoint(BaseModel):
+    title: str
+    count: int
+    count_label: str
+    platform_count: int
+    platform_count_label: str
+    tooltip_title: str
+    tooltip_platform_count_label: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminSkillCategoriesResponse(BaseModel):
+    title: str
+    description: str
+    data: List[AdminSkillCategoryDataPoint]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminGeographicAnalyticsDataPoint(BaseModel):
+    location_name: str
+    count: int
+    count_label: str
+    platform_count: int
+    platform_count_label: str
+    tooltip_title: str
+    tooltip_platform_count_label: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminGeographicAnalyticsResponse(BaseModel):
+    title: str
+    description: str
+    data: List[AdminGeographicAnalyticsDataPoint]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminCandidateAnalyticsByDomainDataPoint(BaseModel):
+    domain_name: str
+    count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminCandidateAnalyticsByDomainResponse(BaseModel):
+    title: str
+    description: str
+    data: List[AdminCandidateAnalyticsByDomainDataPoint]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminCandidateExperienceLevelsDataPoint(BaseModel):
+    experience_level: str
+    count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminCandidateExperienceLevelsResponse(BaseModel):
+    title: str
+    description: str
+    data: List[AdminCandidateExperienceLevelsDataPoint]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminCandidateSkillDensityDataPoint(BaseModel):
+    skill_name: str
+    count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminCandidateSkillDensityResponse(BaseModel):
+    title: str
+    description: str
+    data: List[AdminCandidateSkillDensityDataPoint]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+
+
 

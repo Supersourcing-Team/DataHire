@@ -44,7 +44,13 @@ from app.schemas.admin import (
     AdminSkillCategoriesResponse,
     AdminSkillCategoryDataPoint,
     AdminGeographicAnalyticsResponse,
-    AdminGeographicAnalyticsDataPoint
+    AdminGeographicAnalyticsDataPoint,
+    AdminCandidateAnalyticsByDomainResponse,
+    AdminCandidateAnalyticsByDomainDataPoint,
+    AdminCandidateExperienceLevelsResponse,
+    AdminCandidateExperienceLevelsDataPoint,
+    AdminCandidateSkillDensityResponse,
+    AdminCandidateSkillDensityDataPoint
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -1175,4 +1181,136 @@ def get_geographic_analytics(
         description="Highest concentration of positions posted by location.",
         data=data_points
     )
+
+
+@router.get("/dashboard/candidate_analytics/candidates_by_domain", response_model=AdminCandidateAnalyticsByDomainResponse)
+def get_candidates_by_domain_analytics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminCandidateAnalyticsByDomainResponse:
+    """Get candidate count distribution grouped by taxonomy domain dynamically (Admin only)."""
+    from app.models.taxonomy import TaxonomyDomain
+    from app.models.candidate import Candidate
+
+    # Query active taxonomy domains and count of candidates for each
+    results = (
+        db.query(
+            TaxonomyDomain.name,
+            func.count(Candidate.id).label("candidate_count")
+        )
+        .outerjoin(Candidate, Candidate.taxonomy_domain_id == TaxonomyDomain.id)
+        .filter(TaxonomyDomain.is_active == True)
+        .group_by(TaxonomyDomain.id, TaxonomyDomain.name)
+        .order_by(func.count(Candidate.id).desc(), TaxonomyDomain.name)
+        .all()
+    )
+
+    data_points = []
+    for domain_name, count in results:
+        data_points.append(
+            AdminCandidateAnalyticsByDomainDataPoint(
+                domain_name=domain_name,
+                count=count
+            )
+        )
+
+    return AdminCandidateAnalyticsByDomainResponse(
+        title="Candidates by Domain",
+        description="Registration fields specified by candidates.",
+        data=data_points
+    )
+
+
+@router.get("/dashboard/candidate_analytics/experience_levels", response_model=AdminCandidateExperienceLevelsResponse)
+def get_candidate_experience_levels_analytics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminCandidateExperienceLevelsResponse:
+    """Get candidate count distribution grouped by experience levels (Admin only)."""
+    from app.models.candidate import Candidate
+    from app.models.resume import Resume
+
+    # CASE statement for experience grouping
+    exp_years = func.coalesce(Resume.total_experience_years, 0)
+    exp_bracket = case(
+        (exp_years < 2, "Entry Level"),
+        ((exp_years >= 2) & (exp_years < 5), "Mid Level"),
+        ((exp_years >= 5) & (exp_years < 8), "Senior Level"),
+        (exp_years >= 8, "Lead / Principal"),
+        else_="Entry Level"
+    )
+
+    # Query candidate counts grouped by experience bracket
+    results = (
+        db.query(
+            exp_bracket.label("experience_tier"),
+            func.count(Candidate.id).label("candidate_count")
+        )
+        .outerjoin(Resume, (Resume.candidate_id == Candidate.id) & (Resume.is_primary == True))
+        .group_by("experience_tier")
+        .all()
+    )
+
+    # Map database counts to expected buckets
+    counts_map = {row.experience_tier: row.candidate_count for row in results}
+    
+    # Ensure all four standard buckets are present in correct display order
+    ordered_tiers = ["Entry Level", "Mid Level", "Senior Level", "Lead / Principal"]
+    
+    data_points = []
+    for tier in ordered_tiers:
+        data_points.append(
+            AdminCandidateExperienceLevelsDataPoint(
+                experience_level=tier,
+                count=counts_map.get(tier, 0)
+            )
+        )
+
+    return AdminCandidateExperienceLevelsResponse(
+        title="Experience Levels",
+        description="Experience tier distributions across candidates profiles.",
+        data=data_points
+    )
+
+
+@router.get("/dashboard/candidate_analytics/skill_density", response_model=AdminCandidateSkillDensityResponse)
+def get_candidate_skill_density_analytics(
+    limit: int = Query(10, ge=1, le=100, description="Limit the number of top skills returned"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminCandidateSkillDensityResponse:
+    """Get candidate skill density analytics based on keywords in primary resumes (Admin only)."""
+    from app.models.resume import Resume
+
+    # Query occurrences of each skill in primary resumes using jsonb unnesting
+    results = (
+        db.query(
+            func.jsonb_array_elements_text(Resume.extracted_skills).label("skill"),
+            func.count(Resume.id).label("skill_count")
+        )
+        .filter(Resume.extracted_skills.isnot(None))
+        .filter(Resume.is_primary == True)
+        .group_by("skill")
+        .order_by(func.count(Resume.id).desc())
+        .limit(limit)
+        .all()
+    )
+
+    data_points = []
+    for skill, count in results:
+        data_points.append(
+            AdminCandidateSkillDensityDataPoint(
+                skill_name=skill,
+                count=count
+            )
+        )
+
+    return AdminCandidateSkillDensityResponse(
+        title="Skill Density",
+        description="Most frequent keywords identified in parsed resumes.",
+        data=data_points
+    )
+
+
+
 
