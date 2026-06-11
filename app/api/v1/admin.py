@@ -2,7 +2,7 @@ from datetime import date, datetime, timezone, timedelta
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func
+from sqlalchemy import func, case
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.db.session import get_db
@@ -39,7 +39,9 @@ from app.schemas.admin import (
     AdminJobAnalyticsByDomainResponse,
     AdminJobAnalyticsByDomainDataPoint,
     AdminSkillCategoriesResponse,
-    AdminSkillCategoryDataPoint
+    AdminSkillCategoryDataPoint,
+    AdminGeographicAnalyticsResponse,
+    AdminGeographicAnalyticsDataPoint
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -1012,3 +1014,60 @@ def get_skill_categories_analytics(
         description="Top required skill bundles in active job postings.",
         data=data_points
     )
+
+
+@router.get("/dashboard/job_analytics/geographic_analytics", response_model=AdminGeographicAnalyticsResponse)
+def get_geographic_analytics(
+    limit: int = Query(10, ge=1, le=100, description="Limit the number of top locations returned"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminGeographicAnalyticsResponse:
+    """Get active job postings count distribution grouped by location (Admin only)."""
+    from app.models.meta import MetaCity, MetaState, MetaCountry, MetaWorkMode
+
+    # SQLAlchemy CASE expression for location aggregation
+    location_label = case(
+        (MetaWorkMode.name == "REMOTE", "Remote"),
+        (MetaCity.name.isnot(None), MetaCity.name),
+        (MetaState.name.isnot(None), MetaState.name),
+        (MetaCountry.name.isnot(None), MetaCountry.name),
+        else_="Not Specified"
+    )
+
+    results = (
+        db.query(
+            location_label.label("location"),
+            func.count(JobPosting.id).label("job_count")
+        )
+        .outerjoin(MetaWorkMode, JobPosting.work_mode_id == MetaWorkMode.id)
+        .outerjoin(MetaCity, JobPosting.city_id == MetaCity.id)
+        .outerjoin(MetaState, JobPosting.state_id == MetaState.id)
+        .outerjoin(MetaCountry, JobPosting.country_id == MetaCountry.id)
+        .filter(JobPosting.is_active == True)
+        .group_by("location")
+        .order_by(func.count(JobPosting.id).desc())
+        .limit(limit)
+        .all()
+    )
+
+    data_points = []
+    for loc, count in results:
+        count_label = f"{count:,}"
+        data_points.append(
+            AdminGeographicAnalyticsDataPoint(
+                location_name=loc,
+                count=count,
+                count_label=count_label,
+                platform_count=count,
+                platform_count_label=count_label,
+                tooltip_title=loc,
+                tooltip_platform_count_label=f"Jobs: {count_label}"
+            )
+        )
+
+    return AdminGeographicAnalyticsResponse(
+        title="Geographic Analytics",
+        description="Highest concentration of positions posted by location.",
+        data=data_points
+    )
+
