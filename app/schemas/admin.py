@@ -310,6 +310,13 @@ class AdminCandidateDetailResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AdminJobDashboardResponse(BaseModel):
+    title: str
+    total_jobs: int
+    active_jobs: int
+    active_label: str
+    total_positions_open: int
+    visa_sponsored_roles: int
 class AdminJobAnalyticsByDomainDataPoint(BaseModel):
     domain_name: str
     count: int
@@ -317,6 +324,23 @@ class AdminJobAnalyticsByDomainDataPoint(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AdminJobDetailResponse(AdminJobResponse):
+    job_overview: Optional[str] = None
+    about_role: Optional[str] = None
+    requirements: Optional[List[str]] = None
+    responsibilities: Optional[List[str]] = None
+    benefits: Optional[List[str]] = None
+    include_cover_letter: bool
+    cover_letter_required: bool
+    seniority_level_id: Optional[int] = None
+    seniority_level_name: Optional[str] = None
+    taxonomy_domain_id: Optional[int] = None
+    taxonomy_domain_name: Optional[str] = None
+    ai_score_threshold: int
+    extracted_skills: Optional[List[str]] = None
+    must_be_authorized_to_work: bool
+    us_citizen_or_pr_only: bool
+    security_clearance_required: bool
 class AdminJobAnalyticsByDomainResponse(BaseModel):
     title: str
     description: str

@@ -77,6 +77,8 @@ async def api_info():
             "admin_job_analytics_by_domain": "/admin/dashboard/job_analytics/jobs_by_domain",
             "admin_job_analytics_skill_categories": "/admin/dashboard/job_analytics/skill_categories",
             "admin_geographic_analytics": "/admin/dashboard/job_analytics/geographic",
+            "admin_job_details": "/admin/jobs/{job_id}",
+            "admin_job_dashboard": "/admin/dashboard/jobs",
             "admin_candidate_analytics_by_domain": "/admin/dashboard/candidate_analytics/candidates_by_domain",
             "admin_candidate_experience_levels": "/admin/dashboard/candidate_analytics/experience_levels",
             "admin_candidate_skill_density": "/admin/dashboard/candidate_analytics/skill_density",
