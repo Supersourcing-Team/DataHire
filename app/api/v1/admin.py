@@ -2,8 +2,8 @@ from datetime import date, datetime, timezone, timedelta
 from typing import List, Optional
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import func, case
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.db.session import get_db
 from app.core.dependencies import require_admin
@@ -13,6 +13,7 @@ from app.models.company import Company
 from app.models.employer import Employer
 from app.models.job import JobPosting
 from app.models.user import User
+from app.models.taxonomy import TaxonomyDomain
 from app.models.refresh_token import RefreshToken
 from app.models.resume import Resume
 from app.services.s3_service import S3Service
@@ -37,7 +38,13 @@ from app.schemas.admin import (
     AdminOrganizationJobOpeningsSummary,
     AdminPlatformGrowthAnalyticsResponse,
     AdminPlatformGrowthDataPoint,
-    AdminUserSuspensionResponse
+    AdminUserSuspensionResponse,
+    AdminJobAnalyticsByDomainResponse,
+    AdminJobAnalyticsByDomainDataPoint,
+    AdminSkillCategoriesResponse,
+    AdminSkillCategoryDataPoint,
+    AdminGeographicAnalyticsResponse,
+    AdminGeographicAnalyticsDataPoint
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -1002,3 +1009,170 @@ def revoke_user_suspension(
         user_id=user.id,
         is_active=user.is_active
     )
+
+
+@router.get("/dashboard/job_analytics/jobs_by_domain", response_model=AdminJobAnalyticsByDomainResponse)
+def get_jobs_by_domain_analytics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminJobAnalyticsByDomainResponse:
+    """Get active/published job postings count distribution grouped by domain dynamically from taxonomy domains."""
+    # Query active taxonomy domains and count of active job postings for each
+    results = (
+        db.query(
+            TaxonomyDomain.name,
+            func.count(JobPosting.id).label("job_count")
+        )
+        .outerjoin(JobPosting, (JobPosting.taxonomy_domain_id == TaxonomyDomain.id) & (JobPosting.is_active == True))
+        .filter(TaxonomyDomain.is_active == True)
+        .group_by(TaxonomyDomain.id, TaxonomyDomain.name)
+        .order_by(func.count(JobPosting.id).desc(), TaxonomyDomain.name)
+        .all()
+    )
+
+    # Prepare response data items
+    data_points = []
+    for domain_name, job_count in results:
+        data_points.append(
+            AdminJobAnalyticsByDomainDataPoint(
+                domain_name=domain_name,
+                count=job_count
+            )
+        )
+
+    return AdminJobAnalyticsByDomainResponse(
+        title="Jobs by Domain",
+        description="Distribution of openings across main platform sectors.",
+        data=data_points
+    )
+
+
+@router.get("/dashboard/job_analytics/skill_categories", response_model=AdminSkillCategoriesResponse)
+def get_skill_categories_analytics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminSkillCategoriesResponse:
+    """Get top required skill bundles/categories in active job postings."""
+    # Define mapping of category names to associated skill keywords
+    SKILL_BUNDLES = {
+        "SQL / DBs": ["sql", "mysql", "postgresql", "postgres", "nosql", "mongodb", "database", "databases"],
+        "Cloud / DevOps": ["aws", "azure", "gcp", "docker", "kubernetes", "devops", "cloud", "cicd"],
+        "Python / ML": ["python", "machine learning", "ml", "pytorch", "tensorflow", "scikit-learn", "data science"],
+        "Generative AI / LLMs": ["generative ai", "genai", "llm", "llms", "openai", "langchain", "vector databases", "nlp"],
+        "React / JS": ["react", "javascript", "js", "typescript", "ts", "html", "css", "node", "nodejs", "frontend"]
+    }
+
+    # Initialize counts for each bundle
+    bundle_counts = {bundle: 0 for bundle in SKILL_BUNDLES.keys()}
+
+    # Query all active job postings with extracted_skills
+    active_jobs = (
+        db.query(JobPosting.extracted_skills)
+        .filter(JobPosting.is_active == True)
+        .all()
+    )
+
+    for job in active_jobs:
+        skills = job.extracted_skills
+        if not skills or not isinstance(skills, list):
+            continue
+
+        # Normalize skills list to lowercase strings
+        normalized_skills = [str(s).strip().lower() for s in skills if s]
+
+        # Check match for each bundle (at most 1 count per job posting per bundle)
+        for bundle_name, keywords in SKILL_BUNDLES.items():
+            matched = False
+            for skill in normalized_skills:
+                # Direct match or substring match
+                for keyword in keywords:
+                    if keyword in skill or skill in keyword:
+                        matched = True
+                        break
+                if matched:
+                    break
+            
+            if matched:
+                bundle_counts[bundle_name] += 1
+
+    # Format response data items
+    data_points = []
+    for bundle_name, count in bundle_counts.items():
+        count_label = f"{count:,}"
+        data_points.append(
+            AdminSkillCategoryDataPoint(
+                title=bundle_name,
+                count=count,
+                count_label=count_label,
+                platform_count=count,
+                platform_count_label=count_label,
+                tooltip_title=bundle_name,
+                tooltip_platform_count_label=f"Platform Count: {count_label}"
+            )
+        )
+
+    # Sort descending by count to resemble a distribution chart
+    data_points.sort(key=lambda x: x.count, reverse=True)
+
+    return AdminSkillCategoriesResponse(
+        title="Skill Categories",
+        description="Top required skill bundles in active job postings.",
+        data=data_points
+    )
+
+
+@router.get("/dashboard/job_analytics/geographic_analytics", response_model=AdminGeographicAnalyticsResponse)
+def get_geographic_analytics(
+    limit: int = Query(10, ge=1, le=100, description="Limit the number of top locations returned"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminGeographicAnalyticsResponse:
+    """Get active job postings count distribution grouped by location (Admin only)."""
+    from app.models.meta import MetaCity, MetaState, MetaCountry, MetaWorkMode
+
+    # SQLAlchemy CASE expression for location aggregation
+    location_label = case(
+        (MetaWorkMode.name == "REMOTE", "Remote"),
+        (MetaCity.name.isnot(None), MetaCity.name),
+        (MetaState.name.isnot(None), MetaState.name),
+        (MetaCountry.name.isnot(None), MetaCountry.name),
+        else_="Not Specified"
+    )
+
+    results = (
+        db.query(
+            location_label.label("location"),
+            func.count(JobPosting.id).label("job_count")
+        )
+        .outerjoin(MetaWorkMode, JobPosting.work_mode_id == MetaWorkMode.id)
+        .outerjoin(MetaCity, JobPosting.city_id == MetaCity.id)
+        .outerjoin(MetaState, JobPosting.state_id == MetaState.id)
+        .outerjoin(MetaCountry, JobPosting.country_id == MetaCountry.id)
+        .filter(JobPosting.is_active == True)
+        .group_by("location")
+        .order_by(func.count(JobPosting.id).desc())
+        .limit(limit)
+        .all()
+    )
+
+    data_points = []
+    for loc, count in results:
+        count_label = f"{count:,}"
+        data_points.append(
+            AdminGeographicAnalyticsDataPoint(
+                location_name=loc,
+                count=count,
+                count_label=count_label,
+                platform_count=count,
+                platform_count_label=count_label,
+                tooltip_title=loc,
+                tooltip_platform_count_label=f"Jobs: {count_label}"
+            )
+        )
+
+    return AdminGeographicAnalyticsResponse(
+        title="Geographic Analytics",
+        description="Highest concentration of positions posted by location.",
+        data=data_points
+    )
+
