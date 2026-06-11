@@ -16,6 +16,7 @@ from app.models.user import User
 from app.models.taxonomy import TaxonomyDomain
 from app.models.refresh_token import RefreshToken
 from app.models.resume import Resume
+from app.services.s3_service import S3Service
 from app.schemas.admin import (
     AdminCandidateDashboardResponse,
     AdminCandidateResponse,
@@ -26,6 +27,8 @@ from app.schemas.admin import (
     AdminHiringFunnelAnalyticsResponse,
     AdminHiringFunnelDataPoint,
     AdminJobResponse,
+    AdminJobDashboardResponse,
+    AdminJobDetailResponse,
     AdminOrganizationAboutCompany,
     AdminOrganizationBadge,
     AdminOrganizationCorporateDetail,
@@ -41,10 +44,17 @@ from app.schemas.admin import (
     AdminSkillCategoriesResponse,
     AdminSkillCategoryDataPoint,
     AdminGeographicAnalyticsResponse,
-    AdminGeographicAnalyticsDataPoint
+    AdminGeographicAnalyticsDataPoint,
+    AdminCandidateAnalyticsByDomainResponse,
+    AdminCandidateAnalyticsByDomainDataPoint,
+    AdminCandidateExperienceLevelsResponse,
+    AdminCandidateExperienceLevelsDataPoint,
+    AdminCandidateSkillDensityResponse,
+    AdminCandidateSkillDensityDataPoint
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+s3_service = S3Service()
 
 
 def _add_months(value: datetime, months: int) -> datetime:
@@ -161,7 +171,7 @@ def _format_company_response(comp: Company) -> AdminCompanyResponse:
         id=comp.id,
         name=comp.name,
         website=comp.website,
-        logo_url=comp.logo_url,
+        logo_url=s3_service.get_presigned_url(comp.logo_url),
         founded_year=comp.founded_year,
         description=comp.description,
         zipcode=comp.zipcode,
@@ -261,7 +271,7 @@ def _format_organization_detail_response(comp: Company, job_openings_count: int)
         id=comp.id,
         name=comp.name,
         website=comp.website,
-        logo_url=comp.logo_url,
+        logo_url=s3_service.get_presigned_url(comp.logo_url),
         founded_year=comp.founded_year,
         description=comp.description,
         zipcode=comp.zipcode,
@@ -290,7 +300,7 @@ def _format_organization_detail_response(comp: Company, job_openings_count: int)
             id=comp.id,
             name=comp.name,
             initials=_build_company_initials(comp.name),
-            logo_url=comp.logo_url,
+            logo_url=s3_service.get_presigned_url(comp.logo_url),
             organization_type_id=comp.organization_type_id,
             organization_type_name=comp.organization_type.name if comp.organization_type else None,
             organization_type_label=organization_type_label,
@@ -488,7 +498,7 @@ def get_all_candidates(
                 user_email=cand.user.email,
                 full_name=cand.full_name,
                 phone=cand.phone,
-                profile_picture=cand.profile_picture,
+                profile_picture=s3_service.get_presigned_url(cand.profile_picture),
                 onboarding_step=cand.onboarding_step,
                 onboarding_completed=cand.onboarding_completed,
                 work_status_id=cand.work_status_id,
@@ -517,8 +527,8 @@ def get_candidate_details(
             joinedload(Candidate.work_status),
             joinedload(Candidate.taxonomy_domain),
             joinedload(Candidate.visa_status),
-            selectinload(Candidate.resumes).joinedload(Resume.taxonomy_domain),
-            selectinload(Candidate.applications).joinedload(JobApplication.job).joinedload(JobPosting.company)
+            joinedload(Candidate.resumes).joinedload(Resume.taxonomy_domain),
+            joinedload(Candidate.applications).joinedload(JobApplication.job).joinedload(JobPosting.company)
         )
         .filter(Candidate.id == candidate_id)
         .first()
@@ -535,7 +545,7 @@ def get_candidate_details(
             AdminCandidateResumeResponse(
                 id=r.id,
                 file_name=r.file_name,
-                file_url=r.file_url,
+                file_url=s3_service.get_presigned_url(r.file_url),
                 version_number=r.version_number,
                 is_primary=r.is_primary,
                 total_experience_years=r.total_experience_years,
@@ -563,7 +573,7 @@ def get_candidate_details(
         user_email=cand.user.email,
         full_name=cand.full_name,
         phone=cand.phone,
-        profile_picture=cand.profile_picture,
+        profile_picture=s3_service.get_presigned_url(cand.profile_picture),
         onboarding_step=cand.onboarding_step,
         onboarding_completed=cand.onboarding_completed,
         work_status_id=cand.work_status_id,
@@ -843,6 +853,107 @@ def get_all_jobs(
     return response
 
 
+@router.get("/dashboard/jobs", response_model=AdminJobDashboardResponse)
+def get_job_dashboard(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminJobDashboardResponse:
+    """Get jobs summary KPIs for the admin dashboard (Admin only)."""
+    total_jobs = db.query(JobPosting).count()
+    active_jobs = db.query(JobPosting).filter(JobPosting.is_active == True).count()
+    total_positions_open = db.query(func.sum(JobPosting.num_positions)).filter(JobPosting.is_active == True).scalar() or 0
+    visa_sponsored_roles = db.query(JobPosting).filter(JobPosting.requires_visa_sponsorship == True, JobPosting.is_active == True).count()
+
+    return AdminJobDashboardResponse(
+        title="Job Openings Summary",
+        total_jobs=total_jobs,
+        active_jobs=active_jobs,
+        active_label=f"{active_jobs}/{total_jobs}",
+        total_positions_open=total_positions_open,
+        visa_sponsored_roles=visa_sponsored_roles
+    )
+
+
+@router.get("/jobs/{job_id}", response_model=AdminJobDetailResponse)
+def get_job_details(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminJobDetailResponse:
+    """Get full details of a specific job posting (Admin only)."""
+    job = (
+        db.query(JobPosting)
+        .options(
+            joinedload(JobPosting.company),
+            joinedload(JobPosting.employment_type),
+            joinedload(JobPosting.work_mode),
+            joinedload(JobPosting.city),
+            joinedload(JobPosting.state),
+            joinedload(JobPosting.country),
+            joinedload(JobPosting.currency),
+            joinedload(JobPosting.seniority_level),
+            joinedload(JobPosting.taxonomy_domain)
+        )
+        .filter(JobPosting.id == job_id)
+        .first()
+    )
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job posting not found."
+        )
+
+    return AdminJobDetailResponse(
+        id=job.id,
+        company_id=job.company_id,
+        company_name=job.company.name if job.company else None,
+        title=job.title,
+        description=job.description,
+        employment_type_id=job.employment_type_id,
+        employment_type_name=job.employment_type.name if job.employment_type else None,
+        work_mode_id=job.work_mode_id,
+        work_mode_name=job.work_mode.name if job.work_mode else None,
+        city_id=job.city_id,
+        city_name=job.city.name if job.city else None,
+        state_id=job.state_id,
+        state_name=job.state.name if job.state else None,
+        country_id=job.country_id,
+        country_name=job.country.name if job.country else None,
+        salary_min=job.salary_min,
+        salary_max=job.salary_max,
+        currency_id=job.currency_id,
+        currency_code=job.currency.code if job.currency else None,
+        start_date=job.start_date,
+        application_deadline=job.application_deadline,
+        min_experience_years=job.min_experience_years,
+        max_experience_years=job.max_experience_years,
+        requires_visa_sponsorship=job.requires_visa_sponsorship,
+        num_positions=job.num_positions,
+        status=job.status,
+        is_active=job.is_active,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        
+        # Detail fields
+        job_overview=job.job_overview,
+        about_role=job.about_role,
+        requirements=job.requirements,
+        responsibilities=job.responsibilities,
+        benefits=job.benefits,
+        include_cover_letter=job.include_cover_letter,
+        cover_letter_required=job.cover_letter_required,
+        seniority_level_id=job.seniority_level_id,
+        seniority_level_name=job.seniority_level.name if job.seniority_level else None,
+        taxonomy_domain_id=job.taxonomy_domain_id,
+        taxonomy_domain_name=job.taxonomy_domain.name if job.taxonomy_domain else None,
+        ai_score_threshold=job.ai_score_threshold,
+        extracted_skills=job.extracted_skills,
+        must_be_authorized_to_work=job.must_be_authorized_to_work,
+        us_citizen_or_pr_only=job.us_citizen_or_pr_only,
+        security_clearance_required=job.security_clearance_required
+    )
+
+
 @router.post("/users/{user_id}/suspend", response_model=AdminUserSuspensionResponse)
 def suspend_user(
     user_id: UUID,
@@ -1070,4 +1181,136 @@ def get_geographic_analytics(
         description="Highest concentration of positions posted by location.",
         data=data_points
     )
+
+
+@router.get("/dashboard/candidate_analytics/candidates_by_domain", response_model=AdminCandidateAnalyticsByDomainResponse)
+def get_candidates_by_domain_analytics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminCandidateAnalyticsByDomainResponse:
+    """Get candidate count distribution grouped by taxonomy domain dynamically (Admin only)."""
+    from app.models.taxonomy import TaxonomyDomain
+    from app.models.candidate import Candidate
+
+    # Query active taxonomy domains and count of candidates for each
+    results = (
+        db.query(
+            TaxonomyDomain.name,
+            func.count(Candidate.id).label("candidate_count")
+        )
+        .outerjoin(Candidate, Candidate.taxonomy_domain_id == TaxonomyDomain.id)
+        .filter(TaxonomyDomain.is_active == True)
+        .group_by(TaxonomyDomain.id, TaxonomyDomain.name)
+        .order_by(func.count(Candidate.id).desc(), TaxonomyDomain.name)
+        .all()
+    )
+
+    data_points = []
+    for domain_name, count in results:
+        data_points.append(
+            AdminCandidateAnalyticsByDomainDataPoint(
+                domain_name=domain_name,
+                count=count
+            )
+        )
+
+    return AdminCandidateAnalyticsByDomainResponse(
+        title="Candidates by Domain",
+        description="Registration fields specified by candidates.",
+        data=data_points
+    )
+
+
+@router.get("/dashboard/candidate_analytics/experience_levels", response_model=AdminCandidateExperienceLevelsResponse)
+def get_candidate_experience_levels_analytics(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminCandidateExperienceLevelsResponse:
+    """Get candidate count distribution grouped by experience levels (Admin only)."""
+    from app.models.candidate import Candidate
+    from app.models.resume import Resume
+
+    # CASE statement for experience grouping
+    exp_years = func.coalesce(Resume.total_experience_years, 0)
+    exp_bracket = case(
+        (exp_years < 2, "Entry Level"),
+        ((exp_years >= 2) & (exp_years < 5), "Mid Level"),
+        ((exp_years >= 5) & (exp_years < 8), "Senior Level"),
+        (exp_years >= 8, "Lead / Principal"),
+        else_="Entry Level"
+    )
+
+    # Query candidate counts grouped by experience bracket
+    results = (
+        db.query(
+            exp_bracket.label("experience_tier"),
+            func.count(Candidate.id).label("candidate_count")
+        )
+        .outerjoin(Resume, (Resume.candidate_id == Candidate.id) & (Resume.is_primary == True))
+        .group_by("experience_tier")
+        .all()
+    )
+
+    # Map database counts to expected buckets
+    counts_map = {row.experience_tier: row.candidate_count for row in results}
+    
+    # Ensure all four standard buckets are present in correct display order
+    ordered_tiers = ["Entry Level", "Mid Level", "Senior Level", "Lead / Principal"]
+    
+    data_points = []
+    for tier in ordered_tiers:
+        data_points.append(
+            AdminCandidateExperienceLevelsDataPoint(
+                experience_level=tier,
+                count=counts_map.get(tier, 0)
+            )
+        )
+
+    return AdminCandidateExperienceLevelsResponse(
+        title="Experience Levels",
+        description="Experience tier distributions across candidates profiles.",
+        data=data_points
+    )
+
+
+@router.get("/dashboard/candidate_analytics/skill_density", response_model=AdminCandidateSkillDensityResponse)
+def get_candidate_skill_density_analytics(
+    limit: int = Query(10, ge=1, le=100, description="Limit the number of top skills returned"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminCandidateSkillDensityResponse:
+    """Get candidate skill density analytics based on keywords in primary resumes (Admin only)."""
+    from app.models.resume import Resume
+
+    # Query occurrences of each skill in primary resumes using jsonb unnesting
+    results = (
+        db.query(
+            func.jsonb_array_elements_text(Resume.extracted_skills).label("skill"),
+            func.count(Resume.id).label("skill_count")
+        )
+        .filter(Resume.extracted_skills.isnot(None))
+        .filter(Resume.is_primary == True)
+        .group_by("skill")
+        .order_by(func.count(Resume.id).desc())
+        .limit(limit)
+        .all()
+    )
+
+    data_points = []
+    for skill, count in results:
+        data_points.append(
+            AdminCandidateSkillDensityDataPoint(
+                skill_name=skill,
+                count=count
+            )
+        )
+
+    return AdminCandidateSkillDensityResponse(
+        title="Skill Density",
+        description="Most frequent keywords identified in parsed resumes.",
+        data=data_points
+    )
+
+
+
 

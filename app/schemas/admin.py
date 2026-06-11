@@ -365,3 +365,51 @@ class AdminGeographicAnalyticsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AdminCandidateAnalyticsByDomainDataPoint(BaseModel):
+    domain_name: str
+    count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminCandidateAnalyticsByDomainResponse(BaseModel):
+    title: str
+    description: str
+    data: List[AdminCandidateAnalyticsByDomainDataPoint]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminCandidateExperienceLevelsDataPoint(BaseModel):
+    experience_level: str
+    count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminCandidateExperienceLevelsResponse(BaseModel):
+    title: str
+    description: str
+    data: List[AdminCandidateExperienceLevelsDataPoint]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminCandidateSkillDensityDataPoint(BaseModel):
+    skill_name: str
+    count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminCandidateSkillDensityResponse(BaseModel):
+    title: str
+    description: str
+    data: List[AdminCandidateSkillDensityDataPoint]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+
+
+
