@@ -309,3 +309,38 @@ class AdminCandidateDetailResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class AdminJobAnalyticsByDomainDataPoint(BaseModel):
+    domain_name: str
+    count: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminJobAnalyticsByDomainResponse(BaseModel):
+    title: str
+    description: str
+    data: List[AdminJobAnalyticsByDomainDataPoint]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminSkillCategoryDataPoint(BaseModel):
+    title: str
+    count: int
+    count_label: str
+    platform_count: int
+    platform_count_label: str
+    tooltip_title: str
+    tooltip_platform_count_label: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminSkillCategoriesResponse(BaseModel):
+    title: str
+    description: str
+    data: List[AdminSkillCategoryDataPoint]
+
+    model_config = ConfigDict(from_attributes=True)
+
