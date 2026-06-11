@@ -77,6 +77,8 @@ async def api_info():
             "admin_job_analytics_by_domain": "/admin/dashboard/job_analytics/jobs_by_domain",
             "admin_job_analytics_skill_categories": "/admin/dashboard/job_analytics/skill_categories",
             "admin_geographic_analytics": "/admin/dashboard/job_analytics/geographic",
+            "admin_job_details": "/admin/jobs/{job_id}",
+            "admin_job_dashboard": "/admin/dashboard/jobs",
             # Add more endpoints as they are created
         }
     }
