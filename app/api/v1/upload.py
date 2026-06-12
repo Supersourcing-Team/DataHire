@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
 from sqlalchemy.orm import Session
+import asyncio
 from app.services.s3_service import S3Service, S3Folder
 from app.core.dependencies import get_current_active_user
 from app.models.user import User
@@ -29,17 +30,17 @@ async def upload_file(
             await file.seek(0)
             file_bytes = await file.read()
             
-            # Extract text
+            # Extract text (run in threadpool)
             from app.services.resume_parser import resume_parser_service
-            text = resume_parser_service.extract_text_from_pdf(file_bytes)
+            text = await asyncio.to_thread(resume_parser_service.extract_text_from_pdf, file_bytes)
             
             # Get active taxonomy domains
             from app.models.taxonomy import TaxonomyDomain
             domains = db.query(TaxonomyDomain).filter(TaxonomyDomain.is_active == True).all()
             active_domain_names = [d.name for d in domains]
             
-            # Parse via Gemini
-            parse_result = resume_parser_service.parse_resume_text(text, active_domain_names)
+            # Parse via Gemini (run in threadpool)
+            parse_result = await asyncio.to_thread(resume_parser_service.parse_resume_text, text, active_domain_names)
             
             # Resolve domain
             recommended_domain_name = parse_result.get("recommended_domain")

@@ -1,6 +1,6 @@
 from sqlalchemy import Column, String, Boolean, DateTime, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
 from sqlalchemy import String as SQLString
 import uuid
@@ -23,6 +23,12 @@ class User(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email = Column(String(255), unique=True, nullable=False, index=True)
+
+    @validates('email')
+    def validate_email(self, key, address):
+        if address:
+            return address.lower().strip()
+        return address
     password_hash = Column(String(255), nullable=True)  # Nullable for OAuth users
     role = Column(String(20), nullable=False, default=UserRole.CANDIDATE)
     auth_provider = Column(String(20), nullable=False, default=AuthProvider.LOCAL)

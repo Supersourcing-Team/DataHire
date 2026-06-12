@@ -23,21 +23,19 @@ class ResumeParserService:
         try:
             # Try parsing S3 URL and downloading via boto3 client
             s3_service = S3Service()
-            if s3_service.bucket_name and s3_service.bucket_name in url:
-                domain = f"{s3_service.bucket_name}.s3.{settings.AWS_REGION}.amazonaws.com/"
-                if domain in url:
-                    s3_key = url.split(domain)[-1]
-                    response = s3_service.s3_client.get_object(
-                        Bucket=s3_service.bucket_name,
-                        Key=s3_key
-                    )
-                    return response['Body'].read()
+            if s3_service.bucket_name:
+                s3_key = s3_service.extract_key(url)
+                response = s3_service.s3_client.get_object(
+                    Bucket=s3_service.bucket_name,
+                    Key=s3_key
+                )
+                return response['Body'].read()
         except Exception as e:
             logger.warning(f"S3 download failed, falling back to HTTP: {e}")
         
         # Fallback to direct HTTP download
         try:
-            response = httpx.get(url)
+            response = httpx.get(url, timeout=10.0)
             response.raise_for_status()
             return response.content
         except Exception as e:
@@ -118,7 +116,8 @@ class ResumeParserService:
                 generation_config=genai.GenerationConfig(
                     response_mime_type="application/json",
                     temperature=0.1
-                )
+                ),
+                request_options={"timeout": 15.0}
             )
             parsed_result = json.loads(response.text)
             return parsed_result
