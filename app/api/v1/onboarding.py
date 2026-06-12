@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
+import asyncio
 from app.db.session import get_db
 from app.core.dependencies import get_current_active_user
 from app.models.user import User, UserRole
@@ -59,12 +60,13 @@ async def candidate_step_1(
             candidate.taxonomy_domain_id = existing_resume.taxonomy_domain_id
     else:
         from app.services.resume_parser import resume_parser_service
-        new_resume = resume_parser_service.parse_and_save_resume(
-            db=db,
-            candidate=candidate,
-            file_url=str(data.resume_url),
-            file_name=data.resume_name,
-            is_primary=True
+        new_resume = await asyncio.to_thread(
+            resume_parser_service.parse_and_save_resume,
+            db,
+            candidate,
+            str(data.resume_url),
+            data.resume_name,
+            True
         )
         
     candidate.onboarding_step = 1

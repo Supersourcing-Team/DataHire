@@ -1,5 +1,6 @@
 import boto3
 import uuid
+import asyncio
 from enum import Enum
 from fastapi import UploadFile, HTTPException
 from botocore.exceptions import NoCredentialsError, ClientError
@@ -38,8 +39,9 @@ class S3Service:
             # Read file contents
             contents = await file.read()
             
-            # Upload to S3
-            self.s3_client.put_object(
+            # Upload to S3 in a separate thread
+            await asyncio.to_thread(
+                self.s3_client.put_object,
                 Bucket=self.bucket_name,
                 Key=s3_key,
                 Body=contents,
@@ -76,7 +78,8 @@ class S3Service:
             unique_filename = f"{uuid.uuid4()}.{file_extension}"
             s3_key = f"{folder.value}/{unique_filename}"
             
-            self.s3_client.put_object(
+            await asyncio.to_thread(
+                self.s3_client.put_object,
                 Bucket=self.bucket_name,
                 Key=s3_key,
                 Body=contents,
@@ -98,21 +101,39 @@ class S3Service:
         except ClientError as e:
             raise HTTPException(status_code=500, detail=f"S3 byte upload failed: {str(e)}")
 
+    def extract_key(self, url: str) -> str:
+        """Extracts the S3 key from any valid S3 URL for this bucket."""
+        from urllib.parse import urlparse, unquote
+        
+        parsed_url = urlparse(url)
+        netloc = parsed_url.netloc
+        path = parsed_url.path
+
+        is_valid = False
+        s3_key = None
+
+        if netloc.startswith(f"{self.bucket_name}."):
+            is_valid = True
+            s3_key = path.lstrip('/')
+        elif path.startswith(f"/{self.bucket_name}/"):
+            is_valid = True
+            s3_key = path[len(f"/{self.bucket_name}/"):]
+
+        if not is_valid or not s3_key:
+            raise ValueError("Invalid S3 URL or does not match current bucket")
+
+        return unquote(s3_key)
+
     async def delete_file(self, url: str) -> bool:
         """Deletes a file from S3 given its URL."""
         if not self.bucket_name:
             raise HTTPException(status_code=500, detail="S3_BUCKET_NAME is not configured")
             
         try:
-            # Extract the S3 key from the URL
-            # Format: https://{bucket_name}.s3.{region}.amazonaws.com/{key}
-            domain = f"{self.bucket_name}.s3.{settings.AWS_REGION}.amazonaws.com/"
-            if domain not in url:
-                raise ValueError("Invalid S3 URL or does not match current bucket")
-                
-            s3_key = url.split(domain)[-1].split("?")[0]
+            s3_key = self.extract_key(url)
             
-            self.s3_client.delete_object(
+            await asyncio.to_thread(
+                self.s3_client.delete_object,
                 Bucket=self.bucket_name,
                 Key=s3_key
             )
@@ -129,25 +150,9 @@ class S3Service:
         """Generates a presigned URL from a static S3 URL."""
         if not url or not self.bucket_name:
             return url
-        
-        # Check if the URL is an S3 URL for our bucket and region
-        domain = f"s3.{settings.AWS_REGION}.amazonaws.com"
-        if self.bucket_name not in url or domain not in url:
-            return url
             
         try:
-            # Extract key.
-            prefix = f"{self.bucket_name}.s3.{settings.AWS_REGION}.amazonaws.com/"
-            if prefix in url:
-                s3_key = url.split(prefix)[-1]
-            else:
-                parts = url.split("amazonaws.com/")
-                if len(parts) >= 2:
-                    s3_key = parts[-1]
-                else:
-                    return url
-            
-            s3_key = s3_key.split("?")[0]
+            s3_key = self.extract_key(url)
             
             presigned_url = self.s3_client.generate_presigned_url(
                 "get_object",

@@ -1,4 +1,5 @@
 from sqlalchemy import Column, String, Boolean, DateTime, Integer
+from sqlalchemy.orm import validates
 from sqlalchemy.sql import func
 from datetime import datetime, timezone
 
@@ -9,6 +10,12 @@ class OTPToken(Base):
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     email = Column(String(255), nullable=False, index=True)
+
+    @validates('email')
+    def validate_email(self, key, address):
+        if address:
+            return address.lower().strip()
+        return address
     otp_code = Column(String(10), nullable=False) # Plaintext for now, can be expanded if hashed
     purpose = Column(String(50), nullable=False) # e.g. ACCOUNT_VERIFICATION, PASSWORD_RESET
     is_used = Column(Boolean, default=False, nullable=False)

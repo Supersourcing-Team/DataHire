@@ -64,7 +64,7 @@ class GoogleOAuthService:
             'google_id': profile_data.get('id'),
             'first_name': profile_data.get('given_name', ''),
             'last_name': profile_data.get('family_name', ''),
-            'email': profile_data.get('email', ''),
+            'email': profile_data.get('email', '').lower().strip() if profile_data.get('email') else '',
             'profile_picture': profile_data.get('picture', '')
         }
         

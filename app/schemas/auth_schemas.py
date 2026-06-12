@@ -1,16 +1,24 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 
-class RegisterRequest(BaseModel):
+class EmailBaseModel(BaseModel):
+    @field_validator("email", mode="before", check_fields=False)
+    @classmethod
+    def lowercase_email(cls, v):
+        if isinstance(v, str):
+            return v.lower().strip()
+        return v
+
+class RegisterRequest(EmailBaseModel):
     email: EmailStr
     full_name: str = Field(..., alias="fullName")
     role: str = Field(..., description="User role (candidate or employer)")
 
-class LoginRequest(BaseModel):
+class LoginRequest(EmailBaseModel):
     email: EmailStr
 
-class VerifyOTPRequest(BaseModel):
+class VerifyOTPRequest(EmailBaseModel):
     email: EmailStr
     otp_code: str = Field(..., alias="otpCode", min_length=6, max_length=10, description="The 6-digit OTP code")
 
@@ -156,11 +164,11 @@ class UserResponse(BaseModel):
             employer_profile=employer_data
         )
 
-class OTPRequest(BaseModel):
+class OTPRequest(EmailBaseModel):
     email: EmailStr
     purpose: str = Field(..., description="Purpose of OTP, e.g., 'ACCOUNT_VERIFICATION' or 'PASSWORD_RESET'")
 
-class OTPVerify(BaseModel):
+class OTPVerify(EmailBaseModel):
     email: EmailStr
     otp_code: str = Field(..., min_length=6, max_length=10, description="The OTP code")
     purpose: str = Field(..., description="Purpose of OTP, e.g., 'ACCOUNT_VERIFICATION' or 'PASSWORD_RESET'")
