@@ -52,6 +52,31 @@ def get_current_active_user(
         )
     return current_user
 
+from typing import Optional
+
+def get_optional_current_active_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
+    db: Session = Depends(get_db)
+) -> Optional[User]:
+    """Get current active user if token is provided, without raising exception on missing/invalid token."""
+    if not credentials:
+        return None
+    
+    payload = verify_token(credentials.credentials)
+    if payload is None:
+        return None
+        
+    user_id = payload.get("sub")
+    if user_id is None:
+        return None
+        
+    user = db.query(User).filter(User.id == user_id).first()
+    if user and user.is_active:
+        return user
+        
+    return None
+
+
 from typing import List
 from app.models.user import UserRole
 
