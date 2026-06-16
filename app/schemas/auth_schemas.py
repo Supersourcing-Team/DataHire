@@ -87,6 +87,9 @@ class UserResponse(BaseModel):
         candidate_data = None
         employer_data = None
         
+        from app.services.s3_service import S3Service
+        s3_service = S3Service()
+        
         if user.role == "candidate" and user.candidate:
             onboarding_step = user.candidate.onboarding_step
             onboarding_completed = user.candidate.onboarding_completed
@@ -102,8 +105,8 @@ class UserResponse(BaseModel):
                 user_id=str(user.candidate.user_id),
                 full_name=user.candidate.full_name,
                 phone=user.candidate.phone,
-                profile_picture=user.candidate.profile_picture,
-                resume_url=resume_url,
+                profile_picture=s3_service.get_presigned_url(user.candidate.profile_picture),
+                resume_url=s3_service.get_presigned_url(resume_url),
                 resume_name=resume_name,
                 work_status_id=user.candidate.work_status_id,
                 taxonomy_domain_id=user.candidate.taxonomy_domain_id,
@@ -122,7 +125,7 @@ class UserResponse(BaseModel):
                     user_id=str(user.employer.user_id),
                     company_name=user.employer.company.name,
                     company_website=user.employer.company.website,
-                    company_logo=user.employer.company.logo_url,
+                    company_logo=s3_service.get_presigned_url(user.employer.company.logo_url),
                     contact_person=user.employer.contact_person,
                     phone=user.employer.phone,
                     organization_type_id=user.employer.company.organization_type_id,

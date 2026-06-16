@@ -12,10 +12,13 @@ from app.models.candidate import Candidate
 from app.models.saved_job import SavedJob
 from app.models.application import JobApplication
 from app.schemas.job import JobDashboardCardResponse, JobCreate, JobResponse
+from app.services.s3_service import S3Service
 from app.schemas.job_seeker import JobApplicationResponse
 from app.core.dependencies import require_employer, get_optional_current_active_user, require_candidate
 
+
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+s3_service = S3Service()
 
 
 def _format_posted_ago(created_at: datetime) -> str:
@@ -139,7 +142,7 @@ def get_dashboard_jobs(
                 id=job.id,
                 company_id=job.company_id,
                 company_name=job.company.name if job.company else None,
-                company_logo_url=job.company.logo_url if job.company else None,
+                company_logo_url=s3_service.get_presigned_url(job.company.logo_url) if job.company else None,
                 company_verified=None,
                 job_title=job.title,
                 ai_score=job.ai_score_threshold,
