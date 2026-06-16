@@ -50,7 +50,8 @@ from app.schemas.admin import (
     AdminCandidateExperienceLevelsResponse,
     AdminCandidateExperienceLevelsDataPoint,
     AdminCandidateSkillDensityResponse,
-    AdminCandidateSkillDensityDataPoint
+    AdminCandidateSkillDensityDataPoint,
+    AdminCandidateStateResponse
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -466,9 +467,9 @@ def get_hiring_funnel_analytics(
 
 @router.get("/candidates", response_model=List[AdminCandidateResponse])
 def get_all_candidates(
-    search: Optional[str] = None,
-    skip: int = 0,
-    limit: int = 100,
+    search: Optional[str] = Query(None),
+    skip: int = Query(0),
+    limit: int = Query(100),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ) -> List[AdminCandidateResponse]:
@@ -595,6 +596,90 @@ def get_candidate_details(
         resumes=resumes_list,
         applications=apps_list
     )
+
+
+@router.delete("/candidates/{candidate_id}")
+def delete_candidate(
+    candidate_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Delete a candidate profile and their associated user account (Admin only)."""
+    cand = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not cand:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Candidate not found."
+        )
+
+    # Deleting the User associated with the candidate will trigger cascade deletes
+    # for Candidate, Resume, JobApplication, SavedJob, CoverLetter, and RefreshTokens.
+    user = cand.user
+    if user:
+        db.delete(user)
+    else:
+        # Fallback if user doesn't exist
+        db.delete(cand)
+
+    db.commit()
+    return {"message": "Candidate deleted successfully."}
+
+
+@router.get("/candidate/stats", response_model=AdminCandidateStateResponse)
+def get_candidate_state(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminCandidateStateResponse:
+    """Get candidate KPI onboarding stats (Admin only)."""
+    total_candidates = db.query(Candidate).count()
+    completed_onboarding = db.query(Candidate).filter(Candidate.onboarding_completed == True).count()
+    pending_onboarding = db.query(Candidate).filter(Candidate.onboarding_completed == False).count()
+
+    return AdminCandidateStateResponse(
+        total_candidates=total_candidates,
+        completed_onboarding=completed_onboarding,
+        pending_onboarding=pending_onboarding
+    )
+
+
+@router.get("/candidates/{candidate_id}/application-history", response_model=List[AdminCandidateApplicationResponse])
+def get_candidate_application_history(
+    candidate_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> List[AdminCandidateApplicationResponse]:
+    """Get the job application history for a specific candidate (Admin only)."""
+    # Verify candidate exists first
+    candidate = db.query(Candidate).filter(Candidate.id == candidate_id).first()
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Candidate not found."
+        )
+
+    applications = (
+        db.query(JobApplication)
+        .options(
+            joinedload(JobApplication.job).joinedload(JobPosting.company)
+        )
+        .filter(JobApplication.candidate_id == candidate_id)
+        .order_by(JobApplication.created_at.desc())
+        .all()
+    )
+
+    response = []
+    for app in applications:
+        response.append(
+            AdminCandidateApplicationResponse(
+                id=app.id,
+                job_id=app.job_id,
+                job_title=app.job.title if app.job else "Unknown Position",
+                company_name=app.job.company.name if app.job and app.job.company else None,
+                status=app.status,
+                created_at=app.created_at
+            )
+        )
+    return response
 
 
 @router.get("/companies", response_model=List[AdminCompanyResponse])
