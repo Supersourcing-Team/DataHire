@@ -842,6 +842,76 @@ def revoke_company(
     )
     return _format_company_response(updated_company)
 
+
+@router.get("/companies/{company_id}/jobs", response_model=List[AdminJobResponse])
+def get_company_jobs(
+    company_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> List[AdminJobResponse]:
+    """List all jobs posted by a specific company (Admin only)."""
+    # Verify company exists first
+    company = db.query(Company).filter(Company.id == company_id).first()
+    if not company:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Company not found."
+        )
+
+    jobs = (
+        db.query(JobPosting)
+        .options(
+            joinedload(JobPosting.company),
+            joinedload(JobPosting.employment_type),
+            joinedload(JobPosting.work_mode),
+            joinedload(JobPosting.city),
+            joinedload(JobPosting.state),
+            joinedload(JobPosting.country),
+            joinedload(JobPosting.currency)
+        )
+        .filter(JobPosting.company_id == company_id)
+        .order_by(JobPosting.created_at.desc())
+        .all()
+    )
+
+    response = []
+    for job in jobs:
+        response.append(
+            AdminJobResponse(
+                id=job.id,
+                company_id=job.company_id,
+                company_name=job.company.name if job.company else None,
+                title=job.title,
+                description=job.description,
+                employment_type_id=job.employment_type_id,
+                employment_type_name=job.employment_type.name if job.employment_type else None,
+                work_mode_id=job.work_mode_id,
+                work_mode_name=job.work_mode.name if job.work_mode else None,
+                city_id=job.city_id,
+                city_name=job.city.name if job.city else None,
+                state_id=job.state_id,
+                state_name=job.state.name if job.state else None,
+                country_id=job.country_id,
+                country_name=job.country.name if job.country else None,
+                salary_min=job.salary_min,
+                salary_max=job.salary_max,
+                currency_id=job.currency_id,
+                currency_code=job.currency.code if job.currency else None,
+                start_date=job.start_date,
+                application_deadline=job.application_deadline,
+                min_experience_years=job.min_experience_years,
+                max_experience_years=job.max_experience_years,
+                requires_visa_sponsorship=job.requires_visa_sponsorship,
+                num_positions=job.num_positions,
+                status=job.status,
+                is_active=job.is_active,
+                created_at=job.created_at,
+                updated_at=job.updated_at
+            )
+        )
+    return response
+
+
 @router.get("/jobs", response_model=List[AdminJobResponse])
 def get_all_jobs(
     search: Optional[str] = None,
