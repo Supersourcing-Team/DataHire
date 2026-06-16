@@ -1,15 +1,21 @@
 from datetime import datetime, timezone
 from typing import List, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import get_db
 from app.models.job import JobPosting
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.models.candidate import Candidate
+from app.models.saved_job import SavedJob
+from app.models.application import JobApplication
 from app.schemas.job import JobDashboardCardResponse, JobCreate, JobResponse
-from app.core.dependencies import require_employer
 from app.services.s3_service import S3Service
+from app.schemas.job_seeker import JobApplicationResponse
+from app.core.dependencies import require_employer, get_optional_current_active_user, require_candidate
+
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 s3_service = S3Service()
@@ -81,6 +87,7 @@ def get_dashboard_jobs(
     skip: int = 0,
     limit: int = 20,
     db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_current_active_user),
 ):
     jobs = (
         db.query(JobPosting)
@@ -100,6 +107,25 @@ def get_dashboard_jobs(
         .all()
     )
 
+    saved_job_ids = set()
+    applied_job_ids = set()
+    if current_user and current_user.role == UserRole.CANDIDATE:
+        candidate = db.query(Candidate).filter(Candidate.user_id == current_user.id).first()
+        if candidate:
+            job_ids = [job.id for job in jobs]
+            if job_ids:
+                saved_jobs = db.query(SavedJob.job_id).filter(
+                    SavedJob.candidate_id == candidate.id,
+                    SavedJob.job_id.in_(job_ids)
+                ).all()
+                saved_job_ids = {r[0] for r in saved_jobs}
+
+                applied_jobs = db.query(JobApplication.job_id).filter(
+                    JobApplication.candidate_id == candidate.id,
+                    JobApplication.job_id.in_(job_ids)
+                ).all()
+                applied_job_ids = {r[0] for r in applied_jobs}
+
     response = []
     for job in jobs:
         city_name = job.city.name if job.city else None
@@ -107,6 +133,9 @@ def get_dashboard_jobs(
         country_name = job.country.name if job.country else None
         currency_code = job.currency.code if job.currency else None
         currency_symbol = job.currency.symbol if job.currency else None
+
+        is_saved = job.id in saved_job_ids
+        is_applied = job.id in applied_job_ids
 
         response.append(
             JobDashboardCardResponse(
@@ -139,12 +168,13 @@ def get_dashboard_jobs(
                     currency_code,
                 ),
                 employment_type=job.employment_type.name if job.employment_type else None,
-                save_action=None,
-                apply_action=None,
+                save_action="unsave" if is_saved else "save",
+                apply_action="applied" if is_applied else "apply",
             )
         )
 
     return response
+
 
 
 @router.post("/", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
@@ -171,4 +201,25 @@ def create_job(
     db.refresh(db_job)
     
     return db_job
+
+
+@router.post("/{job_id}/apply", response_model=JobApplicationResponse)
+def apply_to_job(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    from app.api.v1.job_seeker import apply_to_job as seeker_apply_to_job
+    return seeker_apply_to_job(job_id=job_id, db=db, current_user=current_user)
+
+
+@router.post("/{job_id}/save")
+def save_or_unsave_job(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    from app.api.v1.job_seeker import save_or_unsave_job as seeker_save_or_unsave_job
+    return seeker_save_or_unsave_job(job_id=job_id, db=db, current_user=current_user)
+
 
