@@ -434,6 +434,15 @@ class AdminCandidateSkillDensityResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AdminCandidateStateResponse(BaseModel):
+    total_candidates: int
+    completed_onboarding: int
+    pending_onboarding: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+
 
 
 
