@@ -44,6 +44,8 @@ from app.api.v1.jobs import (
 
 
 router = APIRouter(prefix="/job-seeker", tags=["job-seeker"])
+from app.services.s3_service import S3Service
+s3_service = S3Service()
 
 # Plan Limits configuration
 PLAN_LIMITS = {
@@ -271,7 +273,7 @@ def get_job_seeker_feed(
                 id=job.id,
                 company_id=job.company_id,
                 company_name=job.company.name if job.company else None,
-                company_logo_url=job.company.logo_url if job.company else None,
+                company_logo_url=s3_service.get_presigned_url(job.company.logo_url) if job.company else None,
                 company_verified=True,
                 job_title=job.title,
                 ai_score=ai_score,
@@ -377,7 +379,7 @@ def get_job_seeker_job_details(
         id=job.id,
         company_id=job.company_id,
         company_name=job.company.name if job.company else None,
-        company_logo_url=job.company.logo_url if job.company else None,
+        company_logo_url=s3_service.get_presigned_url(job.company.logo_url) if job.company else None,
         company_description=job.company.description if job.company else None,
         company_website=job.company.website if job.company else None,
         company_founded_year=job.company.founded_year if job.company else None,
@@ -468,7 +470,7 @@ def apply_to_job(
         job_id=job.id,
         job_title=job.title,
         company_name=job.company.name if job.company else None,
-        company_logo_url=job.company.logo_url if job.company else None,
+        company_logo_url=s3_service.get_presigned_url(job.company.logo_url) if job.company else None,
         status=new_app.status,
         applied_at=new_app.created_at
     )
@@ -535,7 +537,7 @@ def get_submitted_applications(
                 job_id=record.job_id,
                 job_title=record.job.title if record.job else "Unknown Position",
                 company_name=record.job.company.name if record.job and record.job.company else None,
-                company_logo_url=record.job.company.logo_url if record.job and record.job.company else None,
+                company_logo_url=s3_service.get_presigned_url(record.job.company.logo_url) if record.job and record.job.company else None,
                 status=record.status,
                 applied_at=record.created_at
             )
@@ -801,7 +803,7 @@ def list_resumes(
             ResumeVersionResponse(
                 id=r.id,
                 file_name=r.file_name,
-                file_url=r.file_url,
+                file_url=s3_service.get_presigned_url(r.file_url),
                 version_number=r.version_number,
                 is_primary=r.is_primary,
                 created_at=r.created_at,
@@ -852,7 +854,7 @@ def upload_resume(
     return ResumeVersionResponse(
         id=new_resume.id,
         file_name=new_resume.file_name,
-        file_url=new_resume.file_url,
+        file_url=s3_service.get_presigned_url(new_resume.file_url),
         version_number=new_resume.version_number,
         is_primary=new_resume.is_primary,
         created_at=new_resume.created_at,
