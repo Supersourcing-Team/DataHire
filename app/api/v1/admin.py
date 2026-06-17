@@ -1106,7 +1106,9 @@ def get_job_details(
         extracted_skills=job.extracted_skills,
         must_be_authorized_to_work=job.must_be_authorized_to_work,
         us_citizen_or_pr_only=job.us_citizen_or_pr_only,
-        security_clearance_required=job.security_clearance_required
+        security_clearance_required=job.security_clearance_required,
+        date_posted=job.start_date or job.created_at,
+        deadline=job.application_deadline
     )
 
 
