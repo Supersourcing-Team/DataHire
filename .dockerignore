@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+.winds/
+.windsurf/
+datahire.log
+alembic.ini
+alembic/
