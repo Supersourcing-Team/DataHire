@@ -15,9 +15,8 @@ from app.models.job import JobPosting, JobStatus
 from app.models.user import User
 from app.models.taxonomy import TaxonomyDomain
 from app.models.refresh_token import RefreshToken
-from app.models.resume import Resume, ResumeSection
+from app.models.resume import Resume
 from app.services.s3_service import S3Service
-from app.services.matching_engine import MatchingEngine
 from app.schemas.admin import (
     AdminCandidateDashboardResponse,
     AdminCandidateResponse,
@@ -53,10 +52,7 @@ from app.schemas.admin import (
     AdminCandidateSkillDensityResponse,
     AdminCandidateSkillDensityDataPoint,
     AdminCandidateStateResponse,
-    AdminJobCandidateResponse,
-    AdminJobCandidatesSummaryResponse,
-    AdminResumeSectionResponse,
-    AdminJobCandidatePreviewResponse
+    AdminJobCandidateResponse
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -1110,7 +1106,9 @@ def get_job_details(
         extracted_skills=job.extracted_skills,
         must_be_authorized_to_work=job.must_be_authorized_to_work,
         us_citizen_or_pr_only=job.us_citizen_or_pr_only,
-        security_clearance_required=job.security_clearance_required
+        security_clearance_required=job.security_clearance_required,
+        date_posted=job.start_date or job.created_at,
+        deadline=job.application_deadline
     )
 
 
@@ -1472,13 +1470,14 @@ def get_candidate_skill_density_analytics(
     )
 
 
-@router.get("/jobs/{job_id}/candidates/pipeline", response_model=AdminJobCandidatesSummaryResponse)
-def get_job_candidates(
+@router.get("/jobs/{job_id}/candidate-pipeline/status")
+def get_job_candidates_status_count(
     job_id: UUID,
+    statuses: List[str] = Query(default=["applied", "review", "shortlisted", "interview", "onhold", "rejected", "withdrawn"]),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
-) -> AdminJobCandidatesSummaryResponse:
-    """Get candidate status counts and details of all candidate applications for a specific job posting (Admin only)."""
+) -> Dict[str, int]:
+    """Get candidate application status counts for a specific job posting dynamically based on requested query parameter statuses (Admin only)."""
     job = db.query(JobPosting).filter(JobPosting.id == job_id).first()
     if not job:
         raise HTTPException(
@@ -1486,8 +1485,62 @@ def get_job_candidates(
             detail="Job posting not found."
         )
 
-    # Fetch all applications for the job
-    applications = (
+    # Fetch all applications for the job and group counts
+    results = (
+        db.query(JobApplication.status, func.count(JobApplication.id))
+        .filter(JobApplication.job_id == job_id)
+        .group_by(JobApplication.status)
+        .all()
+    )
+
+    # Normalize requested statuses for case-insensitive matching
+    normalized_requested = {}
+    for original_status in statuses:
+        clean = original_status.lower().strip()
+        normalized_requested[clean] = original_status
+
+    response_counts = {status: 0 for status in statuses}
+
+    # Helper function to get normalized DB status variations
+    def get_variations(db_status: str) -> List[str]:
+        db_lower = (db_status or "").lower().strip()
+        variations = [db_lower]
+        if db_lower in ("under_review", "review", "in_review", "in review"):
+            variations.extend(["review", "in review", "in_review", "under_review"])
+        elif db_lower in ("interviewing", "interviewed", "interview"):
+            variations.extend(["interview", "interviewing", "interviewed"])
+        elif db_lower in ("onhold", "on_hold"):
+            variations.extend(["onhold", "on_hold"])
+        return variations
+
+    for db_status_str, count in results:
+        db_variations = get_variations(db_status_str)
+        # Find if any of these variations is in normalized_requested
+        for var in db_variations:
+            if var in normalized_requested:
+                orig_key = normalized_requested[var]
+                response_counts[orig_key] += count
+                break
+
+    return response_counts
+
+
+@router.get("/jobs/{job_id}/candidate-pipeline/details", response_model=List[AdminJobCandidateResponse])
+def get_job_candidates_pipeline(
+    job_id: UUID,
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> List[AdminJobCandidateResponse]:
+    """Get the candidate pipeline details for a specific job posting, optionally filtered by status (Admin only)."""
+    job = db.query(JobPosting).filter(JobPosting.id == job_id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job posting not found."
+        )
+
+    query = (
         db.query(JobApplication)
         .options(
             joinedload(JobApplication.candidate).joinedload(Candidate.user),
@@ -1495,21 +1548,20 @@ def get_job_candidates(
             joinedload(JobApplication.candidate).joinedload(Candidate.resumes)
         )
         .filter(JobApplication.job_id == job_id)
-        .order_by(JobApplication.created_at.desc())
-        .all()
     )
 
-    matching_service = MatchingEngine(db)
+    if status and status.lower().strip() != "all":
+        status_clean = status.lower().strip()
+        if status_clean in ("under_review", "review", "in_review", "in review"):
+            query = query.filter(func.lower(JobApplication.status).in_(["under_review", "review", "in_review", "in review"]))
+        elif status_clean in ("interviewing", "interviewed", "interview"):
+            query = query.filter(func.lower(JobApplication.status).in_(["interviewing", "interviewed", "interview"]))
+        elif status_clean in ("onhold", "on_hold"):
+            query = query.filter(func.lower(JobApplication.status).in_(["onhold", "on_hold"]))
+        else:
+            query = query.filter(func.lower(JobApplication.status) == status_clean)
 
-    counts = {
-        "applied": 0,
-        "review": 0,
-        "shortlisted": 0,
-        "Interview": 0,
-        "onhold": 0,
-        "rejected": 0,
-        "withdrawn": 0
-    }
+    applications = query.order_by(JobApplication.created_at.desc()).all()
 
     candidates_list = []
     for app in applications:
@@ -1517,37 +1569,10 @@ def get_job_candidates(
         if not candidate:
             continue
 
-        # Increment counts based on status mapping
-        status_lower = (app.status or "").lower().strip()
-        if status_lower == "applied":
-            counts["applied"] += 1
-        elif status_lower in ("under_review", "review", "in_review", "in review"):
-            counts["review"] += 1
-        elif status_lower == "shortlisted":
-            counts["shortlisted"] += 1
-        elif status_lower in ("interviewing", "interviewed", "interview"):
-            counts["Interview"] += 1
-        elif status_lower in ("onhold", "on_hold"):
-            counts["onhold"] += 1
-        elif status_lower == "rejected":
-            counts["rejected"] += 1
-        elif status_lower == "withdrawn":
-            counts["withdrawn"] += 1
+        app_type = "Auto Applied" if app.cover_letter else "Manual"
 
-        # Find primary resume to calculate AI match score and get resume URL
         primary_resume = next((r for r in candidate.resumes if r.is_primary), None)
-        
-        ai_score = 0
-        resume_url = None
-        if primary_resume:
-            resume_url = s3_service.get_presigned_url(primary_resume.file_url)
-            if primary_resume.overall_embedding is not None:
-                try:
-                    score_details = matching_service.score_resume_for_job(primary_resume.id, job_id)
-                    ai_score = int(score_details["final_score"])
-                except Exception:
-                    ai_score = 0
-
+        resume_url = s3_service.get_presigned_url(primary_resume.file_url) if primary_resume else None
         profile_pic_url = s3_service.get_presigned_url(candidate.profile_picture) if candidate.profile_picture else None
 
         candidates_list.append(
@@ -1559,131 +1584,14 @@ def get_job_candidates(
                 profile_picture=profile_pic_url,
                 position_role=candidate.taxonomy_domain.name if candidate.taxonomy_domain else None,
                 applied_date=app.created_at,
-                application_type="Auto",
+                application_type=app_type,
                 application_status=app.status,
-                ai_score=ai_score,
+                ai_score=0,
                 resume_url=resume_url
             )
         )
 
-    return AdminJobCandidatesSummaryResponse(
-        counts=counts,
-        candidates=candidates_list
-    )
-
-
-@router.get("/jobs/{job_id}/candidates-pipeline/{candidate_id}/preview", response_model=AdminJobCandidatePreviewResponse)
-def get_job_candidate_preview(
-    job_id: UUID,
-    candidate_id: UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
-) -> AdminJobCandidatePreviewResponse:
-    """Get preview details for a candidate in the context of a specific job application (Admin only)."""
-    job = db.query(JobPosting).filter(JobPosting.id == job_id).first()
-    if not job:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job posting not found."
-        )
-
-    # Fetch the candidate with their user, taxonomy domain, resumes, and sections
-    candidate = (
-        db.query(Candidate)
-        .options(
-            joinedload(Candidate.user),
-            joinedload(Candidate.taxonomy_domain),
-            joinedload(Candidate.resumes).joinedload(Resume.sections)
-        )
-        .filter(Candidate.id == candidate_id)
-        .first()
-    )
-    if not candidate:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Candidate not found."
-        )
-
-    # Fetch the job application to get status and cover letter
-    application = (
-        db.query(JobApplication)
-        .filter(JobApplication.job_id == job_id, JobApplication.candidate_id == candidate_id)
-        .first()
-    )
-    if not application:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Job application not found for this candidate and job."
-        )
-
-    primary_resume = next((r for r in candidate.resumes if r.is_primary), None)
-
-    # Initialize AI match details
-    ai_score = 0
-    experience_match_percent = 0
-    skill_match_percent = 0
-    industry_fit_percent = 0
-    resume_alignment_percent = 0
-    matching_skills = []
-    missing_skills = []
-
-    # Calculate match details
-    if primary_resume:
-        matching_service = MatchingEngine(db)
-        try:
-            score_details = matching_service.score_resume_for_job(primary_resume.id, job_id)
-            ai_score = int(score_details["final_score"])
-            
-            breakdown = score_details.get("breakdown", {})
-            experience_match_percent = int(breakdown.get("experience", 0))
-            skill_match_percent = int(breakdown.get("skills", 0))
-            industry_fit_percent = int(breakdown.get("logistics", 0))
-            resume_alignment_percent = int(breakdown.get("semantic", 0))
-            
-            insights = score_details.get("insights", {})
-            matching_skills = insights.get("matched_skills", [])
-            missing_skills = insights.get("missing_skills", [])
-        except Exception:
-            pass
-
-    # Build resume sections response
-    sections_list = []
-    if primary_resume and primary_resume.sections:
-        for section in primary_resume.sections:
-            sections_list.append(
-                AdminResumeSectionResponse(
-                    section_type=section.section_type,
-                    original_content=section.original_content,
-                    optimized_content=section.optimized_content
-                )
-            )
-
-    resume_url = s3_service.get_presigned_url(primary_resume.file_url) if primary_resume else None
-    profile_pic_url = s3_service.get_presigned_url(candidate.profile_picture) if candidate.profile_picture else None
-
-    return AdminJobCandidatePreviewResponse(
-        id=candidate.id,
-        full_name=candidate.full_name,
-        email=candidate.user.email if candidate.user else "",
-        phone=candidate.phone,
-        profile_picture=profile_pic_url,
-        position_role=candidate.taxonomy_domain.name if candidate.taxonomy_domain else None,
-        applied_date=application.created_at,
-        application_type="Auto",
-        application_status=application.status,
-        cover_letter=application.cover_letter,
-        resume_url=resume_url,
-        total_experience_years=primary_resume.total_experience_years if primary_resume else 0,
-        extracted_skills=primary_resume.extracted_skills if primary_resume and primary_resume.extracted_skills else [],
-        resume_sections=sections_list,
-        ai_score=ai_score,
-        experience_match_percent=experience_match_percent,
-        skill_match_percent=skill_match_percent,
-        industry_fit_percent=industry_fit_percent,
-        resume_alignment_percent=resume_alignment_percent,
-        matching_skills=matching_skills,
-        missing_skills=missing_skills
-    )
+    return candidates_list
 
 
 @router.post("/jobs/{job_id}/close", response_model=AdminJobResponse)
