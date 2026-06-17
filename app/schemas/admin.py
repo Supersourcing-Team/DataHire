@@ -341,6 +341,8 @@ class AdminJobDetailResponse(AdminJobResponse):
     must_be_authorized_to_work: bool
     us_citizen_or_pr_only: bool
     security_clearance_required: bool
+    date_posted: Optional[datetime] = None
+    deadline: Optional[datetime] = None
 class AdminJobAnalyticsByDomainResponse(BaseModel):
     title: str
     description: str
