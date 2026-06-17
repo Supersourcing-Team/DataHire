@@ -1,5 +1,5 @@
 from datetime import date, datetime, timezone, timedelta
-from typing import List, Optional
+from typing import List, Optional, Dict
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, case
@@ -11,12 +11,13 @@ from app.models.application import JobApplication
 from app.models.candidate import Candidate
 from app.models.company import Company
 from app.models.employer import Employer
-from app.models.job import JobPosting
+from app.models.job import JobPosting, JobStatus
 from app.models.user import User
 from app.models.taxonomy import TaxonomyDomain
 from app.models.refresh_token import RefreshToken
-from app.models.resume import Resume
+from app.models.resume import Resume, ResumeSection
 from app.services.s3_service import S3Service
+from app.services.matching_engine import MatchingEngine
 from app.schemas.admin import (
     AdminCandidateDashboardResponse,
     AdminCandidateResponse,
@@ -51,7 +52,11 @@ from app.schemas.admin import (
     AdminCandidateExperienceLevelsDataPoint,
     AdminCandidateSkillDensityResponse,
     AdminCandidateSkillDensityDataPoint,
-    AdminCandidateStateResponse
+    AdminCandidateStateResponse,
+    AdminJobCandidateResponse,
+    AdminJobCandidatesSummaryResponse,
+    AdminResumeSectionResponse,
+    AdminJobCandidatePreviewResponse
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -1464,6 +1469,292 @@ def get_candidate_skill_density_analytics(
         title="Skill Density",
         description="Most frequent keywords identified in parsed resumes.",
         data=data_points
+    )
+
+
+@router.get("/jobs/{job_id}/candidates/pipeline", response_model=AdminJobCandidatesSummaryResponse)
+def get_job_candidates(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminJobCandidatesSummaryResponse:
+    """Get candidate status counts and details of all candidate applications for a specific job posting (Admin only)."""
+    job = db.query(JobPosting).filter(JobPosting.id == job_id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job posting not found."
+        )
+
+    # Fetch all applications for the job
+    applications = (
+        db.query(JobApplication)
+        .options(
+            joinedload(JobApplication.candidate).joinedload(Candidate.user),
+            joinedload(JobApplication.candidate).joinedload(Candidate.taxonomy_domain),
+            joinedload(JobApplication.candidate).joinedload(Candidate.resumes)
+        )
+        .filter(JobApplication.job_id == job_id)
+        .order_by(JobApplication.created_at.desc())
+        .all()
+    )
+
+    matching_service = MatchingEngine(db)
+
+    counts = {
+        "applied": 0,
+        "review": 0,
+        "shortlisted": 0,
+        "Interview": 0,
+        "onhold": 0,
+        "rejected": 0,
+        "withdrawn": 0
+    }
+
+    candidates_list = []
+    for app in applications:
+        candidate = app.candidate
+        if not candidate:
+            continue
+
+        # Increment counts based on status mapping
+        status_lower = (app.status or "").lower().strip()
+        if status_lower == "applied":
+            counts["applied"] += 1
+        elif status_lower in ("under_review", "review", "in_review", "in review"):
+            counts["review"] += 1
+        elif status_lower == "shortlisted":
+            counts["shortlisted"] += 1
+        elif status_lower in ("interviewing", "interviewed", "interview"):
+            counts["Interview"] += 1
+        elif status_lower in ("onhold", "on_hold"):
+            counts["onhold"] += 1
+        elif status_lower == "rejected":
+            counts["rejected"] += 1
+        elif status_lower == "withdrawn":
+            counts["withdrawn"] += 1
+
+        # Find primary resume to calculate AI match score and get resume URL
+        primary_resume = next((r for r in candidate.resumes if r.is_primary), None)
+        
+        ai_score = 0
+        resume_url = None
+        if primary_resume:
+            resume_url = s3_service.get_presigned_url(primary_resume.file_url)
+            if primary_resume.overall_embedding is not None:
+                try:
+                    score_details = matching_service.score_resume_for_job(primary_resume.id, job_id)
+                    ai_score = int(score_details["final_score"])
+                except Exception:
+                    ai_score = 0
+
+        profile_pic_url = s3_service.get_presigned_url(candidate.profile_picture) if candidate.profile_picture else None
+
+        candidates_list.append(
+            AdminJobCandidateResponse(
+                id=candidate.id,
+                full_name=candidate.full_name,
+                email=candidate.user.email if candidate.user else "",
+                phone=candidate.phone,
+                profile_picture=profile_pic_url,
+                position_role=candidate.taxonomy_domain.name if candidate.taxonomy_domain else None,
+                applied_date=app.created_at,
+                application_type="Auto",
+                application_status=app.status,
+                ai_score=ai_score,
+                resume_url=resume_url
+            )
+        )
+
+    return AdminJobCandidatesSummaryResponse(
+        counts=counts,
+        candidates=candidates_list
+    )
+
+
+@router.get("/jobs/{job_id}/candidates-pipeline/{candidate_id}/preview", response_model=AdminJobCandidatePreviewResponse)
+def get_job_candidate_preview(
+    job_id: UUID,
+    candidate_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminJobCandidatePreviewResponse:
+    """Get preview details for a candidate in the context of a specific job application (Admin only)."""
+    job = db.query(JobPosting).filter(JobPosting.id == job_id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job posting not found."
+        )
+
+    # Fetch the candidate with their user, taxonomy domain, resumes, and sections
+    candidate = (
+        db.query(Candidate)
+        .options(
+            joinedload(Candidate.user),
+            joinedload(Candidate.taxonomy_domain),
+            joinedload(Candidate.resumes).joinedload(Resume.sections)
+        )
+        .filter(Candidate.id == candidate_id)
+        .first()
+    )
+    if not candidate:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Candidate not found."
+        )
+
+    # Fetch the job application to get status and cover letter
+    application = (
+        db.query(JobApplication)
+        .filter(JobApplication.job_id == job_id, JobApplication.candidate_id == candidate_id)
+        .first()
+    )
+    if not application:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job application not found for this candidate and job."
+        )
+
+    primary_resume = next((r for r in candidate.resumes if r.is_primary), None)
+
+    # Initialize AI match details
+    ai_score = 0
+    experience_match_percent = 0
+    skill_match_percent = 0
+    industry_fit_percent = 0
+    resume_alignment_percent = 0
+    matching_skills = []
+    missing_skills = []
+
+    # Calculate match details
+    if primary_resume:
+        matching_service = MatchingEngine(db)
+        try:
+            score_details = matching_service.score_resume_for_job(primary_resume.id, job_id)
+            ai_score = int(score_details["final_score"])
+            
+            breakdown = score_details.get("breakdown", {})
+            experience_match_percent = int(breakdown.get("experience", 0))
+            skill_match_percent = int(breakdown.get("skills", 0))
+            industry_fit_percent = int(breakdown.get("logistics", 0))
+            resume_alignment_percent = int(breakdown.get("semantic", 0))
+            
+            insights = score_details.get("insights", {})
+            matching_skills = insights.get("matched_skills", [])
+            missing_skills = insights.get("missing_skills", [])
+        except Exception:
+            pass
+
+    # Build resume sections response
+    sections_list = []
+    if primary_resume and primary_resume.sections:
+        for section in primary_resume.sections:
+            sections_list.append(
+                AdminResumeSectionResponse(
+                    section_type=section.section_type,
+                    original_content=section.original_content,
+                    optimized_content=section.optimized_content
+                )
+            )
+
+    resume_url = s3_service.get_presigned_url(primary_resume.file_url) if primary_resume else None
+    profile_pic_url = s3_service.get_presigned_url(candidate.profile_picture) if candidate.profile_picture else None
+
+    return AdminJobCandidatePreviewResponse(
+        id=candidate.id,
+        full_name=candidate.full_name,
+        email=candidate.user.email if candidate.user else "",
+        phone=candidate.phone,
+        profile_picture=profile_pic_url,
+        position_role=candidate.taxonomy_domain.name if candidate.taxonomy_domain else None,
+        applied_date=application.created_at,
+        application_type="Auto",
+        application_status=application.status,
+        cover_letter=application.cover_letter,
+        resume_url=resume_url,
+        total_experience_years=primary_resume.total_experience_years if primary_resume else 0,
+        extracted_skills=primary_resume.extracted_skills if primary_resume and primary_resume.extracted_skills else [],
+        resume_sections=sections_list,
+        ai_score=ai_score,
+        experience_match_percent=experience_match_percent,
+        skill_match_percent=skill_match_percent,
+        industry_fit_percent=industry_fit_percent,
+        resume_alignment_percent=resume_alignment_percent,
+        matching_skills=matching_skills,
+        missing_skills=missing_skills
+    )
+
+
+@router.post("/jobs/{job_id}/close", response_model=AdminJobResponse)
+def close_job(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminJobResponse:
+    """Close a job posting (Admin only)."""
+    job = db.query(JobPosting).filter(JobPosting.id == job_id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job posting not found."
+        )
+
+    if job.status == JobStatus.CLOSED:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job posting is already closed."
+        )
+
+    job.status = JobStatus.CLOSED
+    db.commit()
+    
+    # Reload job with all relationships for AdminJobResponse
+    updated_job = (
+        db.query(JobPosting)
+        .options(
+            joinedload(JobPosting.company),
+            joinedload(JobPosting.employment_type),
+            joinedload(JobPosting.work_mode),
+            joinedload(JobPosting.city),
+            joinedload(JobPosting.state),
+            joinedload(JobPosting.country),
+            joinedload(JobPosting.currency)
+        )
+        .filter(JobPosting.id == job_id)
+        .first()
+    )
+    
+    return AdminJobResponse(
+        id=updated_job.id,
+        company_id=updated_job.company_id,
+        company_name=updated_job.company.name if updated_job.company else None,
+        title=updated_job.title,
+        description=updated_job.description,
+        employment_type_id=updated_job.employment_type_id,
+        employment_type_name=updated_job.employment_type.name if updated_job.employment_type else None,
+        work_mode_id=updated_job.work_mode_id,
+        work_mode_name=updated_job.work_mode.name if updated_job.work_mode else None,
+        city_id=updated_job.city_id,
+        city_name=updated_job.city.name if updated_job.city else None,
+        state_id=updated_job.state_id,
+        state_name=updated_job.state.name if updated_job.state else None,
+        country_id=updated_job.country_id,
+        country_name=updated_job.country.name if updated_job.country else None,
+        salary_min=updated_job.salary_min,
+        salary_max=updated_job.salary_max,
+        currency_id=updated_job.currency_id,
+        currency_code=updated_job.currency.code if updated_job.currency else None,
+        start_date=updated_job.start_date,
+        application_deadline=updated_job.application_deadline,
+        min_experience_years=updated_job.min_experience_years,
+        max_experience_years=updated_job.max_experience_years,
+        requires_visa_sponsorship=updated_job.requires_visa_sponsorship,
+        num_positions=updated_job.num_positions,
+        status=updated_job.status,
+        is_active=updated_job.is_active,
+        created_at=updated_job.created_at,
+        updated_at=updated_job.updated_at
     )
 
 
