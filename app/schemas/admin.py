@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Dict
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
@@ -438,6 +438,61 @@ class AdminCandidateStateResponse(BaseModel):
     total_candidates: int
     completed_onboarding: int
     pending_onboarding: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminJobCandidateResponse(BaseModel):
+    id: UUID
+    full_name: str
+    email: str
+    phone: Optional[str] = None
+    profile_picture: Optional[str] = None
+    position_role: Optional[str] = None
+    applied_date: datetime
+    application_type: str = "Auto"
+    application_status: str
+    ai_score: int = 0
+    resume_url: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminJobCandidatesSummaryResponse(BaseModel):
+    counts: Dict[str, int]
+    candidates: List[AdminJobCandidateResponse]
+
+
+class AdminResumeSectionResponse(BaseModel):
+    section_type: str
+    original_content: str
+    optimized_content: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminJobCandidatePreviewResponse(BaseModel):
+    id: UUID
+    full_name: str
+    email: str
+    phone: Optional[str] = None
+    profile_picture: Optional[str] = None
+    position_role: Optional[str] = None
+    applied_date: datetime
+    application_type: str = "Auto"
+    application_status: str
+    cover_letter: Optional[str] = None
+    resume_url: Optional[str] = None
+    total_experience_years: int = 0
+    extracted_skills: List[str] = []
+    resume_sections: List[AdminResumeSectionResponse] = []
+    ai_score: int = 0
+    experience_match_percent: int = 0
+    skill_match_percent: int = 0
+    industry_fit_percent: int = 0
+    resume_alignment_percent: int = 0
+    matching_skills: List[str] = []
+    missing_skills: List[str] = []
 
     model_config = ConfigDict(from_attributes=True)
 
