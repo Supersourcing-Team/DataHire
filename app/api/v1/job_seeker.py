@@ -3,7 +3,7 @@ from typing import List, Optional, Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, select, func
 
 from app.db.session import get_db
@@ -24,6 +24,7 @@ from app.schemas.job_seeker import (
     JobSeekerDetailResponse,
     AIMatchOverview,
     SavedJobResponse,
+    SavedJobsStatusResponse,
     JobApplicationResponse,
     OptimizeResumeResponse,
     OptimizeSectionResult,
@@ -520,6 +521,298 @@ def get_saved_jobs(
             )
         )
     return response
+
+
+@router.get("/dashboard/saved-jobs/pipeline-status", response_model=SavedJobsStatusResponse)
+def get_saved_jobs_status(
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    candidate = get_candidate(current_user, db)
+    
+    # 1. Fetch all saved records for candidate with eager loading of relations to prevent duplicate hits in the loop
+    saved_records = (
+        db.query(SavedJob)
+        .filter(SavedJob.candidate_id == candidate.id)
+        .options(
+            joinedload(SavedJob.job).joinedload(JobPosting.company),
+            joinedload(SavedJob.job).joinedload(JobPosting.city),
+            joinedload(SavedJob.job).joinedload(JobPosting.state),
+            joinedload(SavedJob.job).joinedload(JobPosting.country),
+            joinedload(SavedJob.job).joinedload(JobPosting.currency),
+            joinedload(SavedJob.job).joinedload(JobPosting.work_mode),
+            joinedload(SavedJob.job).joinedload(JobPosting.employment_type),
+        )
+        .order_by(SavedJob.created_at.desc())
+        .all()
+    )
+    
+    # 2. Get candidate primary resume for score calculations
+    primary_resume = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.is_primary == True
+    ).first()
+    
+    matching_service = MatchingEngine(db)
+    
+    high_match_count = 0
+    visa_sponsored_count = 0
+    closing_soon_count = 0
+    needs_resume_update_count = 0
+    
+    now = datetime.now(timezone.utc)
+    
+    for record in saved_records:
+        job = record.job
+        if not job or not job.is_active:
+            continue
+            
+        # Calculate AI match score using direct in-memory engine evaluation to avoid duplicate queries
+        ai_score = 0
+        if primary_resume and primary_resume.overall_embedding is not None:
+            try:
+                semantic_score = matching_service.evaluate_semantic_fit(job, primary_resume)
+                skills_eval = matching_service.evaluate_skills_overlap(job, primary_resume)
+                skills_score = skills_eval["score"]
+                experience_score = matching_service.evaluate_experience_match(job, primary_resume)
+                logistics_score = matching_service.evaluate_logistics(job, primary_resume)
+                
+                final_score = (
+                    (semantic_score * MatchingEngine.WEIGHT_SEMANTIC) +
+                    (skills_score * MatchingEngine.WEIGHT_SKILLS) +
+                    (experience_score * MatchingEngine.WEIGHT_EXPERIENCE) +
+                    (logistics_score * MatchingEngine.WEIGHT_FILTERS)
+                )
+                ai_score = int(final_score)
+            except Exception:
+                ai_score = 0
+                
+        # Determine status flags
+        is_high_match = ai_score >= 80
+        is_visa_sponsored = job.requires_visa_sponsorship == True
+        
+        is_closing_soon = False
+        if job.application_deadline:
+            deadline_utc = job.application_deadline.astimezone(timezone.utc) if job.application_deadline.tzinfo else job.application_deadline.replace(tzinfo=timezone.utc)
+            is_closing_soon = now <= deadline_utc <= now + timedelta(days=7)
+            
+        is_needs_resume_update = (primary_resume is None) or (ai_score < 80)
+        
+        # Increment counts
+        if is_high_match:
+            high_match_count += 1
+        if is_visa_sponsored:
+            visa_sponsored_count += 1
+        if is_closing_soon:
+            closing_soon_count += 1
+        if is_needs_resume_update:
+            needs_resume_update_count += 1
+            
+    # Calculate response count for the requested query parameter
+    resp_status = None
+    resp_count = None
+    
+    if status is not None:
+        normalized_status = status.lower().replace("_", " ").strip()
+        if normalized_status == "highmatch" or normalized_status == "high match":
+            resp_status = status
+            resp_count = high_match_count
+        elif normalized_status == "visa sponsored" or normalized_status == "visa_sponsored":
+            resp_status = status
+            resp_count = visa_sponsored_count
+        elif normalized_status == "closing soon" or normalized_status == "closing_soon":
+            resp_status = status
+            resp_count = closing_soon_count
+        elif normalized_status in ("need resume upload", "needs resume update", "need_resume_upload", "needs_resume_update"):
+            resp_status = status
+            resp_count = needs_resume_update_count
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid status '{status}'. Supported statuses are: "
+                    "'highmatch', 'visa sponsored', 'closing soon', 'need resume upload'."
+                )
+            )
+
+    return SavedJobsStatusResponse(
+        high_match_count=high_match_count,
+        visa_sponsored_count=visa_sponsored_count,
+        closing_soon_count=closing_soon_count,
+        needs_resume_update_count=needs_resume_update_count,
+        need_resume_upload_count=needs_resume_update_count,
+        status=resp_status,
+        count=resp_count
+    )
+
+
+@router.get("/dashboard/saved-jobs/pipeline", response_model=List[JobSeekerFeedResponse])
+def get_saved_jobs_pipeline(
+    status: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    candidate = get_candidate(current_user, db)
+    
+    # 1. Fetch all saved records for candidate with eager loading of relations to prevent duplicate hits in the loop
+    saved_records = (
+        db.query(SavedJob)
+        .filter(SavedJob.candidate_id == candidate.id)
+        .options(
+            joinedload(SavedJob.job).joinedload(JobPosting.company),
+            joinedload(SavedJob.job).joinedload(JobPosting.city),
+            joinedload(SavedJob.job).joinedload(JobPosting.state),
+            joinedload(SavedJob.job).joinedload(JobPosting.country),
+            joinedload(SavedJob.job).joinedload(JobPosting.currency),
+            joinedload(SavedJob.job).joinedload(JobPosting.work_mode),
+            joinedload(SavedJob.job).joinedload(JobPosting.employment_type),
+        )
+        .order_by(SavedJob.created_at.desc())
+        .all()
+    )
+    
+    # 2. Get candidate primary resume for score calculations
+    primary_resume = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.is_primary == True
+    ).first()
+    
+    # 3. Batch query job applications for the candidate to avoid hitting database in the loop
+    applications = db.query(JobApplication).filter(JobApplication.candidate_id == candidate.id).all()
+    applications_map = {app.job_id: app for app in applications}
+    
+    matching_service = MatchingEngine(db)
+    
+    all_jobs_data = []
+    
+    now = datetime.now(timezone.utc)
+    
+    # Check if a query param status is requested and normalize it
+    filter_high_match = False
+    filter_visa_sponsored = False
+    filter_closing_soon = False
+    filter_need_resume_upload = False
+    has_active_filter = False
+    
+    if status is not None:
+        normalized_status = status.lower().replace("_", " ").strip()
+        if normalized_status == "highmatch" or normalized_status == "high match":
+            filter_high_match = True
+            has_active_filter = True
+        elif normalized_status == "visa sponsored" or normalized_status == "visa_sponsored":
+            filter_visa_sponsored = True
+            has_active_filter = True
+        elif normalized_status == "closing soon" or normalized_status == "closing_soon":
+            filter_closing_soon = True
+            has_active_filter = True
+        elif normalized_status in ("need resume upload", "needs resume update", "need_resume_upload", "needs_resume_update"):
+            filter_need_resume_upload = True
+            has_active_filter = True
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid status '{status}'. Supported statuses are: "
+                    "'highmatch', 'visa sponsored', 'closing soon', 'need resume upload'."
+                )
+            )
+
+    for record in saved_records:
+        job = record.job
+        if not job or not job.is_active:
+            continue
+            
+        # Get application status from batch-loaded dictionary (no duplicate query)
+        app_record = applications_map.get(job.id)
+        is_applied = app_record is not None
+        app_status = app_record.status if app_record else None
+        
+        # Calculate AI match score using direct in-memory evaluation to avoid duplicate queries
+        ai_score = 0
+        if primary_resume and primary_resume.overall_embedding is not None:
+            try:
+                semantic_score = matching_service.evaluate_semantic_fit(job, primary_resume)
+                skills_eval = matching_service.evaluate_skills_overlap(job, primary_resume)
+                skills_score = skills_eval["score"]
+                experience_score = matching_service.evaluate_experience_match(job, primary_resume)
+                logistics_score = matching_service.evaluate_logistics(job, primary_resume)
+                
+                final_score = (
+                    (semantic_score * MatchingEngine.WEIGHT_SEMANTIC) +
+                    (skills_score * MatchingEngine.WEIGHT_SKILLS) +
+                    (experience_score * MatchingEngine.WEIGHT_EXPERIENCE) +
+                    (logistics_score * MatchingEngine.WEIGHT_FILTERS)
+                )
+                ai_score = int(final_score)
+            except Exception:
+                ai_score = 0
+                
+        # Determine status flags
+        is_high_match = ai_score >= 80
+        is_visa_sponsored = job.requires_visa_sponsorship == True
+        
+        is_closing_soon = False
+        if job.application_deadline:
+            deadline_utc = job.application_deadline.astimezone(timezone.utc) if job.application_deadline.tzinfo else job.application_deadline.replace(tzinfo=timezone.utc)
+            is_closing_soon = now <= deadline_utc <= now + timedelta(days=7)
+            
+        is_needs_resume_update = (primary_resume is None) or (ai_score < 80)
+        
+        # Apply filtering
+        if has_active_filter:
+            if filter_high_match and not is_high_match:
+                continue
+            if filter_visa_sponsored and not is_visa_sponsored:
+                continue
+            if filter_closing_soon and not is_closing_soon:
+                continue
+            if filter_need_resume_upload and not is_needs_resume_update:
+                continue
+            
+        # Format the job attributes using existing helper methods
+        city_name = job.city.name if job.city else None
+        state_name = job.state.name if job.state else None
+        country_name = job.country.name if job.country else None
+        currency_code = job.currency.code if job.currency else None
+        currency_symbol = job.currency.symbol if job.currency else None
+        
+        feed_item = JobSeekerFeedResponse(
+            id=job.id,
+            company_id=job.company_id,
+            company_name=job.company.name if job.company else None,
+            company_logo_url=s3_service.get_presigned_url(job.company.logo_url) if job.company else None,
+            company_verified=True,
+            job_title=job.title,
+            ai_score=ai_score,
+            city=city_name,
+            state=state_name,
+            country=country_name,
+            location_label=_build_location_label(city_name, state_name, country_name),
+            work_mode=job.work_mode.name if job.work_mode else None,
+            sponsorship_label="H1B sponsorship" if job.requires_visa_sponsorship else None,
+            posted_at=job.created_at,
+            posted_ago=_format_posted_ago(job.created_at),
+            experience_min_years=job.min_experience_years,
+            experience_max_years=job.max_experience_years,
+            experience_label=_format_experience_label(job.min_experience_years, job.max_experience_years),
+            salary_min=job.salary_min,
+            salary_max=job.salary_max,
+            salary_currency_code=currency_code,
+            salary_currency_symbol=currency_symbol,
+            salary_range_label=_format_salary_range(job.salary_min, job.salary_max, currency_symbol, currency_code),
+            employment_type=job.employment_type.name if job.employment_type else None,
+            save_action="unsave",
+            apply_action="applied" if is_applied else "apply",
+            saved=True,
+            applied=is_applied,
+            application_status=app_status
+        )
+        
+        all_jobs_data.append(feed_item)
+        
+    return all_jobs_data
+
 
 @router.get("/applications", response_model=List[JobApplicationResponse])
 def get_submitted_applications(
