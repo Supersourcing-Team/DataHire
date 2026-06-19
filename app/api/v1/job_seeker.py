@@ -525,6 +525,7 @@ def get_saved_jobs(
 
 @router.get("/dashboard/saved-jobs/pipeline-status", response_model=SavedJobsStatusResponse)
 def get_saved_jobs_status(
+    status: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
 ):
@@ -597,7 +598,7 @@ def get_saved_jobs_status(
             is_closing_soon = now <= deadline_utc <= now + timedelta(days=7)
             
         is_needs_resume_update = (primary_resume is None) or (ai_score < 80)
-            
+        
         # Increment counts
         if is_high_match:
             high_match_count += 1
@@ -607,22 +608,48 @@ def get_saved_jobs_status(
             closing_soon_count += 1
         if is_needs_resume_update:
             needs_resume_update_count += 1
+            
+    # Calculate response count for the requested query parameter
+    resp_status = None
+    resp_count = None
+    
+    if status is not None:
+        normalized_status = status.lower().replace("_", " ").strip()
+        if normalized_status in ("highmatch", "high match", "high_match"):
+            resp_status = status
+            resp_count = high_match_count
+        elif normalized_status in ("visa sponsored", "visa_sponsored"):
+            resp_status = status
+            resp_count = visa_sponsored_count
+        elif normalized_status in ("closing soon", "closing_soon"):
+            resp_status = status
+            resp_count = closing_soon_count
+        elif normalized_status in ("need resume upload", "needs resume update", "need_resume_upload", "needs_resume_update"):
+            resp_status = status
+            resp_count = needs_resume_update_count
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid status '{status}'. Supported statuses are: "
+                    "'high_match', 'visa_sponsored', 'closing_soon', 'needs_resume_update'."
+                )
+            )
 
     return SavedJobsStatusResponse(
         high_match_count=high_match_count,
         visa_sponsored_count=visa_sponsored_count,
         closing_soon_count=closing_soon_count,
         needs_resume_update_count=needs_resume_update_count,
-        need_resume_upload_count=needs_resume_update_count
+        need_resume_upload_count=needs_resume_update_count,
+        status=resp_status,
+        count=resp_count
     )
 
 
 @router.get("/dashboard/saved-jobs/pipeline", response_model=List[JobSeekerFeedResponse])
 def get_saved_jobs_pipeline(
-    high_match: Optional[bool] = Query(None),
-    visa_sponsored: Optional[bool] = Query(None),
-    closing_soon: Optional[bool] = Query(None),
-    needs_resume_update: Optional[bool] = Query(None),
+    status: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
 ):
@@ -660,6 +687,36 @@ def get_saved_jobs_pipeline(
     all_jobs_data = []
     
     now = datetime.now(timezone.utc)
+    
+    # Check if a query param status is requested and normalize it
+    filter_high_match = False
+    filter_visa_sponsored = False
+    filter_closing_soon = False
+    filter_need_resume_upload = False
+    has_active_filter = False
+    
+    if status is not None:
+        normalized_status = status.lower().replace("_", " ").strip()
+        if normalized_status in ("highmatch", "high match", "high_match"):
+            filter_high_match = True
+            has_active_filter = True
+        elif normalized_status in ("visa sponsored", "visa_sponsored"):
+            filter_visa_sponsored = True
+            has_active_filter = True
+        elif normalized_status in ("closing soon", "closing_soon"):
+            filter_closing_soon = True
+            has_active_filter = True
+        elif normalized_status in ("need resume upload", "needs resume update", "need_resume_upload", "needs_resume_update"):
+            filter_need_resume_upload = True
+            has_active_filter = True
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Invalid status '{status}'. Supported statuses are: "
+                    "'high_match', 'visa_sponsored', 'closing_soon', 'needs_resume_update'."
+                )
+            )
 
     for record in saved_records:
         job = record.job
@@ -703,17 +760,14 @@ def get_saved_jobs_pipeline(
         is_needs_resume_update = (primary_resume is None) or (ai_score < 80)
         
         # Apply filtering
-        if high_match is not None:
-            if is_high_match != high_match:
+        if has_active_filter:
+            if filter_high_match and not is_high_match:
                 continue
-        if visa_sponsored is not None:
-            if is_visa_sponsored != visa_sponsored:
+            if filter_visa_sponsored and not is_visa_sponsored:
                 continue
-        if closing_soon is not None:
-            if is_closing_soon != closing_soon:
+            if filter_closing_soon and not is_closing_soon:
                 continue
-        if needs_resume_update is not None:
-            if is_needs_resume_update != needs_resume_update:
+            if filter_need_resume_upload and not is_needs_resume_update:
                 continue
             
         # Format the job attributes using existing helper methods
