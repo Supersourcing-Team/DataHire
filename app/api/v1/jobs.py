@@ -16,7 +16,7 @@ from app.models.resume import Resume
 from app.schemas.job import JobDashboardCardResponse, JobCreate, JobResponse
 from app.services.s3_service import S3Service
 from app.services.matching_engine import MatchingEngine
-from app.schemas.job_seeker import JobApplicationResponse
+from app.schemas.job_seeker import JobApplicationResponse, SaveJobRequest
 from app.core.dependencies import require_employer, get_optional_current_active_user, require_candidate
 
 
@@ -310,13 +310,21 @@ def apply_to_job(
     return seeker_apply_to_job(job_id=job_id, db=db, current_user=current_user)
 
 
-@router.post("/{job_id}/save")
+@router.post("/{job_id}/save-unsave")
 def save_or_unsave_job(
     job_id: UUID,
+    payload: Optional[SaveJobRequest] = None,
+    status: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
 ):
     from app.api.v1.job_seeker import save_or_unsave_job as seeker_save_or_unsave_job
-    return seeker_save_or_unsave_job(job_id=job_id, db=db, current_user=current_user)
+    return seeker_save_or_unsave_job(
+        job_id=job_id,
+        payload=payload,
+        status=status,
+        db=db,
+        current_user=current_user
+    )
 
 

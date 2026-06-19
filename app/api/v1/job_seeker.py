@@ -34,7 +34,8 @@ from app.schemas.job_seeker import (
     ResumeUploadRequest,
     CoverLetterDetailResponse,
     CoverLetterCreateRequest,
-    CoverLetterUpdateRequest
+    CoverLetterUpdateRequest,
+    SaveJobRequest
 )
 from app.api.v1.jobs import (
     _build_location_label,
@@ -476,9 +477,12 @@ def apply_to_job(
         applied_at=new_app.created_at
     )
 
-@router.post("/jobs/{job_id}/save")
+
+@router.post("/jobs/{job_id}/save-unsave")
 def save_or_unsave_job(
     job_id: UUID,
+    payload: Optional[SaveJobRequest] = None,
+    status: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
 ):
@@ -489,6 +493,26 @@ def save_or_unsave_job(
         
     existing_save = db.query(SavedJob).filter(SavedJob.candidate_id == candidate.id, SavedJob.job_id == job.id).first()
     
+    # Resolve status from query parameters or request body payload
+    requested_status = status or (payload.status if payload else None)
+        
+    if requested_status is not None:
+        normalized_status = requested_status.lower().strip()
+        if normalized_status == "save":
+            if not existing_save:
+                new_save = SavedJob(candidate_id=candidate.id, job_id=job.id)
+                db.add(new_save)
+                db.commit()
+            return {"saved": True, "message": "Job saved successfully."}
+        elif normalized_status == "unsave":
+            if existing_save:
+                db.delete(existing_save)
+                db.commit()
+            return {"saved": False, "message": "Job unsaved successfully."}
+        else:
+            raise HTTPException(status_code=400, detail="Invalid status. Supported statuses are 'save' and 'unsave'.")
+            
+    # Default to toggle behavior if no explicit status is requested
     if existing_save:
         # Unsave job
         db.delete(existing_save)
