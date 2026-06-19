@@ -166,6 +166,8 @@ class SavedJobsStatusResponse(BaseModel):
     closing_soon_count: int
     needs_resume_update_count: int
     need_resume_upload_count: int
+    status: Optional[str] = None
+    count: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
 
