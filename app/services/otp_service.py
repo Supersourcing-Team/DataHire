@@ -46,7 +46,7 @@ class OTPService:
         
         # Generate new OTP
         code = OTPService.generate_otp_code()
-        expires = datetime.now(timezone.utc) + timedelta(seconds=60)
+        expires = datetime.now(timezone.utc) + timedelta(seconds=600)
 
         # Save to DB
         otp = OTPToken(
