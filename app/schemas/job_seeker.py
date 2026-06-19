@@ -172,3 +172,7 @@ class SavedJobsStatusResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SaveJobRequest(BaseModel):
+    status: Optional[str] = None
+
+
