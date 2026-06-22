@@ -53,7 +53,7 @@ s3_service = S3Service()
 PLAN_LIMITS = {
     "free": {
         "name": "Free",
-        "daily_apply_limit": 0,
+        "daily_apply_limit": 3,
         "monthly_ai_credits": 60,
         "monthly_resume_optimization_limit": 3,
         "monthly_cover_letter_limit": 3,
@@ -62,19 +62,19 @@ PLAN_LIMITS = {
     },
     "pro": {
         "name": "Pro",
-        "daily_apply_limit": 3,
+        "daily_apply_limit": 6,
         "monthly_ai_credits": 400,
-        "monthly_resume_optimization_limit": 99999,
-        "monthly_cover_letter_limit": 99999,
+        "monthly_resume_optimization_limit": 99,
+        "monthly_cover_letter_limit": 99,
         "missing_skills_analysis_enabled": True,
         "saved_resumes_limit": 30,
     },
     "premium": {
         "name": "Premium",
-        "daily_apply_limit": 7,
+        "daily_apply_limit": 9,
         "monthly_ai_credits": 700,
-        "monthly_resume_optimization_limit": 99999,
-        "monthly_cover_letter_limit": 99999,
+        "monthly_resume_optimization_limit": 999,
+        "monthly_cover_letter_limit": 999,
         "missing_skills_analysis_enabled": True,
         "saved_resumes_limit": 99999,
     }
