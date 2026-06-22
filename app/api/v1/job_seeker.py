@@ -11,10 +11,12 @@ from app.core.dependencies import require_candidate, get_current_active_user
 from app.models.user import User, UserRole
 from app.models.candidate import Candidate
 from app.models.job import JobPosting
+from app.models.company import Company
 from app.models.application import JobApplication
 from app.models.saved_job import SavedJob
 from app.models.resume import Resume, ResumeSection
 from app.models.cover_letter import CoverLetter
+from app.models.job_report import JobReport
 from app.services.matching_engine import MatchingEngine
 from app.services.optimization_engine import optimization_engine
 from app.services.credit_manager import CreditManager, credit_manager
@@ -35,7 +37,9 @@ from app.schemas.job_seeker import (
     CoverLetterDetailResponse,
     CoverLetterCreateRequest,
     CoverLetterUpdateRequest,
-    SaveJobRequest
+    SaveJobRequest,
+    JobReportCreate,
+    JobReportResponse
 )
 from app.api.v1.jobs import (
     _build_location_label,
@@ -177,22 +181,22 @@ def get_job_seeker_feed(
     
     # Apply search filter
     if search:
-        query = query.filter(
+        query = query.join(Company).filter(
             or_(
                 JobPosting.title.ilike(f"%{search}%"),
-                JobPosting.description.ilike(f"%{search}%")
+                Company.name.ilike(f"%{search}%")
             )
         )
-        
+
     # Apply work type filter
     if work_type and work_type.lower() != "all":
-        query = query.join(JobPosting.work_mode).filter(func.lower(JobPosting.work_mode.has(name=work_type.upper())))
+        query = query.filter(JobPosting.work_mode.has(name=work_type.upper()))
         
     # Apply job type filter
     if job_type and job_type.lower() != "all":
         norm_jt = job_type.replace("-", "_").upper()
-        query = query.join(JobPosting.employment_type).filter(func.lower(JobPosting.employment_type.has(name=norm_jt)))
-        
+
+        query = query.filter(JobPosting.employment_type.has(name=norm_jt))
     # Apply location country filter
     if location and location.lower() != "all":
         if location.lower() in ("u.s.", "us", "united states"):
@@ -524,6 +528,47 @@ def save_or_unsave_job(
         db.add(new_save)
         db.commit()
         return {"saved": True, "message": "Job saved successfully."}
+
+
+@router.post("/jobs/{job_id}/report", response_model=JobReportResponse, status_code=status.HTTP_201_CREATED)
+def report_job(
+    job_id: UUID,
+    payload: JobReportCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    candidate = get_candidate(current_user, db)
+    job = db.query(JobPosting).filter(JobPosting.id == job_id, JobPosting.is_active == True).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job posting not found."
+        )
+        
+    existing_report = db.query(JobReport).filter(
+        JobReport.candidate_id == candidate.id,
+        JobReport.job_id == job_id
+    ).first()
+    
+    if existing_report:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You have already reported this job posting."
+        )
+        
+    new_report = JobReport(
+        candidate_id=candidate.id,
+        job_id=job_id,
+        reason=payload.reason,
+        description=payload.description
+    )
+    
+    db.add(new_report)
+    db.commit()
+    db.refresh(new_report)
+    
+    return new_report
+
 
 @router.get("/saved-jobs", response_model=List[SavedJobResponse])
 def get_saved_jobs(

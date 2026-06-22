@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional, Union, Dict, Any
+from typing import List, Optional, Union, Dict, Any, Literal
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 from app.schemas.job import JobDashboardCardResponse
@@ -174,5 +174,30 @@ class SavedJobsStatusResponse(BaseModel):
 
 class SaveJobRequest(BaseModel):
     status: Optional[str] = None
+
+
+class JobReportCreate(BaseModel):
+    reason: Literal[
+        "Fake or Misleading Job Post",
+        "Spam or Promotional Content",
+        "Suspicious Hiring Activity",
+        "Discrimination or Harassment",
+        "Inaccurate Company Info",
+        "Duplicate Job Listings",
+        "Scam or Fraud",
+        "Other"
+    ]
+    description: Optional[str] = None
+
+
+class JobReportResponse(BaseModel):
+    id: UUID
+    candidate_id: UUID
+    job_id: UUID
+    reason: str
+    description: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 

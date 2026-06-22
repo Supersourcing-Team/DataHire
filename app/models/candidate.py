@@ -42,6 +42,7 @@ class Candidate(Base):
     resumes = relationship("Resume", back_populates="candidate", cascade="all, delete-orphan")
     applications = relationship("JobApplication", back_populates="candidate", cascade="all, delete-orphan")
     saved_jobs = relationship("SavedJob", back_populates="candidate", cascade="all, delete-orphan")
+    reports = relationship("JobReport", back_populates="candidate", cascade="all, delete-orphan")
 
     @validates("taxonomy_domain_id", "work_status_id", "visa_status_id")
     def validate_dropdown_fks(self, key, value):
