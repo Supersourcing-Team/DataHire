@@ -20,7 +20,7 @@ from app.schemas.job_seeker import JobApplicationResponse, SaveJobRequest
 from app.core.dependencies import require_employer, get_optional_current_active_user, require_candidate
 
 
-router = APIRouter(prefix="/jobs", tags=["jobs"])
+router = APIRouter(prefix="/job-posters", tags=["job-posters"])
 s3_service = S3Service()
 
 
@@ -299,32 +299,5 @@ def create_job(
     
     return db_job
 
-
-@router.post("/{job_id}/apply", response_model=JobApplicationResponse)
-def apply_to_job(
-    job_id: UUID,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_candidate),
-):
-    from app.api.v1.job_seeker import apply_to_job as seeker_apply_to_job
-    return seeker_apply_to_job(job_id=job_id, db=db, current_user=current_user)
-
-
-@router.post("/{job_id}/save-unsave")
-def save_or_unsave_job(
-    job_id: UUID,
-    payload: Optional[SaveJobRequest] = None,
-    status: Optional[str] = Query(None),
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_candidate),
-):
-    from app.api.v1.job_seeker import save_or_unsave_job as seeker_save_or_unsave_job
-    return seeker_save_or_unsave_job(
-        job_id=job_id,
-        payload=payload,
-        status=status,
-        db=db,
-        current_user=current_user
-    )
 
 
