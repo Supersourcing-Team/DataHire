@@ -28,6 +28,7 @@ class JobSeekerFeedResponse(JobDashboardCardResponse):
     saved: bool = False
     applied: bool = False
     application_status: Optional[str] = None
+    apply_mode: Optional[str] = None
 
 class AIMatchOverview(BaseModel):
     experience_match_percent: int
@@ -68,6 +69,7 @@ class JobSeekerDetailResponse(BaseModel):
     saved: bool = False
     applied: bool = False
     application_status: Optional[str] = None
+    apply_mode: Optional[str] = None
     ai_match_overview: Optional[AIMatchOverview] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -88,6 +90,7 @@ class JobApplicationResponse(BaseModel):
     company_name: Optional[str] = None
     company_logo_url: Optional[str] = None
     status: str
+    apply_mode: Optional[str] = None
     applied_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -197,6 +200,21 @@ class JobReportResponse(BaseModel):
     reason: str
     description: Optional[str] = None
     created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CandidatePreferencesRequest(BaseModel):
+    role_type: Optional[str] = None
+    preferred_location: Optional[str] = None
+    min_salary: Optional[int] = None
+
+
+class CandidatePreferencesResponse(BaseModel):
+    role_type: Optional[str] = None
+    preferred_location: Optional[str] = None
+    min_salary: Optional[int] = None
+    preferences_exist: bool
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -90,11 +90,57 @@ class MatchingEngine:
 
     def evaluate_logistics(self, job: JobPosting, resume: Resume) -> float:
         """
-        Calculates Logistics & Filters Score (0-100 scale).
-        (Stubbed: to be expanded based on Candidate/Job visa logic).
+        Calculates Logistics & Filters Score (0-100 scale) based on candidate preferences.
         """
-        # Example logic: Assume 100% for now until full Candidate visa fields are mapped
-        return 100.0
+        candidate = resume.candidate
+        if not candidate:
+            return 100.0
+
+        score_components = []
+
+        # 1. Role Type Match
+        if candidate.pref_role_type:
+            roles = [r.strip().lower() for r in candidate.pref_role_type.split(",") if r.strip()]
+            if roles:
+                job_title_lower = job.title.lower() if job.title else ""
+                match = any(role in job_title_lower for role in roles)
+                score_components.append(100.0 if match else 0.0)
+
+        # 2. Location Match
+        if candidate.pref_locations:
+            locations = [l.strip().lower() for l in candidate.pref_locations.split(",") if l.strip()]
+            if locations:
+                match = False
+                # Check remote
+                if "remote" in locations and job.work_mode and job.work_mode.name.lower() == "remote":
+                    match = True
+                else:
+                    city_name = job.city.name.lower() if job.city and job.city.name else ""
+                    state_name = job.state.name.lower() if job.state and job.state.name else ""
+                    country_name = job.country.name.lower() if job.country and job.country.name else ""
+                    
+                    match = any(
+                        loc in city_name or loc in state_name or loc in country_name
+                        for loc in locations if loc != "remote"
+                    )
+                score_components.append(100.0 if match else 0.0)
+
+        # 3. Salary Match
+        if candidate.pref_min_salary is not None:
+            if job.salary_max is not None:
+                match = (job.salary_max >= candidate.pref_min_salary)
+                score_components.append(100.0 if match else 0.0)
+            elif job.salary_min is not None:
+                match = (job.salary_min >= candidate.pref_min_salary)
+                score_components.append(100.0 if match else 0.0)
+            else:
+                # Job has no salary specified
+                score_components.append(100.0)
+
+        if not score_components:
+            return 100.0
+
+        return sum(score_components) / len(score_components)
 
     def score_resume_for_job(self, resume_id: str, job_id: str) -> Dict[str, Any]:
         """
