@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional, Union, Dict, Any
+from typing import List, Optional, Union, Dict, Any, Literal
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 from app.schemas.job import JobDashboardCardResponse
@@ -28,6 +28,7 @@ class JobSeekerFeedResponse(JobDashboardCardResponse):
     saved: bool = False
     applied: bool = False
     application_status: Optional[str] = None
+    apply_mode: Optional[str] = None
 
 class AIMatchOverview(BaseModel):
     experience_match_percent: int
@@ -68,6 +69,7 @@ class JobSeekerDetailResponse(BaseModel):
     saved: bool = False
     applied: bool = False
     application_status: Optional[str] = None
+    apply_mode: Optional[str] = None
     ai_match_overview: Optional[AIMatchOverview] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -88,6 +90,7 @@ class JobApplicationResponse(BaseModel):
     company_name: Optional[str] = None
     company_logo_url: Optional[str] = None
     status: str
+    apply_mode: Optional[str] = None
     applied_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -174,5 +177,45 @@ class SavedJobsStatusResponse(BaseModel):
 
 class SaveJobRequest(BaseModel):
     status: Optional[str] = None
+
+
+class JobReportCreate(BaseModel):
+    reason: Literal[
+        "Fake or Misleading Job Post",
+        "Spam or Promotional Content",
+        "Suspicious Hiring Activity",
+        "Discrimination or Harassment",
+        "Inaccurate Company Info",
+        "Duplicate Job Listings",
+        "Scam or Fraud",
+        "Other"
+    ]
+    description: Optional[str] = None
+
+
+class JobReportResponse(BaseModel):
+    id: UUID
+    candidate_id: UUID
+    job_id: UUID
+    reason: str
+    description: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CandidatePreferencesRequest(BaseModel):
+    role_type: Optional[str] = None
+    preferred_location: Optional[str] = None
+    min_salary: Optional[int] = None
+
+
+class CandidatePreferencesResponse(BaseModel):
+    role_type: Optional[str] = None
+    preferred_location: Optional[str] = None
+    min_salary: Optional[int] = None
+    preferences_exist: bool
+
+    model_config = ConfigDict(from_attributes=True)
 
 

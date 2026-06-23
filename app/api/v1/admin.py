@@ -16,6 +16,7 @@ from app.models.user import User
 from app.models.taxonomy import TaxonomyDomain
 from app.models.refresh_token import RefreshToken
 from app.models.resume import Resume
+from app.models.job_report import JobReport
 from app.services.s3_service import S3Service
 from app.schemas.admin import (
     AdminCandidateDashboardResponse,
@@ -52,7 +53,8 @@ from app.schemas.admin import (
     AdminCandidateSkillDensityResponse,
     AdminCandidateSkillDensityDataPoint,
     AdminCandidateStateResponse,
-    AdminJobCandidateResponse
+    AdminJobCandidateResponse,
+    AdminJobReportResponse
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -1664,6 +1666,45 @@ def close_job(
         created_at=updated_job.created_at,
         updated_at=updated_job.updated_at
     )
+
+
+@router.get("/job-reports", response_model=List[AdminJobReportResponse])
+def get_job_reports(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> List[AdminJobReportResponse]:
+    """Retrieve all job reports submitted by candidates (Admin only)."""
+    reports = (
+        db.query(JobReport)
+        .options(
+            joinedload(JobReport.candidate).joinedload(Candidate.user),
+            joinedload(JobReport.job).joinedload(JobPosting.company)
+        )
+        .order_by(JobReport.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+    
+    response = []
+    for r in reports:
+        response.append(
+            AdminJobReportResponse(
+                id=r.id,
+                candidate_id=r.candidate_id,
+                candidate_name=r.candidate.full_name if r.candidate else "Unknown Candidate",
+                candidate_email=r.candidate.user.email if r.candidate and r.candidate.user else "Unknown Email",
+                job_id=r.job_id,
+                job_title=r.job.title if r.job else "Unknown Position",
+                company_name=r.job.company.name if r.job and r.job.company else None,
+                reason=r.reason,
+                description=r.description,
+                created_at=r.created_at
+            )
+        )
+    return response
 
 
 

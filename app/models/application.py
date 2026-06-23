@@ -13,6 +13,7 @@ class JobApplication(Base):
     candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False)
     job_id = Column(UUID(as_uuid=True), ForeignKey("job_postings.id", ondelete="CASCADE"), nullable=False)
     status = Column(String(50), default="applied", nullable=False)  # applied, under_review, interviewing, offered, rejected
+    apply_mode = Column(String(50), default="apply", nullable=False)  # apply (manual), auto-apply
     cover_letter = Column(String, nullable=True)  # Store generated cover letter or notes
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
