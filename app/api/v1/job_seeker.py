@@ -2080,7 +2080,13 @@ def get_auto_apply_history(
         elif job_post_date.lower() == "last 30 days":
             query = query.filter(JobPosting.created_at >= now - timedelta(days=30))
             
-    applications = query.order_by(JobApplication.created_at.desc()).all()
+    query = query.order_by(JobApplication.created_at.desc())
+    
+    # If match_score filter is not active, we can paginate in the database
+    if not match_score or match_score.lower() == "all":
+        query = query.offset(skip).limit(limit)
+        
+    applications = query.all()
     
     primary_resume = db.query(Resume).filter(
         Resume.candidate_id == candidate.id,
@@ -2157,5 +2163,7 @@ def get_auto_apply_history(
             )
         )
         
+    if not match_score or match_score.lower() == "all":
+        return history_items
     return history_items[skip : skip + limit]
 

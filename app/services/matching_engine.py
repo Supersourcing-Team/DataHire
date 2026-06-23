@@ -20,6 +20,8 @@ class MatchingEngine:
         """Calculate cosine similarity between two vectors."""
         if vec1 is None or vec2 is None or len(vec1) == 0 or len(vec2) == 0:
             return 0.0
+        if len(vec1) != len(vec2):
+            return 0.0
         v1 = np.array(vec1)
         v2 = np.array(vec2)
         dot_product = np.dot(v1, v2)
@@ -54,21 +56,40 @@ class MatchingEngine:
         Calculates Hard Skills Overlap Score (0-100 scale).
         Returns the score, matched skills, and missing critical skills.
         """
-        job_skills = set(job.extracted_skills or [])
-        resume_skills = set(resume.extracted_skills or [])
-        
-        if not job_skills:
-            return {"score": 100.0, "matched": list(resume_skills), "missing": []}
-            
-        matched_skills = job_skills.intersection(resume_skills)
-        missing_skills = job_skills.difference(resume_skills)
-        
-        score = (len(matched_skills) / len(job_skills)) * 100
-        
+        # Normalize job skills and preserve original casing in a lookup dictionary
+        job_skills_raw = job.extracted_skills or []
+        job_skills_lower = {}
+        for s in job_skills_raw:
+            if s and isinstance(s, str):
+                cleaned = s.strip()
+                if cleaned:
+                    job_skills_lower[cleaned.lower()] = cleaned
+
+        # Normalize resume skills
+        resume_skills_raw = resume.extracted_skills or []
+        resume_skills_lower = set()
+        for s in resume_skills_raw:
+            if s and isinstance(s, str):
+                cleaned = s.strip()
+                if cleaned:
+                    resume_skills_lower.add(cleaned.lower())
+
+        if not job_skills_lower:
+            return {"score": 100.0, "matched": list(resume_skills_raw), "missing": []}
+
+        matched_keys = set(job_skills_lower.keys()).intersection(resume_skills_lower)
+        missing_keys = set(job_skills_lower.keys()).difference(resume_skills_lower)
+
+        # Map back to original casing from the job posting
+        matched_skills = [job_skills_lower[k] for k in matched_keys]
+        missing_skills = [job_skills_lower[k] for k in missing_keys]
+
+        score = (len(matched_skills) / len(job_skills_lower)) * 100
+
         return {
             "score": score,
-            "matched": list(matched_skills),
-            "missing": list(missing_skills)
+            "matched": matched_skills,
+            "missing": missing_skills
         }
 
     def evaluate_experience_match(self, job: JobPosting, resume: Resume) -> float:
