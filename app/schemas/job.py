@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
@@ -100,4 +100,165 @@ class JobResponse(BaseModel):
     cover_letter_required: bool
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class JobCreateBasic(BaseModel):
+    title: str
+    description: Optional[str] = None
+    employment_type_id: Optional[int] = None
+    work_mode_id: Optional[int] = None
+    city_id: Optional[int] = None
+    state_id: Optional[int] = None
+    country_id: Optional[int] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    currency_id: Optional[int] = None
+    start_date: Optional[datetime] = None
+    application_deadline: Optional[int] = None
+    min_experience_years: Optional[int] = 0
+    max_experience_years: Optional[int] = None
+    requires_visa_sponsorship: Optional[bool] = False
+    num_positions: Optional[int] = 1
+
+
+class JobAboutUpdate(BaseModel):
+    job_overview: Optional[str] = None
+    about_role: Optional[str] = None
+    requirements: Optional[List[str]] = None
+    responsibilities: Optional[List[str]] = None
+    benefits: Optional[List[str]] = None
+
+
+class JobWorkAuthorizationUpdate(BaseModel):
+    must_be_authorized_to_work: Optional[bool] = None
+    requires_visa_sponsorship: Optional[bool] = None
+    us_citizen_or_pr_only: Optional[bool] = None
+    security_clearance_required: Optional[bool] = None
+    ai_score_threshold: Optional[int] = None
+
+
+class JobCoverLetterUpdate(BaseModel):
+    include_cover_letter: Optional[bool] = None
+    cover_letter_required: Optional[bool] = None
+
+
+class JobPublishUpdate(BaseModel):
+    status: Literal["draft", "published"]
+
+
+class JobPosterDashboardKPIs(BaseModel):
+    total_jobs: int
+    total_applicants: int
+    total_interviews: int
+    total_hired: int
+
+
+class MonthlySuccessRatePoint(BaseModel):
+    month: str
+    rate: float
+
+
+class HiresByDomainPoint(BaseModel):
+    domain: str
+    count: int
+
+
+class ActionFeedItem(BaseModel):
+    id: str
+    type: str
+    title: str
+    description: str
+    created_at: datetime
+
+
+class FunnelStagePoint(BaseModel):
+    stage: str
+    count: int
+
+
+class JobStatusBreakdown(BaseModel):
+    active_posts: int
+    draft_posts: int
+    closed_posts: int
+    total_visitors: int
+
+
+class JobPosterDashboardResponse(BaseModel):
+    kpis: JobPosterDashboardKPIs
+    monthly_success_rate: List[MonthlySuccessRatePoint]
+    hires_by_domain: List[HiresByDomainPoint]
+    action_feed: List[ActionFeedItem]
+    hiring_funnel: List[FunnelStagePoint]
+    job_status_overview: JobStatusBreakdown
+
+
+class EmployerJobListingItem(BaseModel):
+    id: UUID
+    company_name: str
+    company_logo_url: Optional[str] = None
+    company_verified: bool = True
+    job_title: str
+    ai_score_threshold: int
+    work_modes_list: List[str]
+    visa_sponsorships_list: List[str]
+    location_label: Optional[str] = None
+    posted_ago: str
+    new_applicants_count: int
+    shortlisted_count: int
+    deadline_label: Optional[str] = None
+    status: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PipelineStageSummary(BaseModel):
+    applied: int
+    shortlisted: int
+    interview: int
+    onhold: int
+    hired: int
+    rejected: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EmployerCompanyDetails(BaseModel):
+    name: str
+    website: Optional[str] = None
+    logo_url: Optional[str] = None
+    founded_year: Optional[int] = None
+    description: Optional[str] = None
+    location: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EmployerJobDetailResponse(BaseModel):
+    id: UUID
+    company_name: str
+    company_logo_url: Optional[str] = None
+    company_verified: bool = True
+    job_title: str
+    ai_score_threshold: int
+    work_modes_list: List[str]
+    visa_sponsorships_list: List[str]
+    location_label: Optional[str] = None
+    posted_ago: str
+    new_applicants_count: int
+    shortlisted_count: int
+    deadline_label: Optional[str] = None
+    status: str
+    pipeline_summary: PipelineStageSummary
+    job_overview: Optional[str] = None
+    about_role: Optional[str] = None
+    requirements: Optional[List[str]] = None
+    responsibilities: Optional[List[str]] = None
+    benefits: Optional[List[str]] = None
+    company_details: EmployerCompanyDetails
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+
+
 
