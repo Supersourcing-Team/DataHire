@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from app.api.v1.auth import router as auth_router
 from app.api.v1.linkedin import router as linkedin_router
 from app.api.v1.google import router as google_router
-from app.api.v1.jobs import router as jobs_router
+from app.api.v1.jobs import router as jobs_router, job_flow_router
 api_router = APIRouter()
 
 # Include routers here as they are created
@@ -45,6 +45,7 @@ api_router.include_router(files_router)
 
 # Include Jobs router
 api_router.include_router(jobs_router)
+api_router.include_router(job_flow_router)
 
 # Include Job Seeker router
 from app.api.v1.job_seeker import router as job_seeker_router
