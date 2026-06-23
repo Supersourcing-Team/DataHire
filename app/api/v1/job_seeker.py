@@ -9,12 +9,14 @@ from sqlalchemy import and_, or_, select, func
 from app.db.session import get_db
 from app.core.dependencies import require_candidate, get_current_active_user
 from app.models.user import User, UserRole
-from app.models.candidate import Candidate
+from app.models.candidate import Candidate, CandidateSkippedJob
 from app.models.job import JobPosting
+from app.models.company import Company
 from app.models.application import JobApplication
 from app.models.saved_job import SavedJob
 from app.models.resume import Resume, ResumeSection
 from app.models.cover_letter import CoverLetter
+from app.models.job_report import JobReport
 from app.services.matching_engine import MatchingEngine
 from app.services.optimization_engine import optimization_engine
 from app.services.credit_manager import CreditManager, credit_manager
@@ -35,7 +37,11 @@ from app.schemas.job_seeker import (
     CoverLetterDetailResponse,
     CoverLetterCreateRequest,
     CoverLetterUpdateRequest,
-    SaveJobRequest
+    SaveJobRequest,
+    JobReportCreate,
+    JobReportResponse,
+    CandidatePreferencesRequest,
+    CandidatePreferencesResponse
 )
 from app.api.v1.jobs import (
     _build_location_label,
@@ -177,22 +183,22 @@ def get_job_seeker_feed(
     
     # Apply search filter
     if search:
-        query = query.filter(
+        query = query.join(Company).filter(
             or_(
                 JobPosting.title.ilike(f"%{search}%"),
-                JobPosting.description.ilike(f"%{search}%")
+                Company.name.ilike(f"%{search}%")
             )
         )
-        
+
     # Apply work type filter
     if work_type and work_type.lower() != "all":
-        query = query.join(JobPosting.work_mode).filter(func.lower(JobPosting.work_mode.has(name=work_type.upper())))
+        query = query.filter(JobPosting.work_mode.has(name=work_type.upper()))
         
     # Apply job type filter
     if job_type and job_type.lower() != "all":
         norm_jt = job_type.replace("-", "_").upper()
-        query = query.join(JobPosting.employment_type).filter(func.lower(JobPosting.employment_type.has(name=norm_jt)))
-        
+
+        query = query.filter(JobPosting.employment_type.has(name=norm_jt))
     # Apply location country filter
     if location and location.lower() != "all":
         if location.lower() in ("u.s.", "us", "united states"):
@@ -300,7 +306,8 @@ def get_job_seeker_feed(
                 apply_action="applied" if is_applied else "apply",
                 saved=is_saved,
                 applied=is_applied,
-                application_status=app_status
+                application_status=app_status,
+                apply_mode=app_record.apply_mode if app_record else None
             )
         )
         
@@ -412,6 +419,7 @@ def get_job_seeker_job_details(
         saved=is_saved,
         applied=is_applied,
         application_status=app_status,
+        apply_mode=app_record.apply_mode if app_record else None,
         ai_match_overview=match_overview
     )
 
@@ -455,7 +463,8 @@ def apply_to_job(
     new_app = JobApplication(
         candidate_id=candidate.id,
         job_id=job.id,
-        status="applied"
+        status="applied",
+        apply_mode="apply"
     )
     
     # Deduct credits
@@ -474,6 +483,7 @@ def apply_to_job(
         company_name=job.company.name if job.company else None,
         company_logo_url=s3_service.get_presigned_url(job.company.logo_url) if job.company else None,
         status=new_app.status,
+        apply_mode=new_app.apply_mode,
         applied_at=new_app.created_at
     )
 
@@ -524,6 +534,47 @@ def save_or_unsave_job(
         db.add(new_save)
         db.commit()
         return {"saved": True, "message": "Job saved successfully."}
+
+
+@router.post("/jobs/{job_id}/report", response_model=JobReportResponse, status_code=status.HTTP_201_CREATED)
+def report_job(
+    job_id: UUID,
+    payload: JobReportCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    candidate = get_candidate(current_user, db)
+    job = db.query(JobPosting).filter(JobPosting.id == job_id, JobPosting.is_active == True).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job posting not found."
+        )
+        
+    existing_report = db.query(JobReport).filter(
+        JobReport.candidate_id == candidate.id,
+        JobReport.job_id == job_id
+    ).first()
+    
+    if existing_report:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You have already reported this job posting."
+        )
+        
+    new_report = JobReport(
+        candidate_id=candidate.id,
+        job_id=job_id,
+        reason=payload.reason,
+        description=payload.description
+    )
+    
+    db.add(new_report)
+    db.commit()
+    db.refresh(new_report)
+    
+    return new_report
+
 
 @router.get("/saved-jobs", response_model=List[SavedJobResponse])
 def get_saved_jobs(
@@ -1536,4 +1587,583 @@ def delete_cover_letter(
     db.delete(cl)
     db.commit()
     return {"message": "Cover letter deleted successfully."}
+
+
+@router.post("/preferences", response_model=CandidatePreferencesResponse)
+def update_preferences(
+    payload: CandidatePreferencesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    candidate = get_candidate(current_user, db)
+    
+    candidate.pref_role_type = payload.role_type
+    candidate.pref_locations = payload.preferred_location
+    candidate.pref_min_salary = payload.min_salary
+    
+    db.add(candidate)
+    db.commit()
+    db.refresh(candidate)
+    
+    preferences_exist = bool(
+        candidate.pref_role_type or 
+        candidate.pref_locations or 
+        candidate.pref_min_salary is not None
+    )
+    
+    return CandidatePreferencesResponse(
+        role_type=candidate.pref_role_type,
+        preferred_location=candidate.pref_locations,
+        min_salary=candidate.pref_min_salary,
+        preferences_exist=preferences_exist
+    )
+
+
+@router.get("/preferences", response_model=CandidatePreferencesResponse)
+def get_preferences(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    candidate = get_candidate(current_user, db)
+    
+    preferences_exist = bool(
+        candidate.pref_role_type or 
+        candidate.pref_locations or 
+        candidate.pref_min_salary is not None
+    )
+    
+    return CandidatePreferencesResponse(
+        role_type=candidate.pref_role_type,
+        preferred_location=candidate.pref_locations,
+        min_salary=candidate.pref_min_salary,
+        preferences_exist=preferences_exist
+    )
+
+
+@router.post("/auto-apply/skip/{job_id}")
+def skip_job_from_auto_apply(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    candidate = get_candidate(current_user, db)
+    
+    job = db.query(JobPosting).filter(JobPosting.id == job_id, JobPosting.is_active == True).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job posting not found."
+        )
+        
+    existing_skip = db.query(CandidateSkippedJob).filter(
+        CandidateSkippedJob.candidate_id == candidate.id,
+        CandidateSkippedJob.job_id == job_id
+    ).first()
+    
+    if existing_skip:
+        return {"message": "Job already skipped."}
+        
+    new_skip = CandidateSkippedJob(
+        candidate_id=candidate.id,
+        job_id=job_id
+    )
+    db.add(new_skip)
+    db.commit()
+    
+    return {"message": "Job skipped successfully from auto apply."}
+
+
+@router.get("/auto-apply/jobs", response_model=List[JobSeekerFeedResponse])
+def get_auto_apply_jobs(
+    limit: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    candidate = get_candidate(current_user, db)
+    candidate = check_and_reset_candidate_credits(candidate, db)
+    
+    tier = candidate.plan_tier or "free"
+    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    plan_limit = limits["daily_apply_limit"]
+    if limit is None:
+        limit = plan_limit
+    else:
+        limit = min(limit, plan_limit)
+
+    if candidate.daily_apply_credits_used >= limits["daily_apply_limit"]:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=f"You have reached your daily apply limit of {limits['daily_apply_limit']} for the {limits['name']} plan."
+        )
+    if candidate.monthly_ai_credits_used >= limits["monthly_ai_credits"]:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=f"You have reached your monthly AI credit limit of {limits['monthly_ai_credits']}."
+        )
+        
+    primary_resume = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.is_primary == True
+    ).first()
+    
+    if not primary_resume:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please upload and set a primary resume before using auto-apply."
+        )
+        
+    # Query all active job postings
+    query = (
+        db.query(JobPosting)
+        .options(
+            joinedload(JobPosting.company),
+            joinedload(JobPosting.city),
+            joinedload(JobPosting.state),
+            joinedload(JobPosting.country),
+            joinedload(JobPosting.work_mode),
+            joinedload(JobPosting.employment_type),
+            joinedload(JobPosting.currency),
+        )
+        .filter(JobPosting.is_active == True)
+    )
+    
+    # Exclude already applied jobs
+    applied_job_ids = db.query(JobApplication.job_id).filter(
+        JobApplication.candidate_id == candidate.id
+    ).all()
+    applied_ids = [r[0] for r in applied_job_ids]
+    if applied_ids:
+        query = query.filter(JobPosting.id.not_in(applied_ids))
+        
+    # Exclude skipped jobs
+    skipped_job_ids = db.query(CandidateSkippedJob.job_id).filter(
+        CandidateSkippedJob.candidate_id == candidate.id
+    ).all()
+    skipped_ids = [r[0] for r in skipped_job_ids]
+    if skipped_ids:
+        query = query.filter(JobPosting.id.not_in(skipped_ids))
+        
+    jobs = query.all()
+    
+    # Filter and score
+    matching_service = MatchingEngine(db)
+    scored_jobs = []
+    
+    pref_roles = [r.strip().lower() for r in candidate.pref_role_type.split(",") if r.strip()] if candidate.pref_role_type else []
+    pref_locs = [l.strip().lower() for l in candidate.pref_locations.split(",") if l.strip()] if candidate.pref_locations else []
+    
+    for job in jobs:
+        # Check role type match
+        if pref_roles:
+            job_title = job.title.lower() if job.title else ""
+            if not any(role in job_title for role in pref_roles):
+                continue
+                
+        # Check location match
+        if pref_locs:
+            match_loc = False
+            if "remote" in pref_locs and job.work_mode and job.work_mode.name.lower() == "remote":
+                match_loc = True
+            else:
+                city_name = job.city.name.lower() if job.city and job.city.name else ""
+                state_name = job.state.name.lower() if job.state and job.state.name else ""
+                country_name = job.country.name.lower() if job.country and job.country.name else ""
+                if any(loc in city_name or loc in state_name or loc in country_name for loc in pref_locs if loc != "remote"):
+                    match_loc = True
+            if not match_loc:
+                continue
+                
+        # Check salary match
+        if candidate.pref_min_salary is not None:
+            if job.salary_max is not None and job.salary_max < candidate.pref_min_salary:
+                continue
+            if job.salary_max is None and job.salary_min is not None and job.salary_min < candidate.pref_min_salary:
+                continue
+                
+        # Calculate AI score
+        ai_score = 0
+        if primary_resume.overall_embedding is not None:
+            try:
+                score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
+                ai_score = int(score_details["final_score"])
+            except Exception:
+                ai_score = 0
+                
+        scored_jobs.append((job, ai_score))
+        
+    scored_jobs.sort(key=lambda x: x[1], reverse=True)
+    top_jobs = scored_jobs[:limit]
+    
+    feed_items = []
+    for job, ai_score in top_jobs:
+        city_name = job.city.name if job.city else None
+        state_name = job.state.name if job.state else None
+        country_name = job.country.name if job.country else None
+        currency_code = job.currency.code if job.currency else None
+        currency_symbol = job.currency.symbol if job.currency else None
+        
+        # Check if saved
+        is_saved = db.query(SavedJob).filter(SavedJob.candidate_id == candidate.id, SavedJob.job_id == job.id).first() is not None
+        
+        feed_items.append(
+            JobSeekerFeedResponse(
+                id=job.id,
+                company_id=job.company_id,
+                company_name=job.company.name if job.company else None,
+                company_logo_url=s3_service.get_presigned_url(job.company.logo_url) if job.company else None,
+                company_verified=True,
+                job_title=job.title,
+                ai_score=ai_score,
+                city=city_name,
+                state=state_name,
+                country=country_name,
+                location_label=_build_location_label(city_name, state_name, country_name),
+                work_mode=job.work_mode.name if job.work_mode else None,
+                sponsorship_label="H1B sponsorship" if job.requires_visa_sponsorship else None,
+                posted_at=job.created_at,
+                posted_ago=_format_posted_ago(job.created_at),
+                experience_min_years=job.min_experience_years,
+                experience_max_years=job.max_experience_years,
+                experience_label=_format_experience_label(job.min_experience_years, job.max_experience_years),
+                salary_min=job.salary_min,
+                salary_max=job.salary_max,
+                salary_currency_code=currency_code,
+                salary_currency_symbol=currency_symbol,
+                salary_range_label=_format_salary_range(job.salary_min, job.salary_max, currency_symbol, currency_code),
+                employment_type=job.employment_type.name if job.employment_type else None,
+                save_action="unsave" if is_saved else "save",
+                apply_action="apply",
+                saved=is_saved,
+                applied=False,
+                application_status=None
+            )
+        )
+        
+    return feed_items
+
+
+@router.post("/auto-apply/execute", response_model=List[JobApplicationResponse])
+def execute_auto_apply(
+    limit: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Executes the auto-apply functionality. Automatically applies to the top matched jobs
+    using the candidate's primary resume, provided the candidate has sufficient credits.
+    Sets application status to 'auto-apply'.
+    """
+    candidate = get_candidate(current_user, db)
+    candidate = check_and_reset_candidate_credits(candidate, db)
+    
+    tier = candidate.plan_tier or "free"
+    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    plan_limit = limits["daily_apply_limit"]
+    if limit is None:
+        limit = plan_limit
+    else:
+        limit = min(limit, plan_limit)
+    
+    # 1. Check if candidate has any daily / monthly credits remaining
+    if candidate.daily_apply_credits_used >= limits["daily_apply_limit"]:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=f"You have reached your daily apply limit of {limits['daily_apply_limit']} for the {limits['name']} plan."
+        )
+    if candidate.monthly_ai_credits_used >= limits["monthly_ai_credits"]:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail=f"You have reached your monthly AI credit limit of {limits['monthly_ai_credits']}."
+        )
+        
+    primary_resume = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.is_primary == True
+    ).first()
+    
+    if not primary_resume:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please upload and set a primary resume before using auto-apply."
+        )
+        
+    # Get auto apply eligible jobs (ordered by AI score)
+    query = (
+        db.query(JobPosting)
+        .options(joinedload(JobPosting.company))
+        .filter(JobPosting.is_active == True)
+    )
+    
+    # Exclude already applied
+    applied_job_ids = db.query(JobApplication.job_id).filter(
+        JobApplication.candidate_id == candidate.id
+    ).all()
+    applied_ids = [r[0] for r in applied_job_ids]
+    if applied_ids:
+        query = query.filter(JobPosting.id.not_in(applied_ids))
+        
+    # Exclude skipped
+    skipped_job_ids = db.query(CandidateSkippedJob.job_id).filter(
+        CandidateSkippedJob.candidate_id == candidate.id
+    ).all()
+    skipped_ids = [r[0] for r in skipped_job_ids]
+    if skipped_ids:
+        query = query.filter(JobPosting.id.not_in(skipped_ids))
+        
+    jobs = query.all()
+    
+    matching_service = MatchingEngine(db)
+    scored_jobs = []
+    
+    pref_roles = [r.strip().lower() for r in candidate.pref_role_type.split(",") if r.strip()] if candidate.pref_role_type else []
+    pref_locs = [l.strip().lower() for l in candidate.pref_locations.split(",") if l.strip()] if candidate.pref_locations else []
+    
+    for job in jobs:
+        # Check role type match
+        if pref_roles:
+            job_title = job.title.lower() if job.title else ""
+            if not any(role in job_title for role in pref_roles):
+                continue
+                
+        # Check location match
+        if pref_locs:
+            match_loc = False
+            if "remote" in pref_locs and job.work_mode and job.work_mode.name.lower() == "remote":
+                match_loc = True
+            else:
+                city_name = job.city.name.lower() if job.city and job.city.name else ""
+                state_name = job.state.name.lower() if job.state and job.state.name else ""
+                country_name = job.country.name.lower() if job.country and job.country.name else ""
+                if any(loc in city_name or loc in state_name or loc in country_name for loc in pref_locs if loc != "remote"):
+                    match_loc = True
+            if not match_loc:
+                continue
+                
+        # Check salary match
+        if candidate.pref_min_salary is not None:
+            if job.salary_max is not None and job.salary_max < candidate.pref_min_salary:
+                continue
+            if job.salary_max is None and job.salary_min is not None and job.salary_min < candidate.pref_min_salary:
+                continue
+                
+        # Calculate AI score
+        ai_score = 0
+        if primary_resume.overall_embedding is not None:
+            try:
+                score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
+                ai_score = int(score_details["final_score"])
+            except Exception:
+                ai_score = 0
+                
+        scored_jobs.append((job, ai_score))
+        
+    scored_jobs.sort(key=lambda x: x[1], reverse=True)
+    
+    remaining_daily = limits["daily_apply_limit"] - candidate.daily_apply_credits_used
+    remaining_monthly = limits["monthly_ai_credits"] - candidate.monthly_ai_credits_used
+    max_to_apply = min(limit, remaining_daily, remaining_monthly)
+    
+    top_matches = scored_jobs[:max_to_apply]
+    
+    applied_responses = []
+    for job, ai_score in top_matches:
+        new_app = JobApplication(
+            candidate_id=candidate.id,
+            job_id=job.id,
+            status="applied",
+            apply_mode="auto-apply"
+        )
+        
+        # Deduct credit
+        candidate.daily_apply_credits_used += 1
+        candidate.monthly_ai_credits_used += 1
+        
+        db.add(new_app)
+        db.commit()
+        db.refresh(new_app)
+        
+        applied_responses.append(
+            JobApplicationResponse(
+                id=new_app.id,
+                job_id=job.id,
+                job_title=job.title,
+                company_name=job.company.name if job.company else None,
+                company_logo_url=s3_service.get_presigned_url(job.company.logo_url) if job.company else None,
+                status=new_app.status,
+                apply_mode=new_app.apply_mode,
+                applied_at=new_app.created_at
+            )
+        )
+        
+    if applied_responses:
+        db.add(candidate)
+        db.commit()
+        
+    return applied_responses
+
+
+@router.get("/auto-apply/history", response_model=List[JobSeekerFeedResponse])
+def get_auto_apply_history(
+    search: Optional[str] = None,
+    work_type: Optional[str] = None,
+    job_type: Optional[str] = None,
+    location: Optional[str] = None,
+    match_score: Optional[str] = None,
+    job_post_date: Optional[str] = None,
+    visa_sponsorship: Optional[str] = None,
+    salary_min: Optional[int] = None,
+    salary_max: Optional[int] = None,
+    skip: int = 0,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Get all job applications for the candidate with full support for filters (similar to job-seeker dashboard).
+    """
+    candidate = get_candidate(current_user, db)
+    
+    # Start with JobApplication query
+    query = (
+        db.query(JobApplication)
+        .join(JobPosting, JobApplication.job_id == JobPosting.id)
+        .filter(JobApplication.candidate_id == candidate.id, JobPosting.is_active == True)
+    )
+    
+    # Apply search filter
+    if search:
+        query = query.join(Company, JobPosting.company_id == Company.id).filter(
+            or_(
+                JobPosting.title.ilike(f"%{search}%"),
+                Company.name.ilike(f"%{search}%")
+            )
+        )
+        
+    # Apply work type filter
+    if work_type and work_type.lower() != "all":
+        query = query.filter(JobPosting.work_mode.has(name=work_type.upper()))
+        
+    # Apply job type filter
+    if job_type and job_type.lower() != "all":
+        norm_jt = job_type.replace("-", "_").upper()
+        query = query.filter(JobPosting.employment_type.has(name=norm_jt))
+        
+    # Apply location country filter
+    if location and location.lower() != "all":
+        if location.lower() in ("u.s.", "us", "united states"):
+            query = query.join(JobPosting.country).filter(JobPosting.country.has(iso_code="US"))
+        elif location.lower() in ("india", "in"):
+            query = query.join(JobPosting.country).filter(JobPosting.country.has(iso_code="IN"))
+            
+    # Apply visa sponsorship filter
+    if visa_sponsorship and visa_sponsorship.lower() != "all":
+        if visa_sponsorship.lower() == "h1b sponsorship":
+            query = query.filter(JobPosting.requires_visa_sponsorship == True)
+        elif visa_sponsorship.lower() == "sponsorship available":
+            query = query.filter(or_(JobPosting.requires_visa_sponsorship == True, JobPosting.must_be_authorized_to_work == False))
+        elif visa_sponsorship.lower() == "no sponsorship":
+            query = query.filter(JobPosting.requires_visa_sponsorship == False)
+            
+    # Apply salary filters
+    if salary_min is not None:
+        query = query.filter(JobPosting.salary_min >= salary_min)
+    if salary_max is not None:
+        query = query.filter(JobPosting.salary_max <= salary_max)
+        
+    # Apply job post date filter
+    if job_post_date:
+        now = datetime.now(timezone.utc)
+        if job_post_date.lower() == "today" or job_post_date.lower() == "within 24 hour":
+            query = query.filter(JobPosting.created_at >= now - timedelta(days=1))
+        elif job_post_date.lower() == "last 7 days":
+            query = query.filter(JobPosting.created_at >= now - timedelta(days=7))
+        elif job_post_date.lower() == "last 30 days":
+            query = query.filter(JobPosting.created_at >= now - timedelta(days=30))
+            
+    query = query.order_by(JobApplication.created_at.desc())
+    
+    # If match_score filter is not active, we can paginate in the database
+    if not match_score or match_score.lower() == "all":
+        query = query.offset(skip).limit(limit)
+        
+    applications = query.all()
+    
+    primary_resume = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.is_primary == True
+    ).first()
+    
+    matching_service = MatchingEngine(db)
+    history_items = []
+    
+    for app in applications:
+        job = app.job
+        
+        # Calculate AI match score
+        ai_score = 0
+        if primary_resume and primary_resume.overall_embedding is not None:
+            try:
+                score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
+                ai_score = int(score_details["final_score"])
+            except Exception:
+                ai_score = 0
+                
+        # Filter by Match Score in Python if specified
+        if match_score and match_score.lower() != "all":
+            if match_score == "90%+" and ai_score < 90:
+                continue
+            elif match_score == "80 – 89%" and not (80 <= ai_score <= 89):
+                continue
+            elif match_score == "70 – 79%" and not (70 <= ai_score <= 79):
+                continue
+            elif match_score == "Below 70%" and ai_score >= 70:
+                continue
+                
+        city_name = job.city.name if job.city else None
+        state_name = job.state.name if job.state else None
+        country_name = job.country.name if job.country else None
+        currency_code = job.currency.code if job.currency else None
+        currency_symbol = job.currency.symbol if job.currency else None
+        
+        # Check if saved
+        is_saved = db.query(SavedJob).filter(SavedJob.candidate_id == candidate.id, SavedJob.job_id == job.id).first() is not None
+        
+        history_items.append(
+            JobSeekerFeedResponse(
+                id=job.id,
+                company_id=job.company_id,
+                company_name=job.company.name if job.company else None,
+                company_logo_url=s3_service.get_presigned_url(job.company.logo_url) if job.company else None,
+                company_verified=True,
+                job_title=job.title,
+                ai_score=ai_score,
+                city=city_name,
+                state=state_name,
+                country=country_name,
+                location_label=_build_location_label(city_name, state_name, country_name),
+                work_mode=job.work_mode.name if job.work_mode else None,
+                sponsorship_label="H1B sponsorship" if job.requires_visa_sponsorship else None,
+                posted_at=job.created_at,
+                posted_ago=_format_posted_ago(job.created_at),
+                experience_min_years=job.min_experience_years,
+                experience_max_years=job.max_experience_years,
+                experience_label=_format_experience_label(job.min_experience_years, job.max_experience_years),
+                salary_min=job.salary_min,
+                salary_max=job.salary_max,
+                salary_currency_code=currency_code,
+                salary_currency_symbol=currency_symbol,
+                salary_range_label=_format_salary_range(job.salary_min, job.salary_max, currency_symbol, currency_code),
+                employment_type=job.employment_type.name if job.employment_type else None,
+                save_action="unsave" if is_saved else "save",
+                apply_action="applied",
+                saved=is_saved,
+                applied=True,
+                application_status=app.status,
+                apply_mode=app.apply_mode
+            )
+        )
+        
+    if not match_score or match_score.lower() == "all":
+        return history_items
+    return history_items[skip : skip + limit]
 

@@ -499,6 +499,21 @@ class AdminJobCandidatePreviewResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AdminJobReportResponse(BaseModel):
+    id: UUID
+    candidate_id: UUID
+    candidate_name: str
+    candidate_email: str
+    job_id: UUID
+    job_title: str
+    company_name: Optional[str] = None
+    reason: str
+    description: Optional[str] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 
 
 

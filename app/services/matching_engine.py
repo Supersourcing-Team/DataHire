@@ -20,6 +20,8 @@ class MatchingEngine:
         """Calculate cosine similarity between two vectors."""
         if vec1 is None or vec2 is None or len(vec1) == 0 or len(vec2) == 0:
             return 0.0
+        if len(vec1) != len(vec2):
+            return 0.0
         v1 = np.array(vec1)
         v2 = np.array(vec2)
         dot_product = np.dot(v1, v2)
@@ -54,21 +56,40 @@ class MatchingEngine:
         Calculates Hard Skills Overlap Score (0-100 scale).
         Returns the score, matched skills, and missing critical skills.
         """
-        job_skills = set(job.extracted_skills or [])
-        resume_skills = set(resume.extracted_skills or [])
-        
-        if not job_skills:
-            return {"score": 100.0, "matched": list(resume_skills), "missing": []}
-            
-        matched_skills = job_skills.intersection(resume_skills)
-        missing_skills = job_skills.difference(resume_skills)
-        
-        score = (len(matched_skills) / len(job_skills)) * 100
-        
+        # Normalize job skills and preserve original casing in a lookup dictionary
+        job_skills_raw = job.extracted_skills or []
+        job_skills_lower = {}
+        for s in job_skills_raw:
+            if s and isinstance(s, str):
+                cleaned = s.strip()
+                if cleaned:
+                    job_skills_lower[cleaned.lower()] = cleaned
+
+        # Normalize resume skills
+        resume_skills_raw = resume.extracted_skills or []
+        resume_skills_lower = set()
+        for s in resume_skills_raw:
+            if s and isinstance(s, str):
+                cleaned = s.strip()
+                if cleaned:
+                    resume_skills_lower.add(cleaned.lower())
+
+        if not job_skills_lower:
+            return {"score": 100.0, "matched": list(resume_skills_raw), "missing": []}
+
+        matched_keys = set(job_skills_lower.keys()).intersection(resume_skills_lower)
+        missing_keys = set(job_skills_lower.keys()).difference(resume_skills_lower)
+
+        # Map back to original casing from the job posting
+        matched_skills = [job_skills_lower[k] for k in matched_keys]
+        missing_skills = [job_skills_lower[k] for k in missing_keys]
+
+        score = (len(matched_skills) / len(job_skills_lower)) * 100
+
         return {
             "score": score,
-            "matched": list(matched_skills),
-            "missing": list(missing_skills)
+            "matched": matched_skills,
+            "missing": missing_skills
         }
 
     def evaluate_experience_match(self, job: JobPosting, resume: Resume) -> float:
@@ -90,11 +111,57 @@ class MatchingEngine:
 
     def evaluate_logistics(self, job: JobPosting, resume: Resume) -> float:
         """
-        Calculates Logistics & Filters Score (0-100 scale).
-        (Stubbed: to be expanded based on Candidate/Job visa logic).
+        Calculates Logistics & Filters Score (0-100 scale) based on candidate preferences.
         """
-        # Example logic: Assume 100% for now until full Candidate visa fields are mapped
-        return 100.0
+        candidate = resume.candidate
+        if not candidate:
+            return 100.0
+
+        score_components = []
+
+        # 1. Role Type Match
+        if candidate.pref_role_type:
+            roles = [r.strip().lower() for r in candidate.pref_role_type.split(",") if r.strip()]
+            if roles:
+                job_title_lower = job.title.lower() if job.title else ""
+                match = any(role in job_title_lower for role in roles)
+                score_components.append(100.0 if match else 0.0)
+
+        # 2. Location Match
+        if candidate.pref_locations:
+            locations = [l.strip().lower() for l in candidate.pref_locations.split(",") if l.strip()]
+            if locations:
+                match = False
+                # Check remote
+                if "remote" in locations and job.work_mode and job.work_mode.name.lower() == "remote":
+                    match = True
+                else:
+                    city_name = job.city.name.lower() if job.city and job.city.name else ""
+                    state_name = job.state.name.lower() if job.state and job.state.name else ""
+                    country_name = job.country.name.lower() if job.country and job.country.name else ""
+                    
+                    match = any(
+                        loc in city_name or loc in state_name or loc in country_name
+                        for loc in locations if loc != "remote"
+                    )
+                score_components.append(100.0 if match else 0.0)
+
+        # 3. Salary Match
+        if candidate.pref_min_salary is not None:
+            if job.salary_max is not None:
+                match = (job.salary_max >= candidate.pref_min_salary)
+                score_components.append(100.0 if match else 0.0)
+            elif job.salary_min is not None:
+                match = (job.salary_min >= candidate.pref_min_salary)
+                score_components.append(100.0 if match else 0.0)
+            else:
+                # Job has no salary specified
+                score_components.append(100.0)
+
+        if not score_components:
+            return 100.0
+
+        return sum(score_components) / len(score_components)
 
     def score_resume_for_job(self, resume_id: str, job_id: str) -> Dict[str, Any]:
         """

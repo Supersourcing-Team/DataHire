@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Boolean, DateTime, Text, ForeignKey, Integer
+from sqlalchemy import Column, String, Boolean, DateTime, Text, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func
@@ -22,6 +22,11 @@ class Candidate(Base):
     taxonomy_domain_id = Column(Integer, ForeignKey("taxonomy_domains.id", ondelete="SET NULL"), nullable=True)
     visa_status_id = Column(Integer, ForeignKey("meta_visa_statuses.id", ondelete="SET NULL"), nullable=True)
 
+    # Auto Apply Preferences
+    pref_role_type = Column(String(500), nullable=True)
+    pref_locations = Column(String(500), nullable=True)
+    pref_min_salary = Column(Integer, nullable=True)
+
     # Subscription and Credit System
     plan_tier = Column(String(20), default="free", nullable=False)  # free, pro, premium
     daily_apply_credits_used = Column(Integer, default=0, nullable=False)
@@ -42,6 +47,8 @@ class Candidate(Base):
     resumes = relationship("Resume", back_populates="candidate", cascade="all, delete-orphan")
     applications = relationship("JobApplication", back_populates="candidate", cascade="all, delete-orphan")
     saved_jobs = relationship("SavedJob", back_populates="candidate", cascade="all, delete-orphan")
+    reports = relationship("JobReport", back_populates="candidate", cascade="all, delete-orphan")
+    skipped_jobs = relationship("CandidateSkippedJob", back_populates="candidate", cascade="all, delete-orphan")
 
     @validates("taxonomy_domain_id", "work_status_id", "visa_status_id")
     def validate_dropdown_fks(self, key, value):
@@ -52,3 +59,23 @@ class Candidate(Base):
 
     def __repr__(self):
         return f"<Candidate(id={self.id}, full_name={self.full_name})>"
+
+
+class CandidateSkippedJob(Base):
+    __tablename__ = "candidate_skipped_jobs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    candidate_id = Column(UUID(as_uuid=True), ForeignKey("candidates.id", ondelete="CASCADE"), nullable=False)
+    job_id = Column(UUID(as_uuid=True), ForeignKey("job_postings.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Relationships
+    candidate = relationship("Candidate", back_populates="skipped_jobs")
+    job = relationship("JobPosting")
+
+    __table_args__ = (
+        UniqueConstraint("candidate_id", "job_id", name="uq_candidate_skipped_job"),
+    )
+
+    def __repr__(self):
+        return f"<CandidateSkippedJob(id={self.id}, candidate_id={self.candidate_id}, job_id={self.job_id})>"
