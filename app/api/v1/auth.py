@@ -1,11 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.schemas.auth_schemas import UserResponse, RegisterRequest, LoginRequest, VerifyOTPRequest
+from app.schemas.auth_schemas import UserResponse, RegisterRequest, LoginRequest, VerifyOTPRequest, TokenResponse, RefreshTokenRequest
 from app.services.auth_service import AuthService
 from app.services.otp_service import OTPService
 from app.core.dependencies import get_current_active_user
 from app.models.user import User
+from app.core.security import verify_token, create_access_token, create_refresh_token
+from app.core.config import settings
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 
@@ -128,3 +130,61 @@ async def verify_login_otp(
         "user": result["user"],
         "tokens": result["tokens"]
     }
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh_access_token(
+    request: RefreshTokenRequest,
+    db: Session = Depends(get_db)
+) -> TokenResponse:
+    """
+    Refresh the access token using a valid refresh token.
+    """
+    payload = verify_token(request.refresh_token)
+    if not payload or payload.get("type") != "refresh":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_440_LOGIN_TIMEOUT if hasattr(status, 'HTTP_440_LOGIN_TIMEOUT') else status.HTTP_401_UNAUTHORIZED,
+            detail="User not found"
+        )
+        
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Inactive user"
+        )
+        
+    # Generate new access token
+    access_token_data = {
+        "sub": str(user.id),
+        "email": user.email,
+        "role": user.role,
+        "provider": user.auth_provider
+    }
+    access_token = create_access_token(access_token_data)
+    
+    # Rotate refresh token
+    new_refresh_token = create_refresh_token({"sub": str(user.id)})
+    
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=new_refresh_token,
+        token_type="bearer",
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    )
+

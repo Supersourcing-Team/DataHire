@@ -175,3 +175,8 @@ class OTPVerify(EmailBaseModel):
     email: EmailStr
     otp_code: str = Field(..., min_length=6, max_length=10, description="The OTP code")
     purpose: str = Field(..., description="Purpose of OTP, e.g., 'ACCOUNT_VERIFICATION' or 'PASSWORD_RESET'")
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str = Field(..., alias="refreshToken")
+
