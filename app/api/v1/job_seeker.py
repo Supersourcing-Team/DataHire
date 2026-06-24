@@ -209,11 +209,11 @@ def get_job_seeker_feed(
     # Apply visa sponsorship filter
     if visa_sponsorship and visa_sponsorship.lower() != "all":
         if visa_sponsorship.lower() == "h1b sponsorship":
-            query = query.filter(JobPosting.requires_visa_sponsorship == True)
+            query = query.filter(JobPosting.visa_status.has(name="H-1B Visa"))
         elif visa_sponsorship.lower() == "sponsorship available":
-            query = query.filter(or_(JobPosting.requires_visa_sponsorship == True, JobPosting.must_be_authorized_to_work == False))
+            query = query.filter(or_(JobPosting.requires_visa_sponsorship.isnot(None), JobPosting.must_be_authorized_to_work == False))
         elif visa_sponsorship.lower() == "no sponsorship":
-            query = query.filter(JobPosting.requires_visa_sponsorship == False)
+            query = query.filter(JobPosting.requires_visa_sponsorship.is_(None))
             
     # Apply salary filters
     if salary_min is not None:
@@ -698,7 +698,7 @@ def get_saved_jobs_status(
                 
         # Determine status flags
         is_high_match = ai_score >= 80
-        is_visa_sponsored = job.requires_visa_sponsorship == True
+        is_visa_sponsored = job.requires_visa_sponsorship is not None
         
         is_closing_soon = False
         if job.application_deadline:
@@ -858,7 +858,7 @@ def get_saved_jobs_pipeline(
                 
         # Determine status flags
         is_high_match = ai_score >= 80
-        is_visa_sponsored = job.requires_visa_sponsorship == True
+        is_visa_sponsored = job.requires_visa_sponsorship is not None
         
         is_closing_soon = False
         if job.application_deadline:
@@ -2193,11 +2193,11 @@ def get_auto_apply_history(
     # Apply visa sponsorship filter
     if visa_sponsorship and visa_sponsorship.lower() != "all":
         if visa_sponsorship.lower() == "h1b sponsorship":
-            query = query.filter(JobPosting.requires_visa_sponsorship == True)
+            query = query.filter(JobPosting.visa_status.has(name="H-1B Visa"))
         elif visa_sponsorship.lower() == "sponsorship available":
-            query = query.filter(or_(JobPosting.requires_visa_sponsorship == True, JobPosting.must_be_authorized_to_work == False))
+            query = query.filter(or_(JobPosting.requires_visa_sponsorship.isnot(None), JobPosting.must_be_authorized_to_work == False))
         elif visa_sponsorship.lower() == "no sponsorship":
-            query = query.filter(JobPosting.requires_visa_sponsorship == False)
+            query = query.filter(JobPosting.requires_visa_sponsorship.is_(None))
             
     # Apply salary filters
     if salary_min is not None:

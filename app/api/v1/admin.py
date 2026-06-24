@@ -954,9 +954,9 @@ def get_all_jobs(
     if visa is not None:
         val = str(visa).lower().strip()
         if val in ("true", "1", "yes", "sponsorship_required", "requires_visa_sponsorship", "requires_visa"):
-            query = query.filter(JobPosting.requires_visa_sponsorship == True)
+            query = query.filter(JobPosting.requires_visa_sponsorship.isnot(None))
         elif val in ("false", "0", "no", "no_sponsorship", "does_not_require"):
-            query = query.filter(JobPosting.requires_visa_sponsorship == False)
+            query = query.filter(JobPosting.requires_visa_sponsorship.is_(None))
 
     jobs = (
         query.options(
@@ -1020,7 +1020,7 @@ def get_job_dashboard(
     total_jobs = db.query(JobPosting).count()
     active_jobs = db.query(JobPosting).filter(JobPosting.is_active == True).count()
     total_positions_open = db.query(func.sum(JobPosting.num_positions)).filter(JobPosting.is_active == True).scalar() or 0
-    visa_sponsored_roles = db.query(JobPosting).filter(JobPosting.requires_visa_sponsorship == True, JobPosting.is_active == True).count()
+    visa_sponsored_roles = db.query(JobPosting).filter(JobPosting.requires_visa_sponsorship.isnot(None), JobPosting.is_active == True).count()
 
     return AdminJobDashboardResponse(
         title="Job Openings Summary",

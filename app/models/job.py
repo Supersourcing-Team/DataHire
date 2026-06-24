@@ -68,7 +68,7 @@ class JobPosting(Base):
     
     # Work Authorization & Clearances
     must_be_authorized_to_work = Column(Boolean, default=False)
-    requires_visa_sponsorship = Column(Boolean, default=False)
+    requires_visa_sponsorship = Column(Integer, ForeignKey("meta_visa_statuses.id", ondelete="SET NULL"), nullable=True)
     us_citizen_or_pr_only = Column(Boolean, default=False)
     security_clearance_required = Column(Boolean, default=False)
     
@@ -90,10 +90,12 @@ class JobPosting(Base):
     state = relationship("MetaState")
     country = relationship("MetaCountry")
     currency = relationship("MetaCurrency")
+    visa_status = relationship("MetaVisaStatus")
 
     @validates(
         "employment_type_id", "seniority_level_id", "work_mode_id", 
-        "city_id", "state_id", "country_id", "currency_id", "taxonomy_domain_id"
+        "city_id", "state_id", "country_id", "currency_id", "taxonomy_domain_id",
+        "requires_visa_sponsorship"
     )
     def validate_dropdown_fks(self, key, value):
         """Convert 0 or empty values to None to prevent ForeignKey constraints errors"""

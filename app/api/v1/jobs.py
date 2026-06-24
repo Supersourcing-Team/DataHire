@@ -830,8 +830,8 @@ def get_employer_jobs(
             
         # Build Visa Sponsorship tags
         visa_sponsorships = []
-        if job.requires_visa_sponsorship:
-            visa_sponsorships.extend(["H1B Visa sponsorship", "TN Visa sponsorship", "L-1 Visa sponsorship"])
+        if job.visa_status:
+            visa_sponsorships.append(job.visa_status.name)
         elif job.us_citizen_or_pr_only:
             visa_sponsorships.append("US Citizen or PR only")
         else:
@@ -880,7 +880,9 @@ def get_employer_job_detail(
         )
     company_id = employer.company_id
 
-    job = db.query(JobPosting).filter(
+    job = db.query(JobPosting).options(
+        joinedload(JobPosting.visa_status)
+    ).filter(
         JobPosting.id == job_id,
         JobPosting.company_id == company_id
     ).first()
@@ -921,8 +923,8 @@ def get_employer_job_detail(
     if job.work_mode:
         work_modes.append(job.work_mode.name)
     visa_sponsorships = []
-    if job.requires_visa_sponsorship:
-        visa_sponsorships.extend(["H1B Visa sponsorship", "TN Visa sponsorship", "L-1 Visa sponsorship"])
+    if job.visa_status:
+        visa_sponsorships.append(job.visa_status.name)
     elif job.us_citizen_or_pr_only:
         visa_sponsorships.append("US Citizen or PR only")
     else:
