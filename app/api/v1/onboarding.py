@@ -120,15 +120,17 @@ async def employer_step_1(
 ):
     employer = get_employer(current_user, db)
     
-    if not employer.company_id:
-        company = Company()
+    company = None
+    if employer.company_id:
+        company = db.query(Company).filter(Company.id == employer.company_id).first()
+        
+    if not company:
+        company = Company(name="")
         db.add(company)
         db.commit()
         db.refresh(company)
         employer.company_id = company.id
         db.commit()
-    else:
-        company = db.query(Company).filter(Company.id == employer.company_id).first()
         
     company.organization_type_id = data.organization_type_id
     company.onboarding_step = 1
