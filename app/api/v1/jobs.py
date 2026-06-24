@@ -94,6 +94,21 @@ def _build_location_label(city: Optional[str], state: Optional[str], country: Op
     return ", ".join(parts) if parts else None
 
 
+def _build_status_label(status: str, deadline: Optional[datetime]) -> str:
+    status_lower = status.lower() if status else "draft"
+    if status_lower == "draft":
+        return "drafted"
+    elif status_lower == "closed":
+        return "closed"
+    elif status_lower == "published":
+        if deadline:
+            now = datetime.now(deadline.tzinfo or timezone.utc)
+            if now > deadline:
+                return "expired"
+        return "published"
+    return status_lower
+
+
 @router.get("/dashboard", response_model=List[JobDashboardCardResponse])
 def get_dashboard_jobs(
     search: Optional[str] = Query(None),
@@ -120,7 +135,7 @@ def get_dashboard_jobs(
             joinedload(JobPosting.employment_type),
             joinedload(JobPosting.currency),
         )
-        .filter(JobPosting.is_active == True)
+        .filter(JobPosting.is_active == True, JobPosting.status == JobStatus.PUBLISHED)
     )
 
     # Apply search filter
@@ -774,7 +789,10 @@ def get_employer_jobs(
     query = db.query(JobPosting).filter(JobPosting.company_id == company_id)
 
     if job_status and job_status.lower() != "all":
-        query = query.filter(JobPosting.status == job_status.lower())
+        status_val = job_status.lower()
+        if status_val in ("active", "active-jobs", "published"):
+            status_val = "published"
+        query = query.filter(JobPosting.status == status_val)
 
     if search:
         query = query.filter(
@@ -856,7 +874,8 @@ def get_employer_jobs(
                 new_applicants_count=new_app_counts.get(job.id, 0),
                 shortlisted_count=shortlisted_counts.get(job.id, 0),
                 deadline_label=deadline_str,
-                status=job.status
+                status=job.status,
+                status_label=_build_status_label(job.status, job.application_deadline)
             )
         )
 
@@ -969,6 +988,7 @@ def get_employer_job_detail(
         shortlisted_count=shortlisted,
         deadline_label=deadline_str,
         status=job.status,
+        status_label=_build_status_label(job.status, job.application_deadline),
         pipeline_summary=pipeline_summary,
         job_overview=job.job_overview,
         about_role=job.about_role,

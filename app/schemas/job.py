@@ -204,6 +204,7 @@ class EmployerJobListingItem(BaseModel):
     shortlisted_count: int
     deadline_label: Optional[str] = None
     status: str
+    status_label: str
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -245,6 +246,7 @@ class EmployerJobDetailResponse(BaseModel):
     shortlisted_count: int
     deadline_label: Optional[str] = None
     status: str
+    status_label: str
     pipeline_summary: PipelineStageSummary
     job_overview: Optional[str] = None
     about_role: Optional[str] = None

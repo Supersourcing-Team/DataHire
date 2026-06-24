@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Response, Cookie
+from typing import Optional
 from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.schemas.auth_schemas import UserResponse, RegisterRequest, LoginRequest, VerifyOTPRequest, TokenResponse, RefreshTokenRequest
@@ -95,6 +96,7 @@ async def resend_otp(
 @router.post("/verify-otp", status_code=status.HTTP_200_OK)
 async def verify_login_otp(
     request: VerifyOTPRequest,
+    response: Response,
     db: Session = Depends(get_db)
 ):
     """Verify login OTP and return JWT tokens."""
@@ -125,6 +127,20 @@ async def verify_login_otp(
         
     # Generate and return permanent tokens
     result = await AuthService.generate_tokens(db, user)
+    
+    # Store refresh token in HttpOnly Secure cookie
+    refresh_token = result["tokens"].pop("refresh_token", None)
+    if refresh_token:
+        response.set_cookie(
+            key="refresh_token",
+            value=refresh_token,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+            max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+            path="/"
+        )
+        
     return {
         "message": "Login successful",
         "user": result["user"],
@@ -134,13 +150,26 @@ async def verify_login_otp(
 
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_access_token(
-    request: RefreshTokenRequest,
+    response: Response,
+    request: Optional[RefreshTokenRequest] = None,
+    refresh_token: Optional[str] = Cookie(None),
     db: Session = Depends(get_db)
 ) -> TokenResponse:
     """
     Refresh the access token using a valid refresh token.
     """
-    payload = verify_token(request.refresh_token)
+    token_val = refresh_token
+    if not token_val and request:
+        token_val = request.refresh_token
+        
+    if not token_val:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token is missing",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+        
+    payload = verify_token(token_val)
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -181,9 +210,19 @@ async def refresh_access_token(
     # Rotate refresh token
     new_refresh_token = create_refresh_token({"sub": str(user.id)})
     
+    response.set_cookie(
+        key="refresh_token",
+        value=new_refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        path="/"
+    )
+    
     return TokenResponse(
         access_token=access_token,
-        refresh_token=new_refresh_token,
+        refresh_token=None,
         token_type="bearer",
         expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60
     )
