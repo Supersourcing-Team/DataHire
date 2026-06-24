@@ -92,6 +92,9 @@ class JobApplicationResponse(BaseModel):
     status: str
     apply_mode: Optional[str] = None
     applied_at: datetime
+    match_score: Optional[int] = None
+    location_label: Optional[str] = None
+    status_label: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
