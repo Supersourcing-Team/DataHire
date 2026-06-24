@@ -209,11 +209,11 @@ def get_job_seeker_feed(
     # Apply visa sponsorship filter
     if visa_sponsorship and visa_sponsorship.lower() != "all":
         if visa_sponsorship.lower() == "h1b sponsorship":
-            query = query.filter(JobPosting.requires_visa_sponsorship == True)
+            query = query.filter(JobPosting.visa_status.has(name="H-1B Visa"))
         elif visa_sponsorship.lower() == "sponsorship available":
-            query = query.filter(or_(JobPosting.requires_visa_sponsorship == True, JobPosting.must_be_authorized_to_work == False))
+            query = query.filter(or_(JobPosting.requires_visa_sponsorship.isnot(None), JobPosting.must_be_authorized_to_work == False))
         elif visa_sponsorship.lower() == "no sponsorship":
-            query = query.filter(JobPosting.requires_visa_sponsorship == False)
+            query = query.filter(JobPosting.requires_visa_sponsorship.is_(None))
             
     # Apply salary filters
     if salary_min is not None:
@@ -476,6 +476,36 @@ def apply_to_job(
     db.commit()
     db.refresh(new_app)
     
+    # Format location label
+    work_mode_str = job.work_mode.name.title() if job.work_mode else None
+    location_parts = []
+    if job.city:
+        location_parts.append(job.city.name)
+    if job.state:
+        state_part = job.state.code or job.state.name
+        location_parts.append(state_part)
+        
+    base_loc = ", ".join(location_parts) if location_parts else None
+    if base_loc and work_mode_str:
+        location_label = f"{base_loc} ({work_mode_str})"
+    elif work_mode_str:
+        location_label = work_mode_str
+    elif base_loc:
+        location_label = base_loc
+    else:
+        location_label = "Remote"
+
+    # Get primary resume for match score calculation
+    primary_resume = db.query(Resume).filter(Resume.candidate_id == candidate.id, Resume.is_primary == True).first()
+    ai_score = 0
+    if primary_resume and primary_resume.overall_embedding is not None:
+        try:
+            matching_service = MatchingEngine(db)
+            score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
+            ai_score = int(score_details["final_score"])
+        except Exception:
+            ai_score = 0
+
     return JobApplicationResponse(
         id=new_app.id,
         job_id=job.id,
@@ -484,7 +514,10 @@ def apply_to_job(
         company_logo_url=s3_service.get_presigned_url(job.company.logo_url) if job.company else None,
         status=new_app.status,
         apply_mode=new_app.apply_mode,
-        applied_at=new_app.created_at
+        applied_at=new_app.created_at,
+        match_score=ai_score,
+        location_label=location_label,
+        status_label="Applied"
     )
 
 
@@ -665,7 +698,7 @@ def get_saved_jobs_status(
                 
         # Determine status flags
         is_high_match = ai_score >= 80
-        is_visa_sponsored = job.requires_visa_sponsorship == True
+        is_visa_sponsored = job.requires_visa_sponsorship is not None
         
         is_closing_soon = False
         if job.application_deadline:
@@ -825,7 +858,7 @@ def get_saved_jobs_pipeline(
                 
         # Determine status flags
         is_high_match = ai_score >= 80
-        is_visa_sponsored = job.requires_visa_sponsorship == True
+        is_visa_sponsored = job.requires_visa_sponsorship is not None
         
         is_closing_soon = False
         if job.application_deadline:
@@ -895,22 +928,102 @@ def get_submitted_applications(
     current_user: User = Depends(require_candidate),
 ):
     candidate = get_candidate(current_user, db)
-    apps = db.query(JobApplication).filter(JobApplication.candidate_id == candidate.id).order_by(JobApplication.created_at.desc()).all()
+    # Get primary resume for match score fallback
+    primary_resume = db.query(Resume).filter(Resume.candidate_id == candidate.id, Resume.is_primary == True).first()
     
+    # Query with joined relationships to avoid N+1 query issue
+    apps = (
+        db.query(JobApplication)
+        .options(
+            joinedload(JobApplication.job).joinedload(JobPosting.company),
+            joinedload(JobApplication.job).joinedload(JobPosting.city),
+            joinedload(JobApplication.job).joinedload(JobPosting.state),
+            joinedload(JobApplication.job).joinedload(JobPosting.work_mode)
+        )
+        .filter(JobApplication.candidate_id == candidate.id)
+        .order_by(JobApplication.created_at.desc())
+        .all()
+    )
+    
+    matching_service = MatchingEngine(db)
     response = []
+    
     for record in apps:
+        job = record.job
+        if not job:
+            continue
+            
+        # Get resume used for this job
+        resume = db.query(Resume).filter(Resume.candidate_id == candidate.id, Resume.job_id == job.id).first()
+        if not resume:
+            resume = primary_resume
+            
+        # Calculate AI match score
+        ai_score = 0
+        if resume and resume.overall_embedding is not None:
+            try:
+                score_details = matching_service.score_resume_for_job(resume.id, job.id)
+                ai_score = int(score_details["final_score"])
+            except Exception:
+                ai_score = 0
+                
+        # Build Location Label: e.g. "San Francisco, CA (Hybrid)"
+        work_mode_str = job.work_mode.name.title() if job.work_mode else None
+        location_parts = []
+        if job.city:
+            location_parts.append(job.city.name)
+        if job.state:
+            state_part = job.state.code or job.state.name
+            location_parts.append(state_part)
+            
+        base_loc = ", ".join(location_parts) if location_parts else None
+        if base_loc and work_mode_str:
+            location_label = f"{base_loc} ({work_mode_str})"
+        elif work_mode_str:
+            location_label = work_mode_str
+        elif base_loc:
+            location_label = base_loc
+        else:
+            location_label = "Remote"
+            
+        # Mapped Status Label
+        status_lower = record.status.lower()
+        if status_lower == "applied":
+            status_label = "Applied"
+        elif status_lower == "under_review":
+            status_label = "Under Review"
+        elif status_lower == "shortlisted":
+            status_label = "Shortlisted"
+        elif status_lower in ("interviewing", "interviewed", "interview"):
+            status_label = "Interviewing"
+        elif status_lower in ("onhold", "on_hold"):
+            status_label = "On Hold"
+        elif status_lower == "offered":
+            status_label = "Offer Received"
+        elif status_lower == "hired":
+            status_label = "Hired"
+        elif status_lower == "rejected":
+            status_label = "Rejected"
+        else:
+            status_label = record.status.title()
+            
         response.append(
             JobApplicationResponse(
                 id=record.id,
                 job_id=record.job_id,
-                job_title=record.job.title if record.job else "Unknown Position",
-                company_name=record.job.company.name if record.job and record.job.company else None,
-                company_logo_url=s3_service.get_presigned_url(record.job.company.logo_url) if record.job and record.job.company else None,
+                job_title=job.title,
+                company_name=job.company.name if job.company else None,
+                company_logo_url=s3_service.get_presigned_url(job.company.logo_url) if job.company and job.company.logo_url else None,
                 status=record.status,
-                applied_at=record.created_at
+                apply_mode=record.apply_mode,
+                applied_at=record.created_at,
+                match_score=ai_score,
+                location_label=location_label,
+                status_label=status_label
             )
         )
     return response
+
 
 @router.post("/jobs/{job_id}/optimize-resume", response_model=OptimizeResumeResponse)
 def optimize_resume_for_job(
@@ -1982,6 +2095,25 @@ def execute_auto_apply(
         db.commit()
         db.refresh(new_app)
         
+        # Format location label
+        work_mode_str = job.work_mode.name.title() if job.work_mode else None
+        location_parts = []
+        if job.city:
+            location_parts.append(job.city.name)
+        if job.state:
+            state_part = job.state.code or job.state.name
+            location_parts.append(state_part)
+            
+        base_loc = ", ".join(location_parts) if location_parts else None
+        if base_loc and work_mode_str:
+            location_label = f"{base_loc} ({work_mode_str})"
+        elif work_mode_str:
+            location_label = work_mode_str
+        elif base_loc:
+            location_label = base_loc
+        else:
+            location_label = "Remote"
+
         applied_responses.append(
             JobApplicationResponse(
                 id=new_app.id,
@@ -1991,7 +2123,10 @@ def execute_auto_apply(
                 company_logo_url=s3_service.get_presigned_url(job.company.logo_url) if job.company else None,
                 status=new_app.status,
                 apply_mode=new_app.apply_mode,
-                applied_at=new_app.created_at
+                applied_at=new_app.created_at,
+                match_score=ai_score,
+                location_label=location_label,
+                status_label="Applied"
             )
         )
         
@@ -2058,11 +2193,11 @@ def get_auto_apply_history(
     # Apply visa sponsorship filter
     if visa_sponsorship and visa_sponsorship.lower() != "all":
         if visa_sponsorship.lower() == "h1b sponsorship":
-            query = query.filter(JobPosting.requires_visa_sponsorship == True)
+            query = query.filter(JobPosting.visa_status.has(name="H-1B Visa"))
         elif visa_sponsorship.lower() == "sponsorship available":
-            query = query.filter(or_(JobPosting.requires_visa_sponsorship == True, JobPosting.must_be_authorized_to_work == False))
+            query = query.filter(or_(JobPosting.requires_visa_sponsorship.isnot(None), JobPosting.must_be_authorized_to_work == False))
         elif visa_sponsorship.lower() == "no sponsorship":
-            query = query.filter(JobPosting.requires_visa_sponsorship == False)
+            query = query.filter(JobPosting.requires_visa_sponsorship.is_(None))
             
     # Apply salary filters
     if salary_min is not None:

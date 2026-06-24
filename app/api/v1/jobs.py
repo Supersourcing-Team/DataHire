@@ -19,7 +19,8 @@ from app.schemas.job import (
     JobPublishUpdate, JobPosterDashboardResponse, JobPosterDashboardKPIs,
     MonthlySuccessRatePoint, HiresByDomainPoint, ActionFeedItem, 
     FunnelStagePoint, JobStatusBreakdown, EmployerJobListingItem,
-    PipelineStageSummary, EmployerCompanyDetails, EmployerJobDetailResponse
+    PipelineStageSummary, EmployerCompanyDetails, EmployerJobDetailResponse,
+    JobPosterApplicantListItem, TimelineEvent, JobPosterApplicantProfileResponse
 )
 from app.services.s3_service import S3Service
 from app.services.matching_engine import MatchingEngine
@@ -335,8 +336,16 @@ def create_a_job(
         application_deadline=deadline_date,
         company_id=current_user.employer.company_id,
         status=JobStatus.DRAFT,
-        is_active=False
+        is_active=False,
+        start_date=datetime.now(timezone.utc)
     )
+    
+    if db_job.city_id:
+        from app.models.meta import MetaCity
+        city = db.query(MetaCity).filter(MetaCity.id == db_job.city_id).first()
+        if city:
+            db_job.state_id = city.state_id
+            db_job.country_id = city.country_id
     
     db.add(db_job)
     db.commit()
@@ -821,8 +830,8 @@ def get_employer_jobs(
             
         # Build Visa Sponsorship tags
         visa_sponsorships = []
-        if job.requires_visa_sponsorship:
-            visa_sponsorships.extend(["H1B Visa sponsorship", "TN Visa sponsorship", "L-1 Visa sponsorship"])
+        if job.visa_status:
+            visa_sponsorships.append(job.visa_status.name)
         elif job.us_citizen_or_pr_only:
             visa_sponsorships.append("US Citizen or PR only")
         else:
@@ -871,7 +880,9 @@ def get_employer_job_detail(
         )
     company_id = employer.company_id
 
-    job = db.query(JobPosting).filter(
+    job = db.query(JobPosting).options(
+        joinedload(JobPosting.visa_status)
+    ).filter(
         JobPosting.id == job_id,
         JobPosting.company_id == company_id
     ).first()
@@ -912,8 +923,8 @@ def get_employer_job_detail(
     if job.work_mode:
         work_modes.append(job.work_mode.name)
     visa_sponsorships = []
-    if job.requires_visa_sponsorship:
-        visa_sponsorships.extend(["H1B Visa sponsorship", "TN Visa sponsorship", "L-1 Visa sponsorship"])
+    if job.visa_status:
+        visa_sponsorships.append(job.visa_status.name)
     elif job.us_citizen_or_pr_only:
         visa_sponsorships.append("US Citizen or PR only")
     else:
@@ -966,6 +977,347 @@ def get_employer_job_detail(
         benefits=job.benefits,
         company_details=company_details
     )
+
+
+@router.get("/jobs/{job_id}/applicants", response_model=List[JobPosterApplicantListItem])
+def list_job_applicants(
+    job_id: UUID,
+    status: Optional[str] = Query(None, description="Filter by status (applied, shortlisted, interview, onhold, hired, rejected)"),
+    work_mode: Optional[str] = Query(None, description="Filter by work mode (Remote, Hybrid, Onsite)"),
+    job_type: Optional[str] = Query(None, description="Filter by job type (Full-Time, Internship, Contract)"),
+    location: Optional[str] = Query(None, description="Filter by location (e.g. India, U.S.)"),
+    match_score: Optional[str] = Query(None, description="Filter by match score range (90%+, 80-89%, 70-79%, Below 70%)"),
+    min_experience: Optional[int] = Query(None, description="Minimum experience in years"),
+    max_experience: Optional[int] = Query(None, description="Maximum experience in years"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_employer)
+) -> List[JobPosterApplicantListItem]:
+    """
+    List all candidates who applied to a specific job posting with filters.
+    """
+    employer = current_user.employer
+    if not employer or not employer.company_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Employer is not associated with any company."
+        )
+    company_id = employer.company_id
+
+    # Verify job posting exists and belongs to employer's company
+    job = db.query(JobPosting).filter(
+        JobPosting.id == job_id,
+        JobPosting.company_id == company_id
+    ).first()
+
+    if not job:
+        raise HTTPException(
+            status_code=404,
+            detail="Job posting not found."
+        )
+
+    # Base query for JobApplication
+    query = db.query(JobApplication).filter(JobApplication.job_id == job_id)
+
+    # Filter by application status
+    if status and status.lower() != "all":
+        status_lower = status.lower()
+        if status_lower == "applications" or status_lower == "applied":
+            query = query.filter(JobApplication.status == "applied")
+        elif status_lower == "shortlisted":
+            query = query.filter(JobApplication.status.in_(["under_review", "shortlisted"]))
+        elif status_lower == "interview":
+            query = query.filter(JobApplication.status.in_(["interviewing", "interviewed"]))
+        elif status_lower == "onhold":
+            query = query.filter(JobApplication.status == "onhold")
+        elif status_lower == "hired":
+            query = query.filter(JobApplication.status.in_(["offered", "hired"]))
+        elif status_lower == "rejected":
+            query = query.filter(JobApplication.status == "rejected")
+        else:
+            # Fallback to direct string match
+            query = query.filter(JobApplication.status == status_lower)
+
+    # Load candidate and user relationships for filtering
+    query = query.join(Candidate, JobApplication.candidate_id == Candidate.id)
+
+    # Filter by candidate's preferred location (work mode / location filters)
+    if work_mode and work_mode.lower() != "all":
+        wm = work_mode.lower()
+        query = query.filter(Candidate.pref_locations.ilike(f"%{wm}%"))
+
+    if job_type and job_type.lower() != "all":
+        jt = job_type.lower()
+        query = query.filter(Candidate.pref_role_type.ilike(f"%{jt}%"))
+
+    if location and location.lower() != "all":
+        loc = location.lower()
+        query = query.filter(Candidate.pref_locations.ilike(f"%{loc}%"))
+
+    # Fetch applicants
+    applications = query.order_by(JobApplication.created_at.desc()).all()
+
+    matching_service = MatchingEngine(db)
+    response = []
+
+    for app in applications:
+        candidate = app.candidate
+        if not candidate:
+            continue
+
+        # Resolve the resume used (job-specific or primary)
+        resume = db.query(Resume).filter(
+            Resume.candidate_id == candidate.id,
+            Resume.job_id == job_id
+        ).first()
+        if not resume:
+            resume = db.query(Resume).filter(
+                Resume.candidate_id == candidate.id,
+                Resume.is_primary == True
+            ).first()
+
+        # Calculate AI match score
+        ai_score = 0
+        if resume and resume.overall_embedding is not None:
+            try:
+                score_details = matching_service.score_resume_for_job(resume.id, job_id)
+                ai_score = int(score_details["final_score"])
+            except Exception:
+                ai_score = 0
+
+        # Filter by Match Score in Python
+        if match_score and match_score.lower() != "all":
+            ms_clean = match_score.replace(" ", "")
+            if ms_clean == "90%+" and ai_score < 90:
+                continue
+            elif (ms_clean == "80-89%" or ms_clean == "80–89%") and not (80 <= ai_score <= 89):
+                continue
+            elif (ms_clean == "70-79%" or ms_clean == "70–79%") and not (70 <= ai_score <= 79):
+                continue
+            elif ms_clean == "Below70%" and ai_score >= 70:
+                continue
+
+        # Filter by Experience years
+        exp_years = resume.total_experience_years if resume else 0
+        if min_experience is not None and exp_years < min_experience:
+            continue
+        if max_experience is not None and exp_years > max_experience:
+            continue
+
+        # Format salary range label if candidate specifies pref_min_salary
+        salary_range_label = None
+        if candidate.pref_min_salary is not None:
+            min_salary_k = candidate.pref_min_salary // 1000
+            salary_range_label = f"${min_salary_k}k - ${min_salary_k + 10}k /month"
+
+        # Format location or role name
+        role = candidate.taxonomy_domain.name if candidate.taxonomy_domain else None
+
+        response.append(
+            JobPosterApplicantListItem(
+                id=candidate.id,
+                full_name=candidate.full_name,
+                profile_picture=s3_service.get_presigned_url(candidate.profile_picture) if candidate.profile_picture else None,
+                is_verified=candidate.user.is_verified if candidate.user else False,
+                role=role,
+                ai_score=ai_score,
+                experience_years=exp_years,
+                salary_range_label=salary_range_label,
+                employment_type=candidate.pref_role_type,
+                status=app.status,
+                applied_date=app.created_at
+            )
+        )
+
+    return response
+
+
+@router.get("/jobs/{job_id}/applicants/{candidate_id}", response_model=JobPosterApplicantProfileResponse)
+def get_applicant_profile(
+    job_id: UUID,
+    candidate_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_employer)
+) -> JobPosterApplicantProfileResponse:
+    """
+    Get the detailed candidate profile for a specific job application,
+    including the resume used while applying, the cover letter, summary, and timeline.
+    """
+    employer = current_user.employer
+    if not employer or not employer.company_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Employer is not associated with any company."
+        )
+    company_id = employer.company_id
+
+    # Verify job posting exists and belongs to employer's company
+    job = db.query(JobPosting).filter(
+        JobPosting.id == job_id,
+        JobPosting.company_id == company_id
+    ).first()
+
+    if not job:
+        raise HTTPException(
+            status_code=404,
+            detail="Job posting not found."
+        )
+
+    # Verify the application exists
+    app = db.query(JobApplication).filter(
+        JobApplication.job_id == job_id,
+        JobApplication.candidate_id == candidate_id
+    ).first()
+
+    if not app:
+        raise HTTPException(
+            status_code=404,
+            detail="Application for this candidate on this job was not found."
+        )
+
+    candidate = db.query(Candidate).options(
+        joinedload(Candidate.user),
+        joinedload(Candidate.taxonomy_domain)
+    ).filter(Candidate.id == candidate_id).first()
+
+    if not candidate:
+        raise HTTPException(
+            status_code=404,
+            detail="Candidate not found."
+        )
+
+    # Resolve the resume used (job-specific or primary)
+    resume = db.query(Resume).options(
+        joinedload(Resume.sections)
+    ).filter(
+        Resume.candidate_id == candidate_id,
+        Resume.job_id == job_id
+    ).first()
+    
+    if not resume:
+        resume = db.query(Resume).options(
+            joinedload(Resume.sections)
+        ).filter(
+            Resume.candidate_id == candidate_id,
+            Resume.is_primary == True
+        ).first()
+
+    # Calculate AI match score
+    ai_score = 0
+    if resume and resume.overall_embedding is not None:
+        try:
+            matching_service = MatchingEngine(db)
+            score_details = matching_service.score_resume_for_job(resume.id, job_id)
+            ai_score = int(score_details["final_score"])
+        except Exception:
+            ai_score = 0
+
+    # Extract summary section content from resume
+    about_summary = None
+    if resume:
+        summary_section = next((s for s in resume.sections if s.section_type == "Summary"), None)
+        if summary_section:
+            about_summary = summary_section.optimized_content or summary_section.original_content
+
+    # Format salary range label if candidate specifies pref_min_salary
+    salary_range_label = None
+    if candidate.pref_min_salary is not None:
+        min_salary_k = candidate.pref_min_salary // 1000
+        salary_range_label = f"${min_salary_k}k - ${min_salary_k + 10}k /month"
+
+    # Construct the timeline dynamically
+    # Statuses: applied, under_review, shortlisted, interviewing, interviewed, offered, hired, rejected
+    app_status = app.status.lower()
+    
+    # 1. View Details (always completed)
+    timeline = [
+        TimelineEvent(
+            title="View Details",
+            status="completed",
+            updated_at=app.created_at
+        )
+    ]
+    
+    # Helper to check completion
+    def get_stage_status(completed_statuses: list, active_statuses: list) -> str:
+        if app_status in completed_statuses:
+            return "completed"
+        if app_status in active_statuses:
+            return "active"
+        return "pending"
+
+    # 2. Inreview for Next Stage
+    inreview_completed = ["under_review", "shortlisted", "interviewing", "interviewed", "offered", "hired"]
+    inreview_active = ["applied"]
+    timeline.append(
+        TimelineEvent(
+            title="Inreview for Next Stage",
+            status=get_stage_status(inreview_completed, inreview_active),
+            updated_at=app.updated_at if app_status in inreview_completed else None
+        )
+    )
+
+    # 3. Candidate Shortlisted!
+    shortlist_completed = ["shortlisted", "interviewing", "interviewed", "offered", "hired"]
+    shortlist_active = ["under_review"]
+    timeline.append(
+        TimelineEvent(
+            title="Candidate Shortlisted!",
+            status=get_stage_status(shortlist_completed, shortlist_active),
+            updated_at=app.updated_at if app_status in shortlist_completed else None
+        )
+    )
+
+    # 4. Application successful (Candidate Selected!)
+    success_completed = ["offered", "hired"]
+    success_active = ["interviewing", "interviewed"]
+    timeline.append(
+        TimelineEvent(
+            title="Application successful",
+            status=get_stage_status(success_completed, success_active),
+            updated_at=app.updated_at if app_status in success_completed else None
+        )
+    )
+
+    # If the application is rejected or onhold, we can customize the timeline or keep the flow clear.
+    if app_status == "rejected":
+        timeline.append(
+            TimelineEvent(
+                title="Application Rejected",
+                status="completed",
+                updated_at=app.updated_at
+            )
+        )
+    elif app_status in ("onhold", "on_hold"):
+        timeline.append(
+            TimelineEvent(
+                title="Application On Hold",
+                status="completed",
+                updated_at=app.updated_at
+            )
+        )
+
+    # Prepare response
+    return JobPosterApplicantProfileResponse(
+        id=candidate.id,
+        full_name=candidate.full_name,
+        email=candidate.user.email if candidate.user else "",
+        phone=candidate.phone,
+        profile_picture=s3_service.get_presigned_url(candidate.profile_picture) if candidate.profile_picture else None,
+        is_verified=candidate.user.is_verified if candidate.user else False,
+        role=candidate.taxonomy_domain.name if candidate.taxonomy_domain else None,
+        ai_score=ai_score,
+        experience_years=resume.total_experience_years if resume else 0,
+        salary_range_label=salary_range_label,
+        employment_type=candidate.pref_role_type,
+        preferred_location=candidate.pref_locations,
+        status=app.status,
+        about_summary=about_summary,
+        resume_file_name=resume.file_name if resume else None,
+        resume_file_url=s3_service.get_presigned_url(resume.file_url) if resume else None,
+        cover_letter=app.cover_letter,
+        timeline=timeline
+    )
+
 
 
 
