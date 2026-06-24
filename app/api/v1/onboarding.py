@@ -121,7 +121,7 @@ async def employer_step_1(
     employer = get_employer(current_user, db)
     
     if not employer.company_id:
-        company = Company(name="Draft Company")
+        company = Company()
         db.add(company)
         db.commit()
         db.refresh(company)

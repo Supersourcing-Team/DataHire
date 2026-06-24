@@ -74,8 +74,8 @@ class JobResponse(BaseModel):
     employment_type_id: Optional[int] = None
     work_mode_id: Optional[int] = None
     city_id: Optional[int] = None
-    state_id: Optional[int] = None
-    country_id: Optional[int] = None
+    # state_id: Optional[int] = None
+    # country_id: Optional[int] = None
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None
     currency_id: Optional[int] = None
@@ -83,7 +83,7 @@ class JobResponse(BaseModel):
     application_deadline: Optional[datetime] = None
     min_experience_years: int
     max_experience_years: Optional[int] = None
-    requires_visa_sponsorship: bool
+    requires_visa_sponsorship: Optional[int] = None
     num_positions: int
     status: str
     is_active: bool
@@ -257,6 +257,52 @@ class EmployerJobDetailResponse(BaseModel):
     company_details: EmployerCompanyDetails
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class JobPosterApplicantListItem(BaseModel):
+    id: UUID
+    full_name: str
+    profile_picture: Optional[str] = None
+    is_verified: bool
+    role: Optional[str] = None
+    ai_score: int
+    experience_years: int
+    salary_range_label: Optional[str] = None
+    employment_type: Optional[str] = None
+    status: str
+    applied_date: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class TimelineEvent(BaseModel):
+    title: str
+    status: str  # "completed", "active", "pending"
+    updated_at: Optional[datetime] = None
+
+
+class JobPosterApplicantProfileResponse(BaseModel):
+    id: UUID
+    full_name: str
+    email: str
+    phone: Optional[str] = None
+    profile_picture: Optional[str] = None
+    is_verified: bool
+    role: Optional[str] = None
+    ai_score: int
+    experience_years: int
+    salary_range_label: Optional[str] = None
+    employment_type: Optional[str] = None
+    preferred_location: Optional[str] = None
+    status: str
+    about_summary: Optional[str] = None
+    resume_file_name: Optional[str] = None
+    resume_file_url: Optional[str] = None
+    cover_letter: Optional[str] = None
+    timeline: List[TimelineEvent]
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 
 
