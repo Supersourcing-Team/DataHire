@@ -4,7 +4,7 @@ from datetime import datetime
 
 class LinkedInProfileResponse(BaseModel):
     """Response for LinkedIn profile after OAuth completion."""
-    user_id: str
+    user_id: Optional[str] = None
     email: str
     first_name: str
     last_name: str
@@ -34,7 +34,7 @@ class LinkedInRegistrationComplete(BaseModel):
     created_at: datetime
     updated_at: datetime
     access_token: str
-    refresh_token: str
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
     expires_in: int
 
@@ -46,7 +46,7 @@ class LinkedInAuthRequest(BaseModel):
 
 class AuthTokenDetails(BaseModel):
     access_token: str
-    refresh_token: str
+    refresh_token: Optional[str] = None
     token_type: str = "Bearer"
     expires_in: int
 

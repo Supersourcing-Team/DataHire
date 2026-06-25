@@ -94,7 +94,8 @@ class LinkedInOAuthService:
             "email": email,
             "linkedin_id": linkedin_id,
             "first_name": first_name,
-            "last_name": last_name
+            "last_name": last_name,
+            "profile_picture": profile_data.get('profile_picture')
         }
         
         temp_token = create_temporary_token(temp_token_data)
@@ -131,6 +132,7 @@ class LinkedInOAuthService:
         linkedin_id = payload.get('linkedin_id')
         first_name = payload.get('first_name', '')
         last_name = payload.get('last_name', '')
+        profile_picture = payload.get('profile_picture')
         
         if not email:
             raise ValueError("Invalid token payload: missing email")
@@ -145,10 +147,14 @@ class LinkedInOAuthService:
             # Update existing user
             user.last_login = datetime.utcnow()
             user.updated_at = datetime.utcnow()
+            if not user.profile_picture and profile_picture:
+                user.profile_picture = profile_picture
             
             # Update role-specific profile
             if role == UserRole.CANDIDATE and user.candidate:
                 candidate = user.candidate
+                if not candidate.profile_picture and profile_picture:
+                    candidate.profile_picture = profile_picture
                 if registration_data.get('phone'):
                     candidate.phone = registration_data.get('phone')
                 candidate.updated_at = datetime.utcnow()
@@ -161,6 +167,9 @@ class LinkedInOAuthService:
                 if registration_data.get('phone'):
                     employer.phone = registration_data.get('phone')
                 employer.updated_at = datetime.utcnow()
+            
+            db.commit()
+            db.refresh(user)
         else:
             if not role:
                 raise ValueError("Role is required for new users")
@@ -173,6 +182,7 @@ class LinkedInOAuthService:
                 auth_provider=AuthProvider.LINKEDIN,
                 is_active=True,
                 is_verified=True,
+                profile_picture=profile_picture,
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
@@ -191,6 +201,7 @@ class LinkedInOAuthService:
                     user_id=user.id,
                     full_name=full_name,
                     phone=registration_data.get('phone'),
+                    profile_picture=profile_picture,
                     onboarding_completed=True,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()
@@ -258,6 +269,7 @@ class LinkedInOAuthService:
         first_name = profile_data.get('first_name', '')
         last_name = profile_data.get('last_name', '')
         full_name = f"{first_name} {last_name}".strip()
+        profile_picture = profile_data.get('profile_picture')
         
         # Check if user already exists
         user = db.query(User).filter(User.email == email).first()
@@ -268,6 +280,11 @@ class LinkedInOAuthService:
             # Update last login
             user.last_login = datetime.utcnow()
             user.updated_at = datetime.utcnow()
+            if not user.profile_picture and profile_picture:
+                user.profile_picture = profile_picture
+            if user.role == UserRole.CANDIDATE and user.candidate:
+                if not user.candidate.profile_picture and profile_picture:
+                    user.candidate.profile_picture = profile_picture
             
             # Fetch onboarding status based on role
             onboarding_completed = False
@@ -280,6 +297,9 @@ class LinkedInOAuthService:
                 # Assuming employer also has an onboarding_completed field based on current implementation
                 onboarding_completed = getattr(user.employer, 'onboarding_completed', True)
                 onboarding_step = getattr(user.employer, 'onboarding_step', 0)
+            
+            db.commit()
+            db.refresh(user)
         else:
             # Create new user
             user = User(

@@ -16,6 +16,7 @@ router = APIRouter(prefix="/auth/google", tags=["google-auth"])
 @router.post("", response_model=GoogleAuthResponse)
 async def authenticate_google(
     request: GoogleAuthRequest,
+    response: Response,
     db: Session = Depends(get_db)
 ):
     """
@@ -29,6 +30,17 @@ async def authenticate_google(
             redirect_uri=request.redirectUri,
             role=request.role
         )
+        refresh_token = result["tokens"].pop("refresh_token", None)
+        if refresh_token:
+            response.set_cookie(
+                key="refresh_token",
+                value=refresh_token,
+                httponly=True,
+                secure=True,
+                samesite="lax",
+                max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+                path="/"
+            )
         return result
     except ValueError as e:
         raise HTTPException(
@@ -104,11 +116,23 @@ async def google_callback(
 @router.post("/complete-registration")
 async def complete_google_registration(
     registration_data: GoogleCompleteRegistration,
+    response: Response,
     db: Session = Depends(get_db)
 ):
     """Complete Google user registration with additional details."""
     try:
         result = await GoogleOAuthService.complete_google_registration(db, registration_data.dict())
+        refresh_token = result["tokens"].pop("refresh_token", None)
+        if refresh_token:
+            response.set_cookie(
+                key="refresh_token",
+                value=refresh_token,
+                httponly=True,
+                secure=True,
+                samesite="lax",
+                max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+                path="/"
+            )
         
         return {
             "message": "Google registration completed successfully",
