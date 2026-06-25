@@ -1065,6 +1065,7 @@ def list_job_applicants(
     match_score: Optional[str] = Query(None, description="Filter by match score range (90%+, 80-89%, 70-79%, Below 70%)"),
     min_experience: Optional[int] = Query(None, description="Minimum experience in years"),
     max_experience: Optional[int] = Query(None, description="Maximum experience in years"),
+    viewed: Optional[bool] = Query(None, description="Filter by viewed status"),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_employer)
 ) -> List[JobPosterApplicantListItem]:
@@ -1093,6 +1094,10 @@ def list_job_applicants(
 
     # Base query for JobApplication
     query = db.query(JobApplication).filter(JobApplication.job_id == job_id)
+
+    # Filter by viewed status
+    if viewed is not None:
+        query = query.filter(JobApplication.is_viewed == viewed)
 
     # Filter by application status
     if status and status.lower() != "all":
@@ -1200,7 +1205,8 @@ def list_job_applicants(
                 salary_range_label=salary_range_label,
                 employment_type=candidate.pref_role_type,
                 status=app.status,
-                applied_date=app.created_at
+                applied_date=app.created_at,
+                is_viewed=app.is_viewed
             )
         )
 
@@ -1249,6 +1255,11 @@ def get_applicant_profile(
             status_code=404,
             detail="Application for this candidate on this job was not found."
         )
+
+    if not app.is_viewed:
+        app.is_viewed = True
+        db.commit()
+        db.refresh(app)
 
     candidate = db.query(Candidate).options(
         joinedload(Candidate.user),
@@ -1391,7 +1402,8 @@ def get_applicant_profile(
         resume_file_name=resume.file_name if resume else None,
         resume_file_url=s3_service.get_presigned_url(resume.file_url) if resume else None,
         cover_letter=app.cover_letter,
-        timeline=timeline
+        timeline=timeline,
+        is_viewed=app.is_viewed
     )
 
 
