@@ -236,7 +236,7 @@ class AdminJobResponse(BaseModel):
     application_deadline: Optional[datetime] = None
     min_experience_years: int
     max_experience_years: Optional[int] = None
-    requires_visa_sponsorship: bool
+    requires_visa_sponsorship: Optional[int] = None
     num_positions: int
     status: str
     is_active: bool

@@ -10,7 +10,7 @@ from app.db.session import get_db
 from app.core.dependencies import require_candidate, get_current_active_user
 from app.models.user import User, UserRole
 from app.models.candidate import Candidate, CandidateSkippedJob
-from app.models.job import JobPosting
+from app.models.job import JobPosting, JobStatus
 from app.models.company import Company
 from app.models.application import JobApplication
 from app.models.saved_job import SavedJob
@@ -179,7 +179,7 @@ def get_job_seeker_feed(
     candidate = get_candidate(current_user, db)
     
     # 1. Start base query
-    query = db.query(JobPosting).filter(JobPosting.is_active == True)
+    query = db.query(JobPosting).filter(JobPosting.is_active == True, JobPosting.status == JobStatus.PUBLISHED)
     
     # Apply search filter
     if search:

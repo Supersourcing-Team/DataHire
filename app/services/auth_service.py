@@ -21,49 +21,89 @@ class AuthService:
         if user:
             if user.is_verified:
                 raise ValueError("User already exists with this email")
-            else:
-                # User exists but never verified the OTP (e.g., dropped off, network timeout)
-                # Safely delete the unverified record (which cascades) and start fresh
-                db.delete(user)
-                db.commit()
             
-        # Create new user
-        user = User(
-            email=email,
-            password_hash=None, # Passwordless!
-            role=role,
-            auth_provider=AuthProvider.LOCAL,
-            is_active=True,
-            is_verified=False, # Must verify OTP first
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
-        )
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        
-        # Create role-specific profile
-        if role == UserRole.CANDIDATE:
-            candidate = Candidate(
-                user_id=user.id,
-                full_name=full_name,
-                onboarding_completed=False,
+            # User exists but never verified the OTP (e.g., dropped off, network timeout)
+            # Re-use the user record, update their role, and update the role-specific profile
+            user.role = role
+            user.updated_at = datetime.utcnow()
+            
+            if role == UserRole.CANDIDATE:
+                # Clean up employer profile if it exists
+                if user.employer:
+                    db.delete(user.employer)
+                
+                # Create or update candidate profile
+                if user.candidate:
+                    user.candidate.full_name = full_name
+                    user.candidate.updated_at = datetime.utcnow()
+                else:
+                    candidate = Candidate(
+                        user_id=user.id,
+                        full_name=full_name,
+                        onboarding_completed=False,
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(candidate)
+            elif role == UserRole.EMPLOYER:
+                # Clean up candidate profile if it exists
+                if user.candidate:
+                    db.delete(user.candidate)
+                
+                # Create or update employer profile
+                if user.employer:
+                    user.employer.contact_person = full_name
+                    user.employer.updated_at = datetime.utcnow()
+                else:
+                    employer = Employer(
+                        user_id=user.id,
+                        contact_person=full_name,
+                        created_at=datetime.utcnow(),
+                        updated_at=datetime.utcnow()
+                    )
+                    db.add(employer)
+            
+            db.commit()
+            db.refresh(user)
+        else:
+            # Create new user
+            user = User(
+                email=email,
+                password_hash=None, # Passwordless!
+                role=role,
+                auth_provider=AuthProvider.LOCAL,
+                is_active=True,
+                is_verified=False, # Must verify OTP first
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow()
             )
-            db.add(candidate)
-        elif role == UserRole.EMPLOYER:
-            # For employer, we use contact_person as full_name initially, 
-            # and leave company_name blank until they provide it.
-            employer = Employer(
-                user_id=user.id,
-                contact_person=full_name,
-                created_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
-            )
-            db.add(employer)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
             
-        db.commit()
+            # Create role-specific profile
+            if role == UserRole.CANDIDATE:
+                candidate = Candidate(
+                    user_id=user.id,
+                    full_name=full_name,
+                    onboarding_completed=False,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                db.add(candidate)
+            elif role == UserRole.EMPLOYER:
+                # For employer, we use contact_person as full_name initially, 
+                # and leave company_name blank until they provide it.
+                employer = Employer(
+                    user_id=user.id,
+                    contact_person=full_name,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                db.add(employer)
+                
+            db.commit()
+            
         return {"message": "User registered successfully"}
         
     @staticmethod

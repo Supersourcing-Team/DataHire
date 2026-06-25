@@ -20,7 +20,9 @@ from app.schemas.job import (
     MonthlySuccessRatePoint, HiresByDomainPoint, ActionFeedItem, 
     FunnelStagePoint, JobStatusBreakdown, EmployerJobListingItem,
     PipelineStageSummary, EmployerCompanyDetails, EmployerJobDetailResponse,
-    JobPosterApplicantListItem, TimelineEvent, JobPosterApplicantProfileResponse
+    JobPosterApplicantListItem, TimelineEvent, JobPosterApplicantProfileResponse,
+    JobApplicationStatusUpdateRequest, JobApplicationStatusUpdateResponse,
+    JobPosterJobsStatsResponse
 )
 from app.services.s3_service import S3Service
 from app.services.matching_engine import MatchingEngine
@@ -94,6 +96,21 @@ def _build_location_label(city: Optional[str], state: Optional[str], country: Op
     return ", ".join(parts) if parts else None
 
 
+def _build_status_label(status: str, deadline: Optional[datetime]) -> str:
+    status_lower = status.lower() if status else "draft"
+    if status_lower == "draft":
+        return "drafted"
+    elif status_lower == "closed":
+        return "closed"
+    elif status_lower == "published":
+        if deadline:
+            now = datetime.now(deadline.tzinfo or timezone.utc)
+            if now > deadline:
+                return "expired"
+        return "published"
+    return status_lower
+
+
 @router.get("/dashboard", response_model=List[JobDashboardCardResponse])
 def get_dashboard_jobs(
     search: Optional[str] = Query(None),
@@ -120,7 +137,7 @@ def get_dashboard_jobs(
             joinedload(JobPosting.employment_type),
             joinedload(JobPosting.currency),
         )
-        .filter(JobPosting.is_active == True)
+        .filter(JobPosting.is_active == True, JobPosting.status == JobStatus.PUBLISHED)
     )
 
     # Apply search filter
@@ -774,7 +791,10 @@ def get_employer_jobs(
     query = db.query(JobPosting).filter(JobPosting.company_id == company_id)
 
     if job_status and job_status.lower() != "all":
-        query = query.filter(JobPosting.status == job_status.lower())
+        status_val = job_status.lower()
+        if status_val in ("active", "active-jobs", "published"):
+            status_val = "published"
+        query = query.filter(JobPosting.status == status_val)
 
     if search:
         query = query.filter(
@@ -856,11 +876,66 @@ def get_employer_jobs(
                 new_applicants_count=new_app_counts.get(job.id, 0),
                 shortlisted_count=shortlisted_counts.get(job.id, 0),
                 deadline_label=deadline_str,
-                status=job.status
+                status=job.status,
+                status_label=_build_status_label(job.status, job.application_deadline)
             )
         )
 
     return response
+
+
+@router.get("/jobs/stats", response_model=JobPosterJobsStatsResponse)
+def get_employer_jobs_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_employer)
+) -> JobPosterJobsStatsResponse:
+    """
+    Get job statistics (active, closed, draft, expired counts) for the employer's company.
+    """
+    employer = current_user.employer
+    if not employer or not employer.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Employer is not associated with any company."
+        )
+    company_id = employer.company_id
+
+    now = datetime.now(timezone.utc)
+
+    # Expired: published and past the deadline
+    expired = db.query(JobPosting).filter(
+        JobPosting.company_id == company_id,
+        JobPosting.status == JobStatus.PUBLISHED,
+        JobPosting.application_deadline.isnot(None),
+        JobPosting.application_deadline < now
+    ).count()
+
+    # Active: published and (no deadline or not past deadline)
+    active = db.query(JobPosting).filter(
+        JobPosting.company_id == company_id,
+        JobPosting.status == JobStatus.PUBLISHED,
+        or_(
+            JobPosting.application_deadline.is_(None),
+            JobPosting.application_deadline >= now
+        )
+    ).count()
+
+    draft = db.query(JobPosting).filter(
+        JobPosting.company_id == company_id,
+        JobPosting.status == JobStatus.DRAFT
+    ).count()
+
+    closed = db.query(JobPosting).filter(
+        JobPosting.company_id == company_id,
+        JobPosting.status == JobStatus.CLOSED
+    ).count()
+
+    return JobPosterJobsStatsResponse(
+        active=active,
+        closed=closed,
+        draft=draft,
+        expired=expired
+    )
 
 
 @router.get("/jobs/{job_id}", response_model=EmployerJobDetailResponse)
@@ -969,6 +1044,7 @@ def get_employer_job_detail(
         shortlisted_count=shortlisted,
         deadline_label=deadline_str,
         status=job.status,
+        status_label=_build_status_label(job.status, job.application_deadline),
         pipeline_summary=pipeline_summary,
         job_overview=job.job_overview,
         about_role=job.about_role,
@@ -1317,6 +1393,144 @@ def get_applicant_profile(
         cover_letter=app.cover_letter,
         timeline=timeline
     )
+
+
+def _get_application_status_label(status: str) -> str:
+    mapping = {
+        "applied": "Applied",
+        "under_review": "Under Review",
+        "shortlisted": "Shortlisted",
+        "interviewing": "Interviewing",
+        "interviewed": "Interviewed",
+        "onhold": "On Hold",
+        "offered": "Offer Received",
+        "hired": "Hired",
+        "rejected": "Rejected"
+    }
+    return mapping.get(status.lower(), status.title())
+
+
+@router.post("/jobs/{job_id}/close", response_model=EmployerJobDetailResponse)
+def employer_close_job(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_employer),
+) -> EmployerJobDetailResponse:
+    """
+    Manually close a job posting.
+    """
+    employer = current_user.employer
+    if not employer or not employer.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Employer is not associated with any company."
+        )
+    company_id = employer.company_id
+
+    # Verify job posting exists and belongs to employer's company
+    job = db.query(JobPosting).filter(
+        JobPosting.id == job_id,
+        JobPosting.company_id == company_id
+    ).first()
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job posting not found."
+        )
+
+    job.status = JobStatus.CLOSED
+    db.commit()
+    db.refresh(job)
+
+    return get_employer_job_detail(job_id=job_id, db=db, current_user=current_user)
+
+
+@router.put("/jobs/{job_id}/applicants/{candidate_id}/status", response_model=JobApplicationStatusUpdateResponse)
+def update_applicant_status(
+    job_id: UUID,
+    candidate_id: UUID,
+    body: JobApplicationStatusUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_employer),
+) -> JobApplicationStatusUpdateResponse:
+    """
+    Update the application status of a candidate for a specific job posting.
+    If the status is set to "hired", and the total hired count matches or exceeds the
+    job's required number of positions, the job posting is automatically closed.
+    """
+    employer = current_user.employer
+    if not employer or not employer.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Employer is not associated with any company."
+        )
+    company_id = employer.company_id
+
+    # Verify job posting exists and belongs to employer's company
+    job = db.query(JobPosting).filter(
+        JobPosting.id == job_id,
+        JobPosting.company_id == company_id
+    ).first()
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job posting not found."
+        )
+
+    # Verify the application exists
+    app = db.query(JobApplication).filter(
+        JobApplication.job_id == job_id,
+        JobApplication.candidate_id == candidate_id
+    ).first()
+
+    if not app:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Application for this candidate on this job was not found."
+        )
+
+    # Normalize and validate the requested status
+    requested_status = body.status.strip().lower()
+    valid_statuses = {
+        "applied", "under_review", "shortlisted", "interviewing",
+        "interviewed", "offered", "hired", "rejected", "onhold"
+    }
+    if requested_status not in valid_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status '{body.status}'. Must be one of: {', '.join(sorted(valid_statuses))}"
+        )
+
+    # Update candidate's job application status
+    app.status = requested_status
+    app.updated_at = datetime.now(timezone.utc)
+    db.flush()  # Push update to DB so count query is accurate
+
+    job_closed_automatically = False
+    if requested_status == "hired":
+        # Count total hired candidates for this job
+        hired_count = db.query(JobApplication).filter(
+            JobApplication.job_id == job_id,
+            JobApplication.status == "hired"
+        ).count()
+
+        if hired_count >= (job.num_positions or 1):
+            job.status = JobStatus.CLOSED
+            job_closed_automatically = True
+
+    db.commit()
+
+    return JobApplicationStatusUpdateResponse(
+        application_id=app.id,
+        candidate_id=app.candidate_id,
+        job_id=app.job_id,
+        status=app.status,
+        status_label=_get_application_status_label(app.status),
+        job_closed_automatically=job_closed_automatically
+    )
+
 
 
 

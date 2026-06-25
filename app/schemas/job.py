@@ -204,6 +204,7 @@ class EmployerJobListingItem(BaseModel):
     shortlisted_count: int
     deadline_label: Optional[str] = None
     status: str
+    status_label: str
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -245,6 +246,7 @@ class EmployerJobDetailResponse(BaseModel):
     shortlisted_count: int
     deadline_label: Optional[str] = None
     status: str
+    status_label: str
     pipeline_summary: PipelineStageSummary
     job_overview: Optional[str] = None
     about_role: Optional[str] = None
@@ -301,7 +303,24 @@ class JobPosterApplicantProfileResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class JobApplicationStatusUpdateRequest(BaseModel):
+    status: str
 
 
+class JobApplicationStatusUpdateResponse(BaseModel):
+    application_id: UUID
+    candidate_id: UUID
+    job_id: UUID
+    status: str
+    status_label: str
+    job_closed_automatically: bool = False
 
+
+class JobPosterJobsStatsResponse(BaseModel):
+    active: int
+    closed: int
+    draft: int
+    expired: int
+
+    model_config = ConfigDict(from_attributes=True)
 
