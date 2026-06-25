@@ -303,7 +303,24 @@ class JobPosterApplicantProfileResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class JobApplicationStatusUpdateRequest(BaseModel):
+    status: str
 
 
+class JobApplicationStatusUpdateResponse(BaseModel):
+    application_id: UUID
+    candidate_id: UUID
+    job_id: UUID
+    status: str
+    status_label: str
+    job_closed_automatically: bool = False
 
+
+class JobPosterJobsStatsResponse(BaseModel):
+    active: int
+    closed: int
+    draft: int
+    expired: int
+
+    model_config = ConfigDict(from_attributes=True)
 
