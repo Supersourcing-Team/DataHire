@@ -270,6 +270,7 @@ class JobPosterApplicantListItem(BaseModel):
     employment_type: Optional[str] = None
     status: str
     applied_date: datetime
+    is_viewed: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -299,6 +300,7 @@ class JobPosterApplicantProfileResponse(BaseModel):
     resume_file_url: Optional[str] = None
     cover_letter: Optional[str] = None
     timeline: List[TimelineEvent]
+    is_viewed: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
