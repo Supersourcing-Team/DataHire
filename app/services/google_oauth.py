@@ -152,6 +152,8 @@ class GoogleOAuthService:
             # Update role-specific profile
             if role == UserRole.CANDIDATE and user.candidate:
                 candidate = user.candidate
+                if not candidate.profile_picture and profile_picture:
+                    candidate.profile_picture = profile_picture
                 candidate.phone = registration_data.get('phone')
                 candidate.updated_at = datetime.utcnow()
             elif role == UserRole.EMPLOYER and user.employer:
@@ -160,6 +162,9 @@ class GoogleOAuthService:
                 employer.company_website = registration_data.get('company_website')
                 employer.phone = registration_data.get('phone')
                 employer.updated_at = datetime.utcnow()
+            
+            db.commit()
+            db.refresh(user)
         else:
             # Create new user based on Google profile data from token
             user = User(
@@ -189,6 +194,7 @@ class GoogleOAuthService:
                     user_id=user.id,
                     full_name=full_name,
                     phone=registration_data.get('phone'),
+                    profile_picture=profile_picture,
                     onboarding_completed=True,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()
@@ -269,6 +275,9 @@ class GoogleOAuthService:
             user.updated_at = datetime.utcnow()
             if not user.profile_picture and profile_picture:
                 user.profile_picture = profile_picture
+            if user.role == UserRole.CANDIDATE and user.candidate:
+                if not user.candidate.profile_picture and profile_picture:
+                    user.candidate.profile_picture = profile_picture
             
             # Fetch onboarding status based on role
             onboarding_completed = False
@@ -280,6 +289,9 @@ class GoogleOAuthService:
             elif user.role == UserRole.EMPLOYER and user.employer:
                 onboarding_completed = getattr(user.employer, 'onboarding_completed', True)
                 onboarding_step = getattr(user.employer, 'onboarding_step', 0)
+            
+            db.commit()
+            db.refresh(user)
         else:
             # Create new user
             user = User(

@@ -4,7 +4,7 @@ from datetime import datetime
 
 class LinkedInProfileResponse(BaseModel):
     """Response for LinkedIn profile after OAuth completion."""
-    user_id: str
+    user_id: Optional[str] = None
     email: str
     first_name: str
     last_name: str
