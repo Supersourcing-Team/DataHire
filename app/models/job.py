@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Text, ForeignKey, DateTime, Boolean, Float
+from sqlalchemy import Column, String, Integer, Text, ForeignKey, DateTime, Boolean, Float, Table
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
@@ -11,6 +11,14 @@ class JobStatus:
     DRAFT = "draft"
     PUBLISHED = "published"
     CLOSED = "closed"
+
+
+job_visa_statuses = Table(
+    "job_visa_statuses",
+    Base.metadata,
+    Column("job_id", UUID(as_uuid=True), ForeignKey("job_postings.id", ondelete="CASCADE"), primary_key=True),
+    Column("meta_visa_status_id", Integer, ForeignKey("meta_visa_statuses.id", ondelete="CASCADE"), primary_key=True)
+)
 
 
 class JobPosting(Base):
@@ -91,6 +99,7 @@ class JobPosting(Base):
     country = relationship("MetaCountry")
     currency = relationship("MetaCurrency")
     visa_status = relationship("MetaVisaStatus")
+    visa_statuses = relationship("MetaVisaStatus", secondary=job_visa_statuses)
 
     @validates(
         "employment_type_id", "seniority_level_id", "work_mode_id", 
@@ -102,6 +111,10 @@ class JobPosting(Base):
         if value in (0, "0", ""):
             return None
         return value
+
+    @property
+    def visa_sponsorship_ids(self) -> list:
+        return [vs.id for vs in self.visa_statuses] if self.visa_statuses else []
 
     def __repr__(self):
         return f"<JobPosting(id={self.id}, title={self.title})>"

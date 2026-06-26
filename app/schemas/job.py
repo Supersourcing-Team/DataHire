@@ -52,6 +52,7 @@ class JobCreate(BaseModel):
     min_experience_years: Optional[int] = 0
     max_experience_years: Optional[int] = None
     requires_visa_sponsorship: Optional[int] = None
+    visa_sponsorship_ids: Optional[List[int]] = None
     num_positions: Optional[int] = 1
     status: Optional[str] = "draft"
     is_active: Optional[bool] = True
@@ -84,12 +85,16 @@ class JobResponse(BaseModel):
     min_experience_years: int
     max_experience_years: Optional[int] = None
     requires_visa_sponsorship: Optional[int] = None
+    visa_sponsorship_ids: Optional[List[int]] = None
     num_positions: int
     status: str
     is_active: bool
     created_at: datetime
     updated_at: datetime
-
+    ai_score_threshold: Optional[int] = None
+    must_be_authorized_to_work: Optional[bool] = None
+    us_citizen_or_pr_only: Optional[bool] = None
+    security_clearance_required: Optional[bool] = None
     # New job flow fields
     job_overview: Optional[str] = None
     about_role: Optional[str] = None
@@ -115,6 +120,7 @@ class JobCreateBasic(BaseModel):
     min_experience_years: Optional[int] = 0
     max_experience_years: Optional[int] = None
     requires_visa_sponsorship: Optional[int] = None
+    visa_sponsorship_ids: Optional[List[int]] = None
     num_positions: Optional[int] = 1
 
 
@@ -129,6 +135,7 @@ class JobAboutUpdate(BaseModel):
 class JobWorkAuthorizationUpdate(BaseModel):
     must_be_authorized_to_work: Optional[bool] = None
     requires_visa_sponsorship: Optional[int] = None
+    visa_sponsorship_ids: Optional[List[int]] = None
     us_citizen_or_pr_only: Optional[bool] = None
     security_clearance_required: Optional[bool] = None
     ai_score_threshold: Optional[int] = None
@@ -326,3 +333,38 @@ class JobPosterJobsStatsResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class JobSaveDraft(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    employment_type_id: Optional[int] = None
+    work_mode_id: Optional[int] = None
+    city_id: Optional[int] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    currency_id: Optional[int] = None
+    application_deadline: Optional[int] = None
+    min_experience_years: Optional[int] = None
+    max_experience_years: Optional[int] = None
+    requires_visa_sponsorship: Optional[int] = None
+    visa_sponsorship_ids: Optional[List[int]] = None
+    num_positions: Optional[int] = None
+
+    # Job flow fields
+    job_overview: Optional[str] = None
+    about_role: Optional[str] = None
+    requirements: Optional[List[str]] = None
+    responsibilities: Optional[List[str]] = None
+    benefits: Optional[List[str]] = None
+
+    # Work authorization
+    must_be_authorized_to_work: Optional[bool] = None
+    us_citizen_or_pr_only: Optional[bool] = None
+    security_clearance_required: Optional[bool] = None
+    ai_score_threshold: Optional[int] = None
+
+    # Cover letter
+    include_cover_letter: Optional[bool] = None
+    cover_letter_required: Optional[bool] = None
+
+    model_config = ConfigDict(from_attributes=True)
