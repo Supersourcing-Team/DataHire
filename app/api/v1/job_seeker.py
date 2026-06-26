@@ -47,7 +47,8 @@ from app.api.v1.jobs import (
     _build_location_label,
     _format_experience_label,
     _format_posted_ago,
-    _format_salary_range
+    _format_salary_range,
+    _build_sponsorship_label
 )
 
 
@@ -290,7 +291,7 @@ def get_job_seeker_feed(
                 country=country_name,
                 location_label=_build_location_label(city_name, state_name, country_name),
                 work_mode=job.work_mode.name if job.work_mode else None,
-                sponsorship_label="H1B sponsorship" if job.requires_visa_sponsorship else None,
+                sponsorship_label=_build_sponsorship_label(job),
                 posted_at=job.created_at,
                 posted_ago=_format_posted_ago(job.created_at),
                 experience_min_years=job.min_experience_years,
@@ -411,7 +412,7 @@ def get_job_seeker_job_details(
         country=country_name,
         location_label=_build_location_label(city_name, state_name, country_name),
         work_mode=job.work_mode.name if job.work_mode else None,
-        sponsorship_label="H1B sponsorship" if job.requires_visa_sponsorship else None,
+        sponsorship_label=_build_sponsorship_label(job),
         posted_ago=_format_posted_ago(job.created_at),
         experience_label=_format_experience_label(job.min_experience_years, job.max_experience_years),
         salary_range_label=_format_salary_range(job.salary_min, job.salary_max, currency_symbol, currency_code),
@@ -898,7 +899,7 @@ def get_saved_jobs_pipeline(
             country=country_name,
             location_label=_build_location_label(city_name, state_name, country_name),
             work_mode=job.work_mode.name if job.work_mode else None,
-            sponsorship_label="H1B sponsorship" if job.requires_visa_sponsorship else None,
+            sponsorship_label=_build_sponsorship_label(job),
             posted_at=job.created_at,
             posted_ago=_format_posted_ago(job.created_at),
             experience_min_years=job.min_experience_years,
@@ -1932,7 +1933,7 @@ def get_auto_apply_jobs(
                 country=country_name,
                 location_label=_build_location_label(city_name, state_name, country_name),
                 work_mode=job.work_mode.name if job.work_mode else None,
-                sponsorship_label="H1B sponsorship" if job.requires_visa_sponsorship else None,
+                sponsorship_label=_build_sponsorship_label(job),
                 posted_at=job.created_at,
                 posted_ago=_format_posted_ago(job.created_at),
                 experience_min_years=job.min_experience_years,
@@ -2277,7 +2278,7 @@ def get_auto_apply_history(
                 country=country_name,
                 location_label=_build_location_label(city_name, state_name, country_name),
                 work_mode=job.work_mode.name if job.work_mode else None,
-                sponsorship_label="H1B sponsorship" if job.requires_visa_sponsorship else None,
+                sponsorship_label=_build_sponsorship_label(job),
                 posted_at=job.created_at,
                 posted_ago=_format_posted_ago(job.created_at),
                 experience_min_years=job.min_experience_years,

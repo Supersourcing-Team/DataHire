@@ -96,6 +96,15 @@ def _build_location_label(city: Optional[str], state: Optional[str], country: Op
     return ", ".join(parts) if parts else None
 
 
+def _build_sponsorship_label(job) -> Optional[str]:
+    if job.visa_statuses:
+        return ", ".join(vs.name for vs in job.visa_statuses)
+    if job.visa_status:
+        return job.visa_status.name
+    return None
+
+
+
 def _build_status_label(status: str, deadline: Optional[datetime]) -> str:
     status_lower = status.lower() if status else "draft"
     if status_lower == "draft":
@@ -270,7 +279,7 @@ def get_dashboard_jobs(
                 country=country_name,
                 location_label=_build_location_label(city_name, state_name, country_name),
                 work_mode=job.work_mode.name if job.work_mode else None,
-                sponsorship_label="H1B sponsorship" if job.requires_visa_sponsorship else None,
+                sponsorship_label=_build_sponsorship_label(job),
                 posted_at=job.created_at,
                 posted_ago=_format_posted_ago(job.created_at),
                 experience_min_years=job.min_experience_years,
