@@ -22,7 +22,7 @@ from app.schemas.job import (
     PipelineStageSummary, EmployerCompanyDetails, EmployerJobDetailResponse,
     JobPosterApplicantListItem, TimelineEvent, JobPosterApplicantProfileResponse,
     JobApplicationStatusUpdateRequest, JobApplicationStatusUpdateResponse,
-    JobPosterJobsStatsResponse
+    JobPosterJobsStatsResponse, JobSaveDraft
 )
 from app.services.s3_service import S3Service
 from app.services.matching_engine import MatchingEngine
@@ -136,6 +136,7 @@ def get_dashboard_jobs(
             joinedload(JobPosting.work_mode),
             joinedload(JobPosting.employment_type),
             joinedload(JobPosting.currency),
+            joinedload(JobPosting.visa_statuses),
         )
         .filter(JobPosting.is_active == True, JobPosting.status == JobStatus.PUBLISHED)
     )
@@ -343,10 +344,15 @@ def create_a_job(
     
     job_data = job_in.model_dump()
     days_deadline = job_data.pop("application_deadline", None)
+    visa_sponsorship_ids = job_data.pop("visa_sponsorship_ids", None)
     
     deadline_date = None
     if days_deadline is not None:
         deadline_date = datetime.now(timezone.utc) + timedelta(days=days_deadline)
+
+    # Backwards compatibility: set requires_visa_sponsorship to first ID if list is provided
+    if visa_sponsorship_ids:
+        job_data["requires_visa_sponsorship"] = visa_sponsorship_ids[0]
 
     db_job = JobPosting(
         **job_data,
@@ -357,6 +363,11 @@ def create_a_job(
         start_date=datetime.now(timezone.utc)
     )
     
+    if visa_sponsorship_ids:
+        from app.models.meta import MetaVisaStatus
+        meta_visas = db.query(MetaVisaStatus).filter(MetaVisaStatus.id.in_(visa_sponsorship_ids)).all()
+        db_job.visa_statuses = meta_visas
+
     if db_job.city_id:
         from app.models.meta import MetaCity
         city = db.query(MetaCity).filter(MetaCity.id == db_job.city_id).first()
@@ -426,6 +437,14 @@ def update_work_authorization(
         )
         
     update_data = job_in.model_dump(exclude_unset=True)
+    visa_sponsorship_ids = update_data.pop("visa_sponsorship_ids", None)
+    
+    if visa_sponsorship_ids is not None:
+        from app.models.meta import MetaVisaStatus
+        meta_visas = db.query(MetaVisaStatus).filter(MetaVisaStatus.id.in_(visa_sponsorship_ids)).all()
+        db_job.visa_statuses = meta_visas
+        db_job.requires_visa_sponsorship = visa_sponsorship_ids[0] if visa_sponsorship_ids else None
+
     for field, value in update_data.items():
         setattr(db_job, field, value)
         
@@ -788,7 +807,18 @@ def get_employer_jobs(
         )
     company_id = employer.company_id
 
-    query = db.query(JobPosting).filter(JobPosting.company_id == company_id)
+    query = (
+        db.query(JobPosting)
+        .options(
+            joinedload(JobPosting.city),
+            joinedload(JobPosting.state),
+            joinedload(JobPosting.country),
+            joinedload(JobPosting.work_mode),
+            joinedload(JobPosting.company),
+            joinedload(JobPosting.visa_statuses)
+        )
+        .filter(JobPosting.company_id == company_id)
+    )
 
     if job_status and job_status.lower() != "all":
         status_val = job_status.lower()
@@ -850,7 +880,9 @@ def get_employer_jobs(
             
         # Build Visa Sponsorship tags
         visa_sponsorships = []
-        if job.visa_status:
+        if job.visa_statuses:
+            visa_sponsorships.extend(vs.name for vs in job.visa_statuses)
+        elif job.visa_status:
             visa_sponsorships.append(job.visa_status.name)
         elif job.us_citizen_or_pr_only:
             visa_sponsorships.append("US Citizen or PR only")
@@ -938,6 +970,120 @@ def get_employer_jobs_stats(
     )
 
 
+@router.post("/jobs/save-draft", response_model=JobResponse)
+def save_new_job_draft(
+    job_in: JobSaveDraft,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_employer),
+) -> JobResponse:
+    """
+    Create a new job posting with draft status, generating a new job_id.
+    """
+    import uuid
+    new_job_id = uuid.uuid4()
+    return save_job_draft(job_id=new_job_id, job_in=job_in, db=db, current_user=current_user)
+
+
+@router.patch("/jobs/{job_id}/save-draft", response_model=JobResponse)
+@router.post("/jobs/{job_id}/save-draft", response_model=JobResponse)
+def save_job_draft(
+    job_id: UUID,
+    job_in: JobSaveDraft,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_employer),
+) -> JobResponse:
+    """
+    Create a new job posting or update an existing one with draft status, using the specified job_id.
+    """
+    employer = current_user.employer
+    if not employer or not employer.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Employer is not associated with any company."
+        )
+    company_id = employer.company_id
+
+    # Check if job posting exists
+    db_job = db.query(JobPosting).filter(JobPosting.id == job_id).first()
+
+    job_data = job_in.model_dump(exclude_unset=True)
+    days_deadline = job_data.pop("application_deadline", None)
+    visa_sponsorship_ids = job_data.pop("visa_sponsorship_ids", None)
+    
+    deadline_date = None
+    if days_deadline is not None:
+        deadline_date = datetime.now(timezone.utc) + timedelta(days=days_deadline)
+
+    if db_job:
+        # Verify ownership
+        if db_job.company_id != company_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to update this job posting."
+            )
+        
+        # Handle visa_sponsorship_ids update safely
+        if visa_sponsorship_ids is not None:
+            if not db_job.visa_statuses or (isinstance(visa_sponsorship_ids, list) and len(visa_sponsorship_ids) > 0):
+                from app.models.meta import MetaVisaStatus
+                meta_visas = db.query(MetaVisaStatus).filter(MetaVisaStatus.id.in_(visa_sponsorship_ids)).all()
+                db_job.visa_statuses = meta_visas
+                db_job.requires_visa_sponsorship = visa_sponsorship_ids[0] if visa_sponsorship_ids else None
+
+        # Update existing job posting safely (do not overwrite with empty/default values if we already have data)
+        for field, value in job_data.items():
+            existing_value = getattr(db_job, field)
+            if existing_value is not None:
+                # Ignore null/empty/zero values from the patch if database already has valid data
+                if value is None:
+                    continue
+                if isinstance(existing_value, str) and existing_value != "" and value == "":
+                    continue
+                if isinstance(existing_value, int) and not isinstance(existing_value, bool) and existing_value != 0 and value == 0:
+                    continue
+                if isinstance(existing_value, list) and len(existing_value) > 0 and (value is None or (isinstance(value, list) and len(value) == 0)):
+                    continue
+            setattr(db_job, field, value)
+            
+        if days_deadline is not None:
+            db_job.application_deadline = deadline_date
+            
+        db_job.status = JobStatus.DRAFT
+        db_job.is_active = False
+    else:
+        # Create new job posting with client-specified ID
+        if "title" not in job_data or job_data["title"] is None:
+            job_data["title"] = "Untitled"
+            
+        db_job = JobPosting(
+            id=job_id,
+            company_id=company_id,
+            status=JobStatus.DRAFT,
+            is_active=False,
+            start_date=datetime.now(timezone.utc),
+            application_deadline=deadline_date,
+            **job_data
+        )
+        if visa_sponsorship_ids:
+            from app.models.meta import MetaVisaStatus
+            meta_visas = db.query(MetaVisaStatus).filter(MetaVisaStatus.id.in_(visa_sponsorship_ids)).all()
+            db_job.visa_statuses = meta_visas
+            db_job.requires_visa_sponsorship = visa_sponsorship_ids[0]
+        db.add(db_job)
+
+    # Resolve location state and country if city_id is modified
+    if db_job.city_id:
+        from app.models.meta import MetaCity
+        city = db.query(MetaCity).filter(MetaCity.id == db_job.city_id).first()
+        if city:
+            db_job.state_id = city.state_id
+            db_job.country_id = city.country_id
+
+    db.commit()
+    db.refresh(db_job)
+    return db_job
+
+
 @router.get("/jobs/{job_id}", response_model=EmployerJobDetailResponse)
 def get_employer_job_detail(
     job_id: UUID,
@@ -956,7 +1102,8 @@ def get_employer_job_detail(
     company_id = employer.company_id
 
     job = db.query(JobPosting).options(
-        joinedload(JobPosting.visa_status)
+        joinedload(JobPosting.visa_status),
+        joinedload(JobPosting.visa_statuses)
     ).filter(
         JobPosting.id == job_id,
         JobPosting.company_id == company_id
@@ -998,7 +1145,9 @@ def get_employer_job_detail(
     if job.work_mode:
         work_modes.append(job.work_mode.name)
     visa_sponsorships = []
-    if job.visa_status:
+    if job.visa_statuses:
+        visa_sponsorships.extend(vs.name for vs in job.visa_statuses)
+    elif job.visa_status:
         visa_sponsorships.append(job.visa_status.name)
     elif job.us_citizen_or_pr_only:
         visa_sponsorships.append("US Citizen or PR only")
