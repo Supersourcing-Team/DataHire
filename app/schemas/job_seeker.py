@@ -29,6 +29,7 @@ class JobSeekerFeedResponse(JobDashboardCardResponse):
     applied: bool = False
     application_status: Optional[str] = None
     apply_mode: Optional[str] = None
+    coverLetter: Optional[bool] = None
 
 class AIMatchOverview(BaseModel):
     experience_match_percent: int
@@ -70,6 +71,7 @@ class JobSeekerDetailResponse(BaseModel):
     applied: bool = False
     application_status: Optional[str] = None
     apply_mode: Optional[str] = None
+    coverLetter: Optional[bool] = None
     ai_match_overview: Optional[AIMatchOverview] = None
 
     model_config = ConfigDict(from_attributes=True)
@@ -97,6 +99,25 @@ class JobApplicationResponse(BaseModel):
     status_label: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class JobApplicationSubmitRequest(BaseModel):
+    resume_url: str
+    resume_name: str
+    cover_letter_url: Optional[str] = None
+
+
+class JobApplicationSubmitDetail(BaseModel):
+    job_id: UUID
+    applied_at: datetime
+    resume_url: str
+    cover_letter_url: Optional[str] = None
+
+
+class JobApplicationSubmitResponse(BaseModel):
+    status: str = "success"
+    message: str = "Successfully applied to job!"
+    application: JobApplicationSubmitDetail
 
 class OptimizeSectionResult(BaseModel):
     section_type: str
@@ -157,8 +178,10 @@ class CoverLetterDetailResponse(BaseModel):
 
 class CoverLetterCreateRequest(BaseModel):
     job_id: Optional[UUID] = None
-    title: str
-    content: str
+    title: Optional[str] = None
+    content: Optional[str] = None
+    file_url: Optional[str] = None
+    file_name: Optional[str] = None
 
 
 class CoverLetterUpdateRequest(BaseModel):

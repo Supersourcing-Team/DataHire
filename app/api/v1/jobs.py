@@ -22,7 +22,7 @@ from app.schemas.job import (
     PipelineStageSummary, EmployerCompanyDetails, EmployerJobDetailResponse,
     JobPosterApplicantListItem, TimelineEvent, JobPosterApplicantProfileResponse,
     JobApplicationStatusUpdateRequest, JobApplicationStatusUpdateResponse,
-    JobPosterJobsStatsResponse, JobSaveDraft
+    JobPosterJobsStatsResponse, JobSaveDraft, BulkStatusUpdateRequest, BulkStatusUpdateResponse
 )
 from app.services.s3_service import S3Service
 from app.services.matching_engine import MatchingEngine
@@ -503,7 +503,22 @@ def get_job_preview(
     """
     Step 5: Get a preview of the job posting.
     """
-    db_job = db.query(JobPosting).filter(JobPosting.id == job_id).first()
+    db_job = (
+        db.query(JobPosting)
+        .options(
+            joinedload(JobPosting.taxonomy_job_role),
+            joinedload(JobPosting.employment_type),
+            joinedload(JobPosting.work_mode),
+            joinedload(JobPosting.city),
+            joinedload(JobPosting.state),
+            joinedload(JobPosting.country),
+            joinedload(JobPosting.currency),
+            joinedload(JobPosting.visa_status),
+            joinedload(JobPosting.visa_statuses)
+        )
+        .filter(JobPosting.id == job_id)
+        .first()
+    )
     if not db_job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1019,6 +1034,30 @@ def save_job_draft(
     days_deadline = job_data.pop("application_deadline", None)
     visa_sponsorship_ids = job_data.pop("visa_sponsorship_ids", None)
     
+    # Resolve job role if title is a digit representing the ID
+    taxonomy_job_role_id = None
+    role_resolved = False
+    if "title" in job_data:
+        title_val = job_data["title"]
+        if title_val and title_val.isdigit():
+            from app.models.taxonomy import TaxonomyJobRole
+            job_role_id = int(title_val)
+            job_role = db.query(TaxonomyJobRole).filter(TaxonomyJobRole.id == job_role_id).first()
+            if not job_role:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Taxonomy job role with ID {job_role_id} not found."
+                )
+            job_data["title"] = job_role.name
+            taxonomy_job_role_id = job_role_id
+            role_resolved = True
+            if job_role.domain_id:
+                job_data["taxonomy_domain_id"] = job_role.domain_id
+        else:
+            # Custom text title, reset taxonomy job role
+            taxonomy_job_role_id = None
+            role_resolved = True
+
     deadline_date = None
     if days_deadline is not None:
         deadline_date = datetime.now(timezone.utc) + timedelta(days=days_deadline)
@@ -1057,6 +1096,9 @@ def save_job_draft(
         if days_deadline is not None:
             db_job.application_deadline = deadline_date
             
+        if role_resolved:
+            db_job.taxonomy_job_role_id = taxonomy_job_role_id
+
         db_job.status = JobStatus.DRAFT
         db_job.is_active = False
     else:
@@ -1071,6 +1113,7 @@ def save_job_draft(
             is_active=False,
             start_date=datetime.now(timezone.utc),
             application_deadline=deadline_date,
+            taxonomy_job_role_id=taxonomy_job_role_id,
             **job_data
         )
         if visa_sponsorship_ids:
@@ -1559,7 +1602,7 @@ def get_applicant_profile(
         about_summary=about_summary,
         resume_file_name=resume.file_name if resume else None,
         resume_file_url=s3_service.get_presigned_url(resume.file_url) if resume else None,
-        cover_letter=app.cover_letter,
+        cover_letter=s3_service.get_presigned_url(app.cover_letter) if app.cover_letter else None,
         timeline=timeline,
         is_viewed=app.is_viewed
     )
@@ -1699,6 +1742,103 @@ def update_applicant_status(
         status=app.status,
         status_label=_get_application_status_label(app.status),
         job_closed_automatically=job_closed_automatically
+    )
+
+
+@router.post("/jobs/{job_id}/applicants/bulk-status", response_model=BulkStatusUpdateResponse)
+def bulk_update_applicant_status(
+    job_id: UUID,
+    body: BulkStatusUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_employer),
+) -> BulkStatusUpdateResponse:
+    """
+    Bulk update the status of multiple applicants for a specific job posting.
+    """
+    employer = current_user.employer
+    if not employer or not employer.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Employer is not associated with any company."
+        )
+    company_id = employer.company_id
+
+    # Verify job posting exists and belongs to employer's company
+    job = db.query(JobPosting).filter(
+        JobPosting.id == job_id,
+        JobPosting.company_id == company_id
+    ).first()
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job posting not found."
+        )
+
+    # Normalize and validate requested status (normalize "interview" to "interviewing")
+    requested_status = body.status.strip().lower()
+    if requested_status == "interview":
+        requested_status = "interviewing"
+
+    valid_statuses = {
+        "applied", "under_review", "shortlisted", "interviewing",
+        "interviewed", "offered", "hired", "rejected", "onhold"
+    }
+    if requested_status not in valid_statuses:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid status '{body.status}'. Must be one of: {', '.join(sorted(valid_statuses))}"
+        )
+
+    # Fetch matching applications
+    apps = db.query(JobApplication).filter(
+        JobApplication.job_id == job_id,
+        JobApplication.candidate_id.in_(body.candidate_ids)
+    ).all()
+
+    if not apps:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No matching applications found for the specified candidates."
+        )
+
+    updated_applicants = []
+    job_closed_automatically = False
+
+    # Check how many vacancies are filled
+    hired_count = db.query(JobApplication).filter(
+        JobApplication.job_id == job_id,
+        JobApplication.status == "hired"
+    ).count()
+
+    for app in apps:
+        app.status = requested_status
+        app.updated_at = datetime.now(timezone.utc)
+        db.flush()
+
+        # Update hired count and check auto close
+        if requested_status == "hired":
+            hired_count += 1
+            if hired_count >= (job.num_positions or 1):
+                job.status = JobStatus.CLOSED
+                job_closed_automatically = True
+
+        updated_applicants.append(
+            JobApplicationStatusUpdateResponse(
+                application_id=app.id,
+                candidate_id=app.candidate_id,
+                job_id=app.job_id,
+                status=app.status,
+                status_label=_get_application_status_label(app.status),
+                job_closed_automatically=job_closed_automatically
+            )
+        )
+
+    db.commit()
+
+    return BulkStatusUpdateResponse(
+        updated_count=len(updated_applicants),
+        updated_applicants=updated_applicants
     )
 
 
