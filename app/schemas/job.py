@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
+from app.schemas.taxonomy import TaxonomyJobRoleResponse
+
 
 class JobDashboardCardResponse(BaseModel):
     id: UUID
@@ -86,6 +88,8 @@ class JobResponse(BaseModel):
     max_experience_years: Optional[int] = None
     requires_visa_sponsorship: Optional[int] = None
     visa_sponsorship_ids: Optional[List[int]] = None
+    taxonomy_job_role_id: Optional[int] = None
+    taxonomy_job_role: Optional[TaxonomyJobRoleResponse] = None
     num_positions: int
     status: str
     is_active: bool

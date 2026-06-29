@@ -503,7 +503,12 @@ def get_job_preview(
     """
     Step 5: Get a preview of the job posting.
     """
-    db_job = db.query(JobPosting).filter(JobPosting.id == job_id).first()
+    db_job = (
+        db.query(JobPosting)
+        .options(joinedload(JobPosting.taxonomy_job_role))
+        .filter(JobPosting.id == job_id)
+        .first()
+    )
     if not db_job:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -1019,6 +1024,30 @@ def save_job_draft(
     days_deadline = job_data.pop("application_deadline", None)
     visa_sponsorship_ids = job_data.pop("visa_sponsorship_ids", None)
     
+    # Resolve job role if title is a digit representing the ID
+    taxonomy_job_role_id = None
+    role_resolved = False
+    if "title" in job_data:
+        title_val = job_data["title"]
+        if title_val and title_val.isdigit():
+            from app.models.taxonomy import TaxonomyJobRole
+            job_role_id = int(title_val)
+            job_role = db.query(TaxonomyJobRole).filter(TaxonomyJobRole.id == job_role_id).first()
+            if not job_role:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Taxonomy job role with ID {job_role_id} not found."
+                )
+            job_data["title"] = job_role.name
+            taxonomy_job_role_id = job_role_id
+            role_resolved = True
+            if job_role.domain_id:
+                job_data["taxonomy_domain_id"] = job_role.domain_id
+        else:
+            # Custom text title, reset taxonomy job role
+            taxonomy_job_role_id = None
+            role_resolved = True
+
     deadline_date = None
     if days_deadline is not None:
         deadline_date = datetime.now(timezone.utc) + timedelta(days=days_deadline)
@@ -1057,6 +1086,9 @@ def save_job_draft(
         if days_deadline is not None:
             db_job.application_deadline = deadline_date
             
+        if role_resolved:
+            db_job.taxonomy_job_role_id = taxonomy_job_role_id
+
         db_job.status = JobStatus.DRAFT
         db_job.is_active = False
     else:
@@ -1071,6 +1103,7 @@ def save_job_draft(
             is_active=False,
             start_date=datetime.now(timezone.utc),
             application_deadline=deadline_date,
+            taxonomy_job_role_id=taxonomy_job_role_id,
             **job_data
         )
         if visa_sponsorship_ids:
