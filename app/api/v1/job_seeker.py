@@ -41,7 +41,10 @@ from app.schemas.job_seeker import (
     JobReportCreate,
     JobReportResponse,
     CandidatePreferencesRequest,
-    CandidatePreferencesResponse
+    CandidatePreferencesResponse,
+    JobApplicationSubmitRequest,
+    JobApplicationSubmitDetail,
+    JobApplicationSubmitResponse
 )
 from app.api.v1.jobs import (
     _build_location_label,
@@ -308,7 +311,8 @@ def get_job_seeker_feed(
                 saved=is_saved,
                 applied=is_applied,
                 application_status=app_status,
-                apply_mode=app_record.apply_mode if app_record else None
+                apply_mode=app_record.apply_mode if app_record else None,
+                coverLetter=job.cover_letter_required
             )
         )
         
@@ -421,12 +425,14 @@ def get_job_seeker_job_details(
         applied=is_applied,
         application_status=app_status,
         apply_mode=app_record.apply_mode if app_record else None,
+        coverLetter=job.cover_letter_required,
         ai_match_overview=match_overview
     )
 
-@router.post("/jobs/{job_id}/apply", response_model=JobApplicationResponse)
+@router.post("/jobs/{job_id}/apply", response_model=JobApplicationSubmitResponse)
 def apply_to_job(
     job_id: UUID,
+    payload: JobApplicationSubmitRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
 ):
@@ -460,12 +466,60 @@ def apply_to_job(
             detail=f"You have reached your monthly AI credit limit of {limits['monthly_ai_credits']}."
         )
         
+    # Resolve the resume passed in payload
+    # Check if this candidate already has a resume with the specified file_url
+    resume = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.file_url == payload.resume_url
+    ).first()
+    if not resume:
+        # Create a new resume record copying metadata from primary resume
+        resume = Resume(
+            candidate_id=candidate.id,
+            file_url=payload.resume_url,
+            file_name=payload.resume_name,
+            job_id=job.id,
+            is_primary=False,
+            total_experience_years=0
+        )
+        primary_res = db.query(Resume).filter(
+            Resume.candidate_id == candidate.id,
+            Resume.is_primary == True
+        ).first()
+        if primary_res:
+            resume.total_experience_years = primary_res.total_experience_years
+            resume.taxonomy_domain_id = primary_res.taxonomy_domain_id
+            resume.overall_embedding = primary_res.overall_embedding
+            resume.extracted_skills = primary_res.extracted_skills
+        db.add(resume)
+        db.flush()
+    else:
+        # Link existing resume to this job if not already
+        if resume.job_id != job.id:
+            resume.job_id = job.id
+            db.flush()
+
+    # Calculate AI score for this application using the selected resume
+    ai_score = 0
+    if resume and resume.overall_embedding is not None:
+        try:
+            matching_service = MatchingEngine(db)
+            score_details = matching_service.score_resume_for_job(resume.id, job.id)
+            ai_score = int(score_details["final_score"])
+        except Exception:
+            ai_score = 0
+
+    # Determine status: "shortlisted" if ai_score matches or exceeds job's threshold (or default 70)
+    threshold = job.ai_score_threshold if (job.ai_score_threshold and job.ai_score_threshold > 0) else 70
+    app_status = "shortlisted" if ai_score >= threshold else "applied"
+
     # Create application record
     new_app = JobApplication(
         candidate_id=candidate.id,
         job_id=job.id,
-        status="applied",
-        apply_mode="apply"
+        status=app_status,
+        apply_mode="apply",
+        cover_letter=payload.cover_letter_url
     )
     
     # Deduct credits
@@ -477,48 +531,15 @@ def apply_to_job(
     db.commit()
     db.refresh(new_app)
     
-    # Format location label
-    work_mode_str = job.work_mode.name.title() if job.work_mode else None
-    location_parts = []
-    if job.city:
-        location_parts.append(job.city.name)
-    if job.state:
-        state_part = job.state.code or job.state.name
-        location_parts.append(state_part)
-        
-    base_loc = ", ".join(location_parts) if location_parts else None
-    if base_loc and work_mode_str:
-        location_label = f"{base_loc} ({work_mode_str})"
-    elif work_mode_str:
-        location_label = work_mode_str
-    elif base_loc:
-        location_label = base_loc
-    else:
-        location_label = "Remote"
-
-    # Get primary resume for match score calculation
-    primary_resume = db.query(Resume).filter(Resume.candidate_id == candidate.id, Resume.is_primary == True).first()
-    ai_score = 0
-    if primary_resume and primary_resume.overall_embedding is not None:
-        try:
-            matching_service = MatchingEngine(db)
-            score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
-            ai_score = int(score_details["final_score"])
-        except Exception:
-            ai_score = 0
-
-    return JobApplicationResponse(
-        id=new_app.id,
-        job_id=job.id,
-        job_title=job.title,
-        company_name=job.company.name if job.company else None,
-        company_logo_url=s3_service.get_presigned_url(job.company.logo_url) if job.company else None,
-        status=new_app.status,
-        apply_mode=new_app.apply_mode,
-        applied_at=new_app.created_at,
-        match_score=ai_score,
-        location_label=location_label,
-        status_label="Applied"
+    return JobApplicationSubmitResponse(
+        status="success",
+        message="Successfully applied to job!",
+        application=JobApplicationSubmitDetail(
+            job_id=new_app.job_id,
+            applied_at=new_app.created_at,
+            resume_url=payload.resume_url,
+            cover_letter_url=payload.cover_letter_url
+        )
     )
 
 
@@ -915,7 +936,8 @@ def get_saved_jobs_pipeline(
             apply_action="applied" if is_applied else "apply",
             saved=True,
             applied=is_applied,
-            application_status=app_status
+            application_status=app_status,
+            coverLetter=job.cover_letter_required
         )
         
         all_jobs_data.append(feed_item)
@@ -1489,7 +1511,7 @@ def list_cover_letters(
                 job_title=job_title,
                 company_name=company_name,
                 title=cl.title,
-                content=cl.content,
+                content=s3_service.get_presigned_url(cl.content) if cl.content else "",
                 is_default=cl.is_default,
                 created_at=cl.created_at,
                 updated_at=cl.updated_at,
@@ -1505,16 +1527,24 @@ def create_cover_letter(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
 ):
-    """Save a manually created cover letter."""
+    """Save a manually created or uploaded cover letter."""
     candidate = get_candidate(current_user, db)
     existing = db.query(CoverLetter).filter(CoverLetter.candidate_id == candidate.id).all()
     is_default = len(existing) == 0
     
+    title = data.title or data.file_name or "Untitled Cover Letter"
+    content = data.content or data.file_url
+    if not content:
+        raise HTTPException(
+            status_code=400,
+            detail="Either content or file_url must be provided."
+        )
+        
     new_cl = CoverLetter(
         candidate_id=candidate.id,
         job_id=data.job_id,
-        title=data.title,
-        content=data.content,
+        title=title,
+        content=content,
         is_default=is_default
     )
     db.add(new_cl)
@@ -1535,7 +1565,7 @@ def create_cover_letter(
         job_title=job_title,
         company_name=company_name,
         title=new_cl.title,
-        content=new_cl.content,
+        content=s3_service.get_presigned_url(new_cl.content) if new_cl.content else "",
         is_default=new_cl.is_default,
         created_at=new_cl.created_at,
         updated_at=new_cl.updated_at,
@@ -1578,7 +1608,7 @@ def update_cover_letter(
         job_title=job_title,
         company_name=company_name,
         title=cl.title,
-        content=cl.content,
+        content=s3_service.get_presigned_url(cl.content) if cl.content else "",
         is_default=cl.is_default,
         created_at=cl.created_at,
         updated_at=cl.updated_at,
@@ -1949,7 +1979,8 @@ def get_auto_apply_jobs(
                 apply_action="apply",
                 saved=is_saved,
                 applied=False,
-                application_status=None
+                application_status=None,
+                coverLetter=job.cover_letter_required
             )
         )
         
@@ -2081,10 +2112,14 @@ def execute_auto_apply(
     
     applied_responses = []
     for job, ai_score in top_matches:
+        # Determine status: "shortlisted" if ai_score matches or exceeds job's threshold (or default 70)
+        threshold = job.ai_score_threshold if (job.ai_score_threshold and job.ai_score_threshold > 0) else 70
+        app_status = "shortlisted" if ai_score >= threshold else "applied"
+
         new_app = JobApplication(
             candidate_id=candidate.id,
             job_id=job.id,
-            status="applied",
+            status=app_status,
             apply_mode="auto-apply"
         )
         
@@ -2127,7 +2162,7 @@ def execute_auto_apply(
                 applied_at=new_app.created_at,
                 match_score=ai_score,
                 location_label=location_label,
-                status_label="Applied"
+                status_label="Shortlisted" if new_app.status == "shortlisted" else "Applied"
             )
         )
         
@@ -2295,7 +2330,8 @@ def get_auto_apply_history(
                 saved=is_saved,
                 applied=True,
                 application_status=app.status,
-                apply_mode=app.apply_mode
+                apply_mode=app.apply_mode,
+                coverLetter=job.cover_letter_required
             )
         )
         

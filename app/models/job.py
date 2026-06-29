@@ -64,6 +64,7 @@ class JobPosting(Base):
     min_experience_years = Column(Integer, default=0, nullable=False)
     max_experience_years = Column(Integer, nullable=True)
     taxonomy_domain_id = Column(Integer, ForeignKey("taxonomy_domains.id", ondelete="SET NULL"), nullable=True)
+    taxonomy_job_role_id = Column(Integer, ForeignKey("taxonomy_job_roles.id", ondelete="SET NULL"), nullable=True)
     
     # AI Selection Criteria
     ai_score_threshold = Column(Integer, default=0, nullable=False) # 0 to 100
@@ -91,6 +92,7 @@ class JobPosting(Base):
     # Relationships
     company = relationship("Company")
     taxonomy_domain = relationship("TaxonomyDomain")
+    taxonomy_job_role = relationship("TaxonomyJobRole")
     work_mode = relationship("MetaWorkMode")
     employment_type = relationship("MetaEmploymentType")
     seniority_level = relationship("MetaSeniorityLevel")
@@ -104,7 +106,7 @@ class JobPosting(Base):
     @validates(
         "employment_type_id", "seniority_level_id", "work_mode_id", 
         "city_id", "state_id", "country_id", "currency_id", "taxonomy_domain_id",
-        "requires_visa_sponsorship"
+        "taxonomy_job_role_id", "requires_visa_sponsorship"
     )
     def validate_dropdown_fks(self, key, value):
         """Convert 0 or empty values to None to prevent ForeignKey constraints errors"""

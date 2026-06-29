@@ -140,10 +140,14 @@ def execute_auto_apply_for_all(db: Session) -> dict:
             
             apps_created = 0
             for job, ai_score in top_matches:
+                # Determine status: "shortlisted" if ai_score matches or exceeds job's threshold (or default 70)
+                threshold = job.ai_score_threshold if (job.ai_score_threshold and job.ai_score_threshold > 0) else 70
+                app_status = "shortlisted" if ai_score >= threshold else "applied"
+
                 new_app = JobApplication(
                     candidate_id=candidate.id,
                     job_id=job.id,
-                    status="applied",
+                    status=app_status,
                     apply_mode="auto-apply"
                 )
                 
