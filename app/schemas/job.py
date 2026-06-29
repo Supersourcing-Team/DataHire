@@ -372,3 +372,13 @@ class JobSaveDraft(BaseModel):
     cover_letter_required: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class BulkStatusUpdateRequest(BaseModel):
+    candidate_ids: List[UUID]
+    status: str
+
+
+class BulkStatusUpdateResponse(BaseModel):
+    updated_count: int
+    updated_applicants: List[JobApplicationStatusUpdateResponse]
