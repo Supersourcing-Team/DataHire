@@ -505,7 +505,17 @@ def get_job_preview(
     """
     db_job = (
         db.query(JobPosting)
-        .options(joinedload(JobPosting.taxonomy_job_role))
+        .options(
+            joinedload(JobPosting.taxonomy_job_role),
+            joinedload(JobPosting.employment_type),
+            joinedload(JobPosting.work_mode),
+            joinedload(JobPosting.city),
+            joinedload(JobPosting.state),
+            joinedload(JobPosting.country),
+            joinedload(JobPosting.currency),
+            joinedload(JobPosting.visa_status),
+            joinedload(JobPosting.visa_statuses)
+        )
         .filter(JobPosting.id == job_id)
         .first()
     )

@@ -5,6 +5,15 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict
 
 from app.schemas.taxonomy import TaxonomyJobRoleResponse
+from app.schemas.meta import (
+    MetaEmploymentTypeResponse,
+    MetaWorkModeResponse,
+    MetaCityResponse,
+    MetaStateResponse,
+    MetaCountryResponse,
+    MetaCurrencyResponse,
+    MetaVisaStatusResponse
+)
 
 
 class JobDashboardCardResponse(BaseModel):
@@ -75,19 +84,27 @@ class JobResponse(BaseModel):
     title: str
     description: Optional[str] = None
     employment_type_id: Optional[int] = None
+    employment_type: Optional[MetaEmploymentTypeResponse] = None
     work_mode_id: Optional[int] = None
+    work_mode: Optional[MetaWorkModeResponse] = None
     city_id: Optional[int] = None
-    # state_id: Optional[int] = None
-    # country_id: Optional[int] = None
+    city: Optional[MetaCityResponse] = None
+    state_id: Optional[int] = None
+    state: Optional[MetaStateResponse] = None
+    country_id: Optional[int] = None
+    country: Optional[MetaCountryResponse] = None
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None
     currency_id: Optional[int] = None
+    currency: Optional[MetaCurrencyResponse] = None
     start_date: Optional[datetime] = None
     application_deadline: Optional[datetime] = None
     min_experience_years: int
     max_experience_years: Optional[int] = None
     requires_visa_sponsorship: Optional[int] = None
+    visa_status: Optional[MetaVisaStatusResponse] = None
     visa_sponsorship_ids: Optional[List[int]] = None
+    visa_statuses: Optional[List[MetaVisaStatusResponse]] = None
     taxonomy_job_role_id: Optional[int] = None
     taxonomy_job_role: Optional[TaxonomyJobRoleResponse] = None
     num_positions: int
