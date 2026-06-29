@@ -11,8 +11,9 @@ class S3Folder(str, Enum):
     PROFILE_IMG = "profile-img-stag"
     RESUME = "resume-stag"
     COMPANY_LOGO = "company-logo-stag"
+    COVER_LETTER = "cover-letter-stag"
 
-class S3Service:
+class S3Service: 
     def __init__(self):
         # Initialize the S3 client using credentials from config
         self.s3_client = boto3.client(

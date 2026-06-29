@@ -57,6 +57,14 @@ async def delete_file(
                 raise HTTPException(status_code=403, detail="Unauthorized to delete this job description")
             linked_job.job_description_url = None
 
+    elif folder == S3Folder.COVER_LETTER:
+        from app.models.application import JobApplication
+        linked_app = db.query(JobApplication).filter(JobApplication.cover_letter == url_str).first()
+        if linked_app:
+            if linked_app.candidate.user_id != current_user.id:
+                raise HTTPException(status_code=403, detail="Unauthorized to delete this cover letter")
+            linked_app.cover_letter = None
+
     else:
         raise HTTPException(status_code=400, detail="Invalid folder type")
 

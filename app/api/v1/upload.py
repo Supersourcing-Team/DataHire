@@ -12,17 +12,34 @@ s3_service = S3Service()
 @router.post("/")
 async def upload_file(
     file: UploadFile = File(...),
-    folder: S3Folder = Form(..., description="The S3 folder to store the file in"),
+    folder: str = Form(..., description="The S3 folder to store the file in"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
     """
     Upload a file to a specific folder in S3. If it's a resume, it is parsed and saved.
     """
+    folder_str = folder.strip().lower()
+    if folder_str in ("cover-letter", "cover-letters", "cover-letter-stag", "cover_letter", "cover_letters"):
+        target_folder = S3Folder.COVER_LETTER
+    elif folder_str in ("resume", "resumes", "resume-stag"):
+        target_folder = S3Folder.RESUME
+    elif folder_str in ("profile-img", "profile-image", "profile-img-stag", "profile_img", "profile_image"):
+        target_folder = S3Folder.PROFILE_IMG
+    elif folder_str in ("company-logo", "company-logo-stag", "company_logo"):
+        target_folder = S3Folder.COMPANY_LOGO
+    elif folder_str in ("job-description", "job-description-stag", "job_description"):
+        target_folder = S3Folder.JOB_DESCRIPTION
+    else:
+        try:
+            target_folder = S3Folder(folder_str)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid folder type '{folder}'")
+
     try:
-        url = await s3_service.upload_file(file, folder)
+        url = await s3_service.upload_file(file, target_folder)
         
-        if folder == S3Folder.RESUME:
+        if target_folder == S3Folder.RESUME:
             if not current_user.candidate:
                 raise HTTPException(status_code=400, detail="User is not a candidate and cannot upload a resume.")
             
@@ -105,7 +122,7 @@ async def upload_file(
         return {
             "message": "File uploaded successfully",
             "url": url,
-            "folder": folder.value
+            "folder": target_folder.value
         }
     except HTTPException:
         raise

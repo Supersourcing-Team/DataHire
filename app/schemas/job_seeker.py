@@ -178,8 +178,10 @@ class CoverLetterDetailResponse(BaseModel):
 
 class CoverLetterCreateRequest(BaseModel):
     job_id: Optional[UUID] = None
-    title: str
-    content: str
+    title: Optional[str] = None
+    content: Optional[str] = None
+    file_url: Optional[str] = None
+    file_name: Optional[str] = None
 
 
 class CoverLetterUpdateRequest(BaseModel):

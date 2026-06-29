@@ -1511,7 +1511,7 @@ def list_cover_letters(
                 job_title=job_title,
                 company_name=company_name,
                 title=cl.title,
-                content=cl.content,
+                content=s3_service.get_presigned_url(cl.content) if cl.content else "",
                 is_default=cl.is_default,
                 created_at=cl.created_at,
                 updated_at=cl.updated_at,
@@ -1527,16 +1527,24 @@ def create_cover_letter(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
 ):
-    """Save a manually created cover letter."""
+    """Save a manually created or uploaded cover letter."""
     candidate = get_candidate(current_user, db)
     existing = db.query(CoverLetter).filter(CoverLetter.candidate_id == candidate.id).all()
     is_default = len(existing) == 0
     
+    title = data.title or data.file_name or "Untitled Cover Letter"
+    content = data.content or data.file_url
+    if not content:
+        raise HTTPException(
+            status_code=400,
+            detail="Either content or file_url must be provided."
+        )
+        
     new_cl = CoverLetter(
         candidate_id=candidate.id,
         job_id=data.job_id,
-        title=data.title,
-        content=data.content,
+        title=title,
+        content=content,
         is_default=is_default
     )
     db.add(new_cl)
@@ -1557,7 +1565,7 @@ def create_cover_letter(
         job_title=job_title,
         company_name=company_name,
         title=new_cl.title,
-        content=new_cl.content,
+        content=s3_service.get_presigned_url(new_cl.content) if new_cl.content else "",
         is_default=new_cl.is_default,
         created_at=new_cl.created_at,
         updated_at=new_cl.updated_at,
@@ -1600,7 +1608,7 @@ def update_cover_letter(
         job_title=job_title,
         company_name=company_name,
         title=cl.title,
-        content=cl.content,
+        content=s3_service.get_presigned_url(cl.content) if cl.content else "",
         is_default=cl.is_default,
         created_at=cl.created_at,
         updated_at=cl.updated_at,
