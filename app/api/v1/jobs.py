@@ -22,7 +22,8 @@ from app.schemas.job import (
     PipelineStageSummary, EmployerCompanyDetails, EmployerJobDetailResponse,
     JobPosterApplicantListItem, TimelineEvent, JobPosterApplicantProfileResponse,
     JobApplicationStatusUpdateRequest, JobApplicationStatusUpdateResponse,
-    JobPosterJobsStatsResponse, JobSaveDraft, BulkStatusUpdateRequest, BulkStatusUpdateResponse
+    JobPosterJobsStatsResponse, JobSaveDraft, BulkStatusUpdateRequest, BulkStatusUpdateResponse,
+    JobCandidateStatsResponse
 )
 from app.services.s3_service import S3Service
 from app.services.matching_engine import MatchingEngine
@@ -593,7 +594,10 @@ def get_employer_dashboard_overview(
     company_id = employer.company_id
 
     # 1. KPIs
-    total_jobs = db.query(JobPosting).filter(JobPosting.company_id == company_id).count()
+    total_jobs = db.query(JobPosting).filter(
+        JobPosting.company_id == company_id,
+        JobPosting.status == JobStatus.PUBLISHED
+    ).count()
 
     total_applicants = (
         db.query(JobApplication)
@@ -1237,6 +1241,7 @@ def get_employer_job_detail(
         company_verified=True,
         job_title=job.title,
         ai_score_threshold=job.ai_score_threshold or 0,
+        num_positions=job.num_positions,
         work_modes_list=work_modes,
         visa_sponsorships_list=visa_sponsorships,
         location_label=_build_location_label(city_name, state_name, country_name),
@@ -1253,6 +1258,59 @@ def get_employer_job_detail(
         responsibilities=job.responsibilities,
         benefits=job.benefits,
         company_details=company_details
+    )
+
+
+@router.get("/jobs/{job_id}/stats", response_model=JobCandidateStatsResponse)
+def get_employer_job_candidate_stats(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_employer),
+) -> JobCandidateStatsResponse:
+    """
+    Get statistics (application, shortlisted, hired, onhold, reject counts) for a specific job posting.
+    """
+    employer = current_user.employer
+    if not employer or not employer.company_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Employer is not associated with any company."
+        )
+    company_id = employer.company_id
+
+    # Verify job posting exists and belongs to the employer's company
+    job = db.query(JobPosting).filter(
+        JobPosting.id == job_id,
+        JobPosting.company_id == company_id
+    ).first()
+
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job posting not found."
+        )
+
+    # Calculate applicant counts for each stage
+    stage_counts = (
+        db.query(JobApplication.status, func.count(JobApplication.id))
+        .filter(JobApplication.job_id == job_id)
+        .group_by(JobApplication.status)
+        .all()
+    )
+    counts_map = {status: count for status, count in stage_counts}
+
+    application = counts_map.get("applied", 0)
+    shortlisted = counts_map.get("under_review", 0) + counts_map.get("shortlisted", 0)
+    onhold = counts_map.get("onhold", 0)
+    hired = counts_map.get("hired", 0) + counts_map.get("offered", 0)
+    reject = counts_map.get("rejected", 0)
+
+    return JobCandidateStatsResponse(
+        application=application,
+        shortlisted=shortlisted,
+        hired=hired,
+        onhold=onhold,
+        reject=reject
     )
 
 
