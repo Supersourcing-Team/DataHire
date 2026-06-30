@@ -248,6 +248,16 @@ class PipelineStageSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class JobCandidateStatsResponse(BaseModel):
+    application: int
+    shortlisted: int
+    hired: int
+    onhold: int
+    reject: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class EmployerCompanyDetails(BaseModel):
     name: str
     website: Optional[str] = None
@@ -266,6 +276,7 @@ class EmployerJobDetailResponse(BaseModel):
     company_verified: bool = True
     job_title: str
     ai_score_threshold: int
+    num_positions: int
     work_modes_list: List[str]
     visa_sponsorships_list: List[str]
     location_label: Optional[str] = None
