@@ -1637,6 +1637,25 @@ def set_default_cover_letter(
     return {"message": "Cover letter set as default successfully."}
 
 
+@router.delete("/cover-letters/{cover_letter_id}")
+def delete_cover_letter(
+    cover_letter_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """Delete a saved cover letter (cannot delete default cover letter)."""
+    candidate = get_candidate(current_user, db)
+    cl = db.query(CoverLetter).filter(CoverLetter.id == cover_letter_id, CoverLetter.candidate_id == candidate.id).first()
+    if not cl:
+        raise HTTPException(status_code=404, detail="Cover letter not found.")
+    if cl.is_default:
+        raise HTTPException(status_code=400, detail="Cannot delete default cover letter.")
+        
+    db.delete(cl)
+    db.commit()
+    return {"message": "Cover letter deleted successfully."}
+
+
 @router.post("/cover-letters/{cover_letter_id}/reoptimize", response_model=CoverLetterResponse)
 def reoptimize_cover_letter(
     cover_letter_id: UUID,
