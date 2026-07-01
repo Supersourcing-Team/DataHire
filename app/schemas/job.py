@@ -265,6 +265,7 @@ class EmployerCompanyDetails(BaseModel):
     founded_year: Optional[int] = None
     description: Optional[str] = None
     location: Optional[str] = None
+    company_size: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -274,6 +275,7 @@ class EmployerJobDetailResponse(BaseModel):
     company_name: str
     company_logo_url: Optional[str] = None
     company_verified: bool = True
+    company_size: Optional[str] = None
     job_title: str
     ai_score_threshold: int
     num_positions: int

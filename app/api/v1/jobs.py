@@ -1231,7 +1231,8 @@ def get_employer_job_detail(
         logo_url=s3_service.get_presigned_url(job.company.logo_url) if (job.company and job.company.logo_url) else None,
         founded_year=job.company.founded_year if job.company else None,
         description=job.company.description if job.company else None,
-        location=company_loc
+        location=company_loc,
+        company_size=job.company.size.label if (job.company and job.company.size) else None
     )
 
     return EmployerJobDetailResponse(
@@ -1239,6 +1240,7 @@ def get_employer_job_detail(
         company_name=job.company.name if job.company else "Company",
         company_logo_url=s3_service.get_presigned_url(job.company.logo_url) if job.company else None,
         company_verified=True,
+        company_size=job.company.size.label if (job.company and job.company.size) else None,
         job_title=job.title,
         ai_score_threshold=job.ai_score_threshold or 0,
         num_positions=job.num_positions,
