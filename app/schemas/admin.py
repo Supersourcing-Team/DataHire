@@ -217,7 +217,7 @@ class AdminJobResponse(BaseModel):
     company_id: UUID
     company_name: Optional[str] = None
     title: str
-    description: str
+    description: Optional[str] = None
     employment_type_id: Optional[int] = None
     employment_type_name: Optional[str] = None
     work_mode_id: Optional[int] = None
