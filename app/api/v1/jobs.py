@@ -85,11 +85,15 @@ def _format_salary_range(
     if currency_prefix:
         currency_prefix = f"{currency_prefix}"
 
-    if salary_min is not None and salary_max is not None:
-        return f"{currency_prefix}{salary_min} - {currency_prefix}{salary_max}/month"
-    if salary_min is not None:
-        return f"{currency_prefix}{salary_min}+/month"
-    return f"Up to {currency_prefix}{salary_max}/month"
+    # Convert monthly to yearly
+    sal_min_yr = salary_min * 12 if salary_min is not None else None
+    sal_max_yr = salary_max * 12 if salary_max is not None else None
+
+    if sal_min_yr is not None and sal_max_yr is not None:
+        return f"{currency_prefix}{sal_min_yr} - {currency_prefix}{sal_max_yr}/year"
+    if sal_min_yr is not None:
+        return f"{currency_prefix}{sal_min_yr}+/year"
+    return f"Up to {currency_prefix}{sal_max_yr}/year"
 
 
 def _build_location_label(city: Optional[str], state: Optional[str], country: Optional[str]) -> Optional[str]:
@@ -946,7 +950,8 @@ def get_employer_jobs(
                 shortlisted_count=shortlisted_counts.get(job.id, 0),
                 deadline_label=deadline_str,
                 status=job.status,
-                status_label=_build_status_label(job.status, job.application_deadline)
+                status_label=_build_status_label(job.status, job.application_deadline),
+                is_valid=job.is_valid
             )
         )
 
@@ -1262,6 +1267,10 @@ def get_employer_job_detail(
         deadline_label=deadline_str,
         status=job.status,
         status_label=_build_status_label(job.status, job.application_deadline),
+        salary_min=job.salary_min * 12 if job.salary_min is not None else None,
+        salary_max=job.salary_max * 12 if job.salary_max is not None else None,
+        salary_range_label=_format_salary_range(job.salary_min, job.salary_max, job.currency.symbol if job.currency else None, job.currency.code if job.currency else None),
+        is_valid=job.is_valid,
         pipeline_summary=pipeline_summary,
         job_overview=job.job_overview,
         about_role=job.about_role,

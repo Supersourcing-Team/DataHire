@@ -148,3 +148,20 @@ def update_employer_profile(
     db.refresh(employer)
     
     return _map_employer_to_response(employer, current_user)
+
+@router.delete("/profile/picture", response_model=EmployerProfileResponse)
+def delete_employer_profile_picture(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_employer),
+):
+    """
+    Delete the company logo of the authenticated employer.
+    """
+    employer = get_employer(current_user, db)
+    if employer.company:
+        employer.company.logo_url = None
+        db.add(employer.company)
+        db.commit()
+        db.refresh(employer)
+    return _map_employer_to_response(employer, current_user)
+
