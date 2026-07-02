@@ -127,7 +127,9 @@ class JobPosting(Base):
             self.work_mode_id and
             self.city_id and
             self.ai_score_threshold and
-            self.benefits
+            self.benefits and 
+            self.responsibilities and 
+            self.requirements 
         )
 
     def __repr__(self):
