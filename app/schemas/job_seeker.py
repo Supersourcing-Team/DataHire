@@ -24,6 +24,24 @@ class CandidateCreditsResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+class WeekdayStatus(BaseModel):
+    day: str  # "MO", "TU", "WE", "TH", "FR", "SA", "SU"
+    applied: bool
+
+class CandidateCreditsScoreResponse(BaseModel):
+    plan_tier: str
+    plan_name: str
+    current_streak: int
+    running_week: List[WeekdayStatus]
+    daily_apply_credits_limit: int
+    daily_apply_credits_used: int
+    daily_apply_credits_remaining: int
+    monthly_ai_credits_limit: int
+    monthly_ai_credits_used: int
+    monthly_reset_date: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
 class JobSeekerFeedResponse(JobDashboardCardResponse):
     saved: bool = False
     applied: bool = False
@@ -243,5 +261,35 @@ class CandidatePreferencesResponse(BaseModel):
     preferences_exist: bool
 
     model_config = ConfigDict(from_attributes=True)
+
+class CandidateProfileResponse(BaseModel):
+    id: UUID
+    user_id: UUID
+    email: str
+    full_name: str
+    phone: Optional[str] = None
+    profile_picture: Optional[str] = None
+    onboarding_step: int
+    onboarding_completed: bool
+    work_status_id: Optional[int] = None
+    taxonomy_domain_id: Optional[int] = None
+    visa_status_id: Optional[int] = None
+    pref_role_type: Optional[str] = None
+    pref_locations: Optional[str] = None
+    pref_min_salary: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+class CandidateProfileUpdate(BaseModel):
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    profile_picture: Optional[str] = None
+    work_status_id: Optional[int] = None
+    taxonomy_domain_id: Optional[int] = None
+    visa_status_id: Optional[int] = None
+    pref_role_type: Optional[str] = None
+    pref_locations: Optional[str] = None
+    pref_min_salary: Optional[int] = None
+
 
 

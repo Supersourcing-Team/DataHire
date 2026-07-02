@@ -819,6 +819,7 @@ def get_employer_dashboard_overview(
 def get_employer_jobs(
     job_status: Optional[str] = Query("all", alias="status"),
     search: Optional[str] = Query(None),
+    viewed: Optional[bool] = Query(None, description="Filter jobs by whether they have candidates with the specified viewed status"),
     skip: int = 0,
     limit: int = 20,
     db: Session = Depends(get_db),
@@ -860,6 +861,14 @@ def get_employer_jobs(
                 JobPosting.title.ilike(f"%{search}%"),
                 JobPosting.description.ilike(f"%{search}%")
             )
+        )
+
+    if viewed is not None:
+        query = query.filter(
+            db.query(JobApplication.id)
+            .filter(JobApplication.job_id == JobPosting.id)
+            .filter(JobApplication.is_viewed == viewed)
+            .exists()
         )
 
     jobs = query.order_by(JobPosting.created_at.desc()).offset(skip).limit(limit).all()
