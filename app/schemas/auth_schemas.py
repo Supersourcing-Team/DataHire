@@ -78,6 +78,7 @@ class UserResponse(BaseModel):
     # We will include full onboarding data in the profile fields
     candidate_profile: Optional[CandidateProfile] = None
     employer_profile: Optional[EmployerProfile] = None
+    plan_tier: Optional[str] = None
     
     @classmethod
     def from_orm(cls, user):
@@ -153,6 +154,8 @@ class UserResponse(BaseModel):
                     onboarding_completed=False
                 )
 
+        plan_tier = user.candidate.plan_tier if (user.role == "candidate" and user.candidate) else None
+
         return cls(
             id=str(user.id),
             email=user.email,
@@ -164,7 +167,8 @@ class UserResponse(BaseModel):
             onboarding_step=onboarding_step,
             onboarding_completed=onboarding_completed,
             candidate_profile=candidate_data,
-            employer_profile=employer_data
+            employer_profile=employer_data,
+            plan_tier=plan_tier
         )
 
 class OTPRequest(EmailBaseModel):

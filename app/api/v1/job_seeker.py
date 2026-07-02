@@ -380,8 +380,8 @@ def get_job_seeker_feed(
                 experience_min_years=job.min_experience_years,
                 experience_max_years=job.max_experience_years,
                 experience_label=_format_experience_label(job.min_experience_years, job.max_experience_years),
-                salary_min=job.salary_min,
-                salary_max=job.salary_max,
+                salary_min=job.salary_min * 12 if job.salary_min is not None else None,
+                salary_max=job.salary_max * 12 if job.salary_max is not None else None,
                 salary_currency_code=currency_code,
                 salary_currency_symbol=currency_symbol,
                 salary_range_label=_format_salary_range(job.salary_min, job.salary_max, currency_symbol, currency_code),
@@ -499,6 +499,8 @@ def get_job_seeker_job_details(
         sponsorship_label=_build_sponsorship_label(job),
         posted_ago=_format_posted_ago(job.created_at),
         experience_label=_format_experience_label(job.min_experience_years, job.max_experience_years),
+        salary_min=job.salary_min * 12 if job.salary_min is not None else None,
+        salary_max=job.salary_max * 12 if job.salary_max is not None else None,
         salary_range_label=_format_salary_range(job.salary_min, job.salary_max, currency_symbol, currency_code),
         employment_type=job.employment_type.name if job.employment_type else None,
         saved=is_saved,
@@ -1006,8 +1008,8 @@ def get_saved_jobs_pipeline(
             experience_min_years=job.min_experience_years,
             experience_max_years=job.max_experience_years,
             experience_label=_format_experience_label(job.min_experience_years, job.max_experience_years),
-            salary_min=job.salary_min,
-            salary_max=job.salary_max,
+            salary_min=job.salary_min * 12 if job.salary_min is not None else None,
+            salary_max=job.salary_max * 12 if job.salary_max is not None else None,
             salary_currency_code=currency_code,
             salary_currency_symbol=currency_symbol,
             salary_range_label=_format_salary_range(job.salary_min, job.salary_max, currency_symbol, currency_code),
@@ -2068,8 +2070,8 @@ def get_auto_apply_jobs(
                 experience_min_years=job.min_experience_years,
                 experience_max_years=job.max_experience_years,
                 experience_label=_format_experience_label(job.min_experience_years, job.max_experience_years),
-                salary_min=job.salary_min,
-                salary_max=job.salary_max,
+                salary_min=job.salary_min * 12 if job.salary_min is not None else None,
+                salary_max=job.salary_max * 12 if job.salary_max is not None else None,
                 salary_currency_code=currency_code,
                 salary_currency_symbol=currency_symbol,
                 salary_range_label=_format_salary_range(job.salary_min, job.salary_max, currency_symbol, currency_code),
@@ -2418,8 +2420,8 @@ def get_auto_apply_history(
                 experience_min_years=job.min_experience_years,
                 experience_max_years=job.max_experience_years,
                 experience_label=_format_experience_label(job.min_experience_years, job.max_experience_years),
-                salary_min=job.salary_min,
-                salary_max=job.salary_max,
+                salary_min=job.salary_min * 12 if job.salary_min is not None else None,
+                salary_max=job.salary_max * 12 if job.salary_max is not None else None,
                 salary_currency_code=currency_code,
                 salary_currency_symbol=currency_symbol,
                 salary_range_label=_format_salary_range(job.salary_min, job.salary_max, currency_symbol, currency_code),
@@ -2499,5 +2501,37 @@ def update_candidate_profile(
         pref_locations=candidate.pref_locations,
         pref_min_salary=candidate.pref_min_salary
     )
+
+@router.delete("/profile/picture", response_model=CandidateProfileResponse)
+def delete_candidate_profile_picture(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Delete the profile picture of the authenticated candidate.
+    """
+    candidate = get_candidate(current_user, db)
+    candidate.profile_picture = None
+    db.add(candidate)
+    db.commit()
+    db.refresh(candidate)
+    
+    return CandidateProfileResponse(
+        id=candidate.id,
+        user_id=candidate.user_id,
+        email=current_user.email,
+        full_name=candidate.full_name,
+        phone=candidate.phone,
+        profile_picture=None,
+        onboarding_step=candidate.onboarding_step,
+        onboarding_completed=candidate.onboarding_completed,
+        work_status_id=candidate.work_status_id,
+        taxonomy_domain_id=candidate.taxonomy_domain_id,
+        visa_status_id=candidate.visa_status_id,
+        pref_role_type=candidate.pref_role_type,
+        pref_locations=candidate.pref_locations,
+        pref_min_salary=candidate.pref_min_salary
+    )
+
 
 

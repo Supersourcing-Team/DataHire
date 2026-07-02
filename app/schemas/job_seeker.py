@@ -83,6 +83,8 @@ class JobSeekerDetailResponse(BaseModel):
     sponsorship_label: Optional[str] = None
     posted_ago: Optional[str] = None
     experience_label: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
     salary_range_label: Optional[str] = None
     employment_type: Optional[str] = None
     saved: bool = False
