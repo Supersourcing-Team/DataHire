@@ -1173,7 +1173,8 @@ def get_employer_job_detail(
 
     job = db.query(JobPosting).options(
         joinedload(JobPosting.visa_status),
-        joinedload(JobPosting.visa_statuses)
+        joinedload(JobPosting.visa_statuses),
+        joinedload(JobPosting.employment_type)
     ).filter(
         JobPosting.id == job_id,
         JobPosting.company_id == company_id
@@ -1271,6 +1272,8 @@ def get_employer_job_detail(
         salary_max=job.salary_max * 12 if job.salary_max is not None else None,
         salary_range_label=_format_salary_range(job.salary_min, job.salary_max, job.currency.symbol if job.currency else None, job.currency.code if job.currency else None),
         is_valid=job.is_valid,
+        experience=_format_experience_label(job.min_experience_years, job.max_experience_years),
+        employment_type=job.employment_type.name if job.employment_type else None,
         pipeline_summary=pipeline_summary,
         job_overview=job.job_overview,
         about_role=job.about_role,
@@ -1321,6 +1324,7 @@ def get_employer_job_candidate_stats(
 
     application = counts_map.get("applied", 0)
     shortlisted = counts_map.get("under_review", 0) + counts_map.get("shortlisted", 0)
+    interview= counts_map.get("interviewing",0)
     onhold = counts_map.get("onhold", 0)
     hired = counts_map.get("hired", 0) + counts_map.get("offered", 0)
     reject = counts_map.get("rejected", 0)
@@ -1328,6 +1332,7 @@ def get_employer_job_candidate_stats(
     return JobCandidateStatsResponse(
         application=application,
         shortlisted=shortlisted,
+        interview=interview,
         hired=hired,
         onhold=onhold,
         reject=reject
