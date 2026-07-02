@@ -1266,7 +1266,7 @@ def get_employer_job_detail(
         new_applicants_count=applied,
         shortlisted_count=shortlisted,
         deadline_label=deadline_str,
-        status=job.status,
+        status=job.is_valid,
         status_label=_build_status_label(job.status, job.application_deadline),
         salary_min=job.salary_min * 12 if job.salary_min is not None else None,
         salary_max=job.salary_max * 12 if job.salary_max is not None else None,
