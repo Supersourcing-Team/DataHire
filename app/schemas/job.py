@@ -296,7 +296,7 @@ class EmployerJobDetailResponse(BaseModel):
     new_applicants_count: int
     shortlisted_count: int
     deadline_label: Optional[str] = None
-    status: str
+    status: bool
     status_label: str
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None
