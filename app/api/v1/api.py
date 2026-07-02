@@ -9,7 +9,8 @@ from app.api.v1.jobs import router as jobs_router, job_flow_router
 api_router = APIRouter()
 
 # Include routers here as they are created
-# api_router.include_router(employers.router, prefix="/employers", tags=["employers"])
+from app.api.v1.employers import router as employers_router
+api_router.include_router(employers_router)
 # api_router.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
 # api_router.include_router(resumes.router, prefix="/resumes", tags=["resumes"])
 # api_router.include_router(users.router, prefix="/users", tags=["users"])

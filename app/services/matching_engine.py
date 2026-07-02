@@ -173,6 +173,13 @@ class MatchingEngine:
         if not job or not resume:
             raise ValueError("Job or Resume not found.")
 
+        return self.score_resume_object_for_job_object(resume, job)
+
+    def score_resume_object_for_job_object(self, resume: Resume, job: JobPosting) -> Dict[str, Any]:
+        """
+        Calculates match score using pre-loaded Resume and JobPosting models
+        without triggering database ID lookups.
+        """
         # 1. Semantic Score
         semantic_score = self.evaluate_semantic_fit(job, resume)
         
@@ -195,8 +202,8 @@ class MatchingEngine:
         )
         
         return {
-            "resume_id": resume_id,
-            "job_id": job_id,
+            "resume_id": str(resume.id),
+            "job_id": str(job.id),
             "final_score": round(final_score, 2),
             "breakdown": {
                 "semantic": round(semantic_score, 2),
@@ -209,3 +216,4 @@ class MatchingEngine:
                 "missing_skills": skills_eval["missing"]
             }
         }
+

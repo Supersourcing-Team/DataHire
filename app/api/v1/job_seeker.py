@@ -22,6 +22,10 @@ from app.services.optimization_engine import optimization_engine
 from app.services.credit_manager import CreditManager, credit_manager
 from app.schemas.job_seeker import (
     CandidateCreditsResponse,
+    CandidateCreditsScoreResponse,
+    WeekdayStatus,
+    CandidateProfileResponse,
+    CandidateProfileUpdate,
     JobSeekerFeedResponse,
     JobSeekerDetailResponse,
     AIMatchOverview,
@@ -161,6 +165,82 @@ def get_dashboard_credits(
         cover_letters_limit=limits["monthly_cover_letter_limit"] if limits["monthly_cover_letter_limit"] < 9999 else "Unlimited",
         missing_skills_analysis_enabled=limits["missing_skills_analysis_enabled"],
         saved_resumes_limit=limits["saved_resumes_limit"] if limits["saved_resumes_limit"] < 9999 else "Unlimited",
+        monthly_reset_date=next_month
+    )
+
+@router.get("/dashboard/credits-score", response_model=CandidateCreditsScoreResponse)
+def get_dashboard_credits_score(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    candidate = get_candidate(current_user, db)
+    candidate = check_and_reset_candidate_credits(candidate, db)
+    
+    tier = candidate.plan_tier or "free"
+    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    
+    # Calculate next monthly reset date
+    now = datetime.now(timezone.utc)
+    if now.month == 12:
+        next_month = datetime(now.year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        next_month = datetime(now.year, now.month + 1, 1, tzinfo=timezone.utc)
+        
+    # --- Streak Calculation ---
+    # Fetch distinct dates of auto-applies for this candidate in UTC
+    app_dates = (
+        db.query(func.date(JobApplication.created_at))
+        .filter(
+            JobApplication.candidate_id == candidate.id,
+            JobApplication.apply_mode == "auto-apply"
+        )
+        .distinct()
+        .order_by(func.date(JobApplication.created_at).desc())
+        .all()
+    )
+    
+    dates_set = {r[0] for r in app_dates if r[0] is not None}
+    today = now.date()
+    
+    current_streak = 0
+    check_date = today
+    
+    # Keep streak active if they applied yesterday but haven't applied today yet
+    if check_date not in dates_set:
+        check_date = today - timedelta(days=1)
+        
+    while check_date in dates_set:
+        current_streak += 1
+        check_date -= timedelta(days=1)
+        
+    # --- Running Week (Monday to Sunday) Auto-Apply Map ---
+    # Find Monday of the current running week
+    # weekday() returns 0 for Monday, 6 for Sunday
+    start_of_week = today - timedelta(days=today.weekday())
+    
+    weekday_labels = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+    running_week = []
+    
+    for i in range(7):
+        day_date = start_of_week + timedelta(days=i)
+        has_applied = day_date in dates_set
+        running_week.append(
+            WeekdayStatus(
+                day=weekday_labels[i],
+                applied=has_applied
+            )
+        )
+        
+    return CandidateCreditsScoreResponse(
+        plan_tier=tier,
+        plan_name=f"{limits['name']} Plan",
+        current_streak=current_streak,
+        running_week=running_week,
+        daily_apply_credits_limit=limits["daily_apply_limit"],
+        daily_apply_credits_used=candidate.daily_apply_credits_used,
+        daily_apply_credits_remaining=max(0, limits["daily_apply_limit"] - candidate.daily_apply_credits_used),
+        monthly_ai_credits_limit=limits["monthly_ai_credits"],
+        monthly_ai_credits_used=candidate.monthly_ai_credits_used,
         monthly_reset_date=next_month
     )
 
@@ -2357,4 +2437,67 @@ def get_auto_apply_history(
     if not match_score or match_score.lower() == "all":
         return history_items
     return history_items[skip : skip + limit]
+
+@router.get("/profile", response_model=CandidateProfileResponse)
+def get_candidate_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Get the profile details of the authenticated candidate.
+    """
+    candidate = get_candidate(current_user, db)
+    return CandidateProfileResponse(
+        id=candidate.id,
+        user_id=candidate.user_id,
+        email=current_user.email,
+        full_name=candidate.full_name,
+        phone=candidate.phone,
+        profile_picture=candidate.profile_picture,
+        onboarding_step=candidate.onboarding_step,
+        onboarding_completed=candidate.onboarding_completed,
+        work_status_id=candidate.work_status_id,
+        taxonomy_domain_id=candidate.taxonomy_domain_id,
+        visa_status_id=candidate.visa_status_id,
+        pref_role_type=candidate.pref_role_type,
+        pref_locations=candidate.pref_locations,
+        pref_min_salary=candidate.pref_min_salary
+    )
+
+@router.put("/profile", response_model=CandidateProfileResponse)
+def update_candidate_profile(
+    profile_data: CandidateProfileUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Update the profile details of the authenticated candidate.
+    """
+    candidate = get_candidate(current_user, db)
+    
+    # Update candidate fields
+    for field, value in profile_data.model_dump(exclude_unset=True).items():
+        setattr(candidate, field, value)
+        
+    db.add(candidate)
+    db.commit()
+    db.refresh(candidate)
+    
+    return CandidateProfileResponse(
+        id=candidate.id,
+        user_id=candidate.user_id,
+        email=current_user.email,
+        full_name=candidate.full_name,
+        phone=candidate.phone,
+        profile_picture=candidate.profile_picture,
+        onboarding_step=candidate.onboarding_step,
+        onboarding_completed=candidate.onboarding_completed,
+        work_status_id=candidate.work_status_id,
+        taxonomy_domain_id=candidate.taxonomy_domain_id,
+        visa_status_id=candidate.visa_status_id,
+        pref_role_type=candidate.pref_role_type,
+        pref_locations=candidate.pref_locations,
+        pref_min_salary=candidate.pref_min_salary
+    )
+
 
