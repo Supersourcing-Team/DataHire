@@ -4,27 +4,17 @@ import sys
 # Add project root to python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from app.db.session import SessionLocal
-from app.services.auto_apply_service import execute_auto_apply_for_all
+from app.tasks.auto_apply import dispatch_auto_apply_all_task
 
 def main():
-    print("Starting automated Auto Apply cron job...")
-    db = SessionLocal()
+    print("Starting automated Auto Apply cron job dispatcher...")
     try:
-        stats = execute_auto_apply_for_all(db)
-        print("\n--- Auto Apply Execution Stats ---")
-        print(f"Candidates processed: {stats['processed_candidates']}")
-        print(f"Candidates applied: {stats['applied_candidates']}")
-        print(f"Total applications created: {stats['total_applications_created']}")
-        if stats["errors"]:
-            print(f"Errors occurred: {len(stats['errors'])}")
-            for err in stats["errors"]:
-                print(f" - {err}")
-        print("---------------------------------")
+        # Trigger dispatcher Celery task
+        result = dispatch_auto_apply_all_task.delay()
+        print(f"Successfully enqueued global auto-apply dispatcher task (ID: {result.id}).")
+        print("Celery workers will handle the candidate matches and application creation concurrently.")
     except Exception as e:
-        print(f"Fatal error during auto-apply cron job: {e}")
-    finally:
-        db.close()
+        print(f"Fatal error during auto-apply cron job dispatch: {e}")
 
 if __name__ == "__main__":
     main()
