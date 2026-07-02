@@ -126,9 +126,8 @@ class JobPosting(Base):
             self.employment_type_id and
             self.work_mode_id and
             self.city_id and
-            self.min_experience_years is not None and
-            self.num_positions is not None and self.num_positions > 0 and
-            (self.salary_min is not None or self.salary_max is not None)
+            self.ai_score_threshold and
+            self.benefits
         )
 
     def __repr__(self):
