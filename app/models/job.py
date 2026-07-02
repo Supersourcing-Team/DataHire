@@ -118,5 +118,18 @@ class JobPosting(Base):
     def visa_sponsorship_ids(self) -> list:
         return [vs.id for vs in self.visa_statuses] if self.visa_statuses else []
 
+    @property
+    def is_valid(self) -> bool:
+        return bool(
+            self.title and
+            (self.description or self.job_overview) and
+            self.employment_type_id and
+            self.work_mode_id and
+            self.city_id and
+            self.min_experience_years is not None and
+            self.num_positions is not None and self.num_positions > 0 and
+            (self.salary_min is not None or self.salary_max is not None)
+        )
+
     def __repr__(self):
         return f"<JobPosting(id={self.id}, title={self.title})>"

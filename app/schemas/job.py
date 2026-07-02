@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from app.schemas.taxonomy import TaxonomyJobRoleResponse
 from app.schemas.meta import (
@@ -124,8 +124,16 @@ class JobResponse(BaseModel):
     benefits: Optional[List[str]] = None
     include_cover_letter: bool
     cover_letter_required: bool
+    is_valid: bool = False
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("salary_min", "salary_max", mode="before")
+    @classmethod
+    def convert_monthly_to_yearly(cls, v):
+        if v is not None:
+            return v * 12
+        return v
 
 
 class JobCreateBasic(BaseModel):
@@ -233,6 +241,7 @@ class EmployerJobListingItem(BaseModel):
     deadline_label: Optional[str] = None
     status: str
     status_label: str
+    is_valid: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -288,6 +297,10 @@ class EmployerJobDetailResponse(BaseModel):
     deadline_label: Optional[str] = None
     status: str
     status_label: str
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    salary_range_label: Optional[str] = None
+    is_valid: bool = False
     pipeline_summary: PipelineStageSummary
     job_overview: Optional[str] = None
     about_role: Optional[str] = None
