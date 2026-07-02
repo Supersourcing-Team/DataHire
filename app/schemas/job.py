@@ -260,6 +260,7 @@ class PipelineStageSummary(BaseModel):
 class JobCandidateStatsResponse(BaseModel):
     application: int
     shortlisted: int
+    interview: int
     hired: int
     onhold: int
     reject: int
@@ -301,6 +302,8 @@ class EmployerJobDetailResponse(BaseModel):
     salary_max: Optional[int] = None
     salary_range_label: Optional[str] = None
     is_valid: bool = False
+    experience: Optional[str] = None
+    employment_type: Optional[str] = None
     pipeline_summary: PipelineStageSummary
     job_overview: Optional[str] = None
     about_role: Optional[str] = None
