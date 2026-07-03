@@ -1029,6 +1029,19 @@ def get_saved_jobs_pipeline(
 
 @router.get("/applications", response_model=List[JobApplicationResponse])
 def get_submitted_applications(
+    status: Optional[str] = None,
+    apply_mode: Optional[str] = None,
+    search: Optional[str] = None,
+    work_type: Optional[str] = None,
+    job_type: Optional[str] = None,
+    location: Optional[str] = None,
+    match_score: Optional[str] = None,
+    job_post_date: Optional[str] = None,
+    visa_sponsorship: Optional[str] = None,
+    salary_min: Optional[int] = None,
+    salary_max: Optional[int] = None,
+    skip: int = 0,
+    limit: int = 20,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
 ):
@@ -1036,9 +1049,10 @@ def get_submitted_applications(
     # Get primary resume for match score fallback
     primary_resume = db.query(Resume).filter(Resume.candidate_id == candidate.id, Resume.is_primary == True).first()
     
-    # Query with joined relationships to avoid N+1 query issue
-    apps = (
+    # Base query for JobApplication, joining JobPosting
+    query = (
         db.query(JobApplication)
+        .join(JobPosting, JobApplication.job_id == JobPosting.id)
         .options(
             joinedload(JobApplication.job).joinedload(JobPosting.company),
             joinedload(JobApplication.job).joinedload(JobPosting.city),
@@ -1046,9 +1060,81 @@ def get_submitted_applications(
             joinedload(JobApplication.job).joinedload(JobPosting.work_mode)
         )
         .filter(JobApplication.candidate_id == candidate.id)
-        .order_by(JobApplication.created_at.desc())
-        .all()
     )
+
+    # Filter by application status
+    if status:
+        status_lower = status.lower()
+        if status_lower in ("interviewing", "interviewed", "interview"):
+            query = query.filter(func.lower(JobApplication.status).in_(["interviewing", "interviewed", "interview"]))
+        elif status_lower in ("onhold", "on_hold", "on hold"):
+            query = query.filter(func.lower(JobApplication.status).in_(["onhold", "on_hold"]))
+        else:
+            query = query.filter(func.lower(JobApplication.status) == status_lower)
+
+    # Filter by apply mode
+    if apply_mode:
+        query = query.filter(func.lower(JobApplication.apply_mode) == apply_mode.lower())
+
+    # Filter by job title or company name search
+    if search:
+        query = query.join(Company, JobPosting.company_id == Company.id).filter(
+            or_(
+                JobPosting.title.ilike(f"%{search}%"),
+                Company.name.ilike(f"%{search}%")
+            )
+        )
+
+    # Filter by work type (Remote, Hybrid, Onsite)
+    if work_type and work_type.lower() != "all":
+        query = query.filter(JobPosting.work_mode.has(name=work_type.upper()))
+
+    # Filter by job type (Full-Time, Internship, Contract)
+    if job_type and job_type.lower() != "all":
+        norm_jt = job_type.replace("-", "_").replace(" ", "_").upper()
+        query = query.filter(JobPosting.employment_type.has(name=norm_jt))
+
+    # Filter by location (country)
+    if location and location.lower() != "all":
+        if location.lower() in ("u.s.", "us", "united states"):
+            query = query.filter(JobPosting.country.has(iso_code="US"))
+        elif location.lower() in ("india", "in"):
+            query = query.filter(JobPosting.country.has(iso_code="IN"))
+
+    # Filter by visa sponsorship
+    if visa_sponsorship and visa_sponsorship.lower() != "all":
+        if visa_sponsorship.lower() == "h1b sponsorship":
+            query = query.filter(JobPosting.visa_status.has(name="H-1B Visa"))
+        elif visa_sponsorship.lower() == "sponsorship available":
+            query = query.filter(or_(JobPosting.requires_visa_sponsorship.isnot(None), JobPosting.must_be_authorized_to_work == False))
+        elif visa_sponsorship.lower() == "no sponsorship":
+            query = query.filter(JobPosting.requires_visa_sponsorship.is_(None))
+
+    # Filter by salary range
+    if salary_min is not None:
+        query = query.filter(JobPosting.salary_min >= salary_min)
+    if salary_max is not None:
+        query = query.filter(JobPosting.salary_max <= salary_max)
+
+    # Filter by job post date
+    if job_post_date:
+        now = datetime.now(timezone.utc)
+        if job_post_date.lower() == "today" or job_post_date.lower() == "within 24 hour" or job_post_date.lower() == "within 24 hours":
+            query = query.filter(JobPosting.created_at >= now - timedelta(days=1))
+        elif job_post_date.lower() == "last 7 days":
+            query = query.filter(JobPosting.created_at >= now - timedelta(days=7))
+        elif job_post_date.lower() == "last 30 days":
+            query = query.filter(JobPosting.created_at >= now - timedelta(days=30))
+
+    # Apply database-level pagination only if match_score filter is NOT applied
+    is_match_score_filtered = match_score and match_score.lower() != "all"
+    
+    query = query.order_by(JobApplication.created_at.desc())
+    if not is_match_score_filtered:
+        query = query.offset(skip).limit(limit)
+
+    # Fetch matching applications
+    apps = query.all()
     
     matching_service = MatchingEngine(db)
     response = []
@@ -1071,6 +1157,20 @@ def get_submitted_applications(
                 ai_score = int(score_details["final_score"])
             except Exception:
                 ai_score = 0
+                
+        # Filter by Match Score in Python if specified
+        if is_match_score_filtered:
+            norm_score = match_score.replace(" ", "").replace("–", "-").replace("—", "-")
+            if norm_score == "90%+" and ai_score < 90:
+                continue
+            elif norm_score == "80-89%" and not (80 <= ai_score <= 89):
+                continue
+            elif norm_score == "70-79%" and not (70 <= ai_score <= 79):
+                continue
+            elif norm_score == "Below 70%" and ai_score >= 70:
+                continue
+            elif "below70" in norm_score.lower() and ai_score >= 70:
+                continue
                 
         # Build Location Label: e.g. "San Francisco, CA (Hybrid)"
         work_mode_str = job.work_mode.name.title() if job.work_mode else None
@@ -1127,6 +1227,11 @@ def get_submitted_applications(
                 status_label=status_label
             )
         )
+
+    # Apply Python-level pagination if match_score filter was applied
+    if is_match_score_filtered:
+        return response[skip : skip + limit]
+
     return response
 
 
