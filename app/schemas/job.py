@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, Field
 
 from app.schemas.taxonomy import TaxonomyJobRoleResponse
 from app.schemas.meta import (
@@ -304,6 +304,9 @@ class EmployerJobDetailResponse(BaseModel):
     is_valid: bool = False
     experience: Optional[str] = None
     employment_type: Optional[str] = None
+    deadline: Optional[datetime] = None
+    Deadline: Optional[str] = Field(default=None, alias="Deadline")
+    Employment_Type: Optional[str] = Field(default=None, alias="Employment Type")
     pipeline_summary: PipelineStageSummary
     job_overview: Optional[str] = None
     about_role: Optional[str] = None
@@ -312,7 +315,7 @@ class EmployerJobDetailResponse(BaseModel):
     benefits: Optional[List[str]] = None
     company_details: EmployerCompanyDetails
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class JobPosterApplicantListItem(BaseModel):

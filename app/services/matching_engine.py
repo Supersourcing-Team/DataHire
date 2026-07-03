@@ -41,9 +41,14 @@ class MatchingEngine:
         if job.embedding is None or resume.overall_embedding is None:
             return 0.0
             
-        # Base Cosine Similarity (-1 to 1) normalized to (0 to 100)
+        # Calibrated Cosine Similarity: Scale similarity in range [0.70, 0.85] to [0, 100]
         base_similarity = self.calculate_cosine_similarity(job.embedding, resume.overall_embedding)
-        base_score = max(0.0, (base_similarity + 1) / 2) * 100
+        if base_similarity < 0.70:
+            base_score = 0.0
+        elif base_similarity > 0.85:
+            base_score = 100.0
+        else:
+            base_score = ((base_similarity - 0.70) / (0.85 - 0.70)) * 100
         
         # Domain Multiplier: Boost score slightly if they belong to the same taxonomy domain
         if job.taxonomy_domain_id and resume.taxonomy_domain_id and (job.taxonomy_domain_id == resume.taxonomy_domain_id):
@@ -194,12 +199,24 @@ class MatchingEngine:
         logistics_score = self.evaluate_logistics(job, resume)
         
         # Weighted Final Score
-        final_score = (
-            (semantic_score * self.WEIGHT_SEMANTIC) +
-            (skills_score * self.WEIGHT_SKILLS) +
-            (experience_score * self.WEIGHT_EXPERIENCE) +
-            (logistics_score * self.WEIGHT_FILTERS)
-        )
+        # If the job posting has no extracted skills, exclude skills score and redistribute its weight (0.30)
+        # proportionally among Semantic (40%), Experience (20%), and Logistics (10%).
+        has_job_skills = bool(job.extracted_skills)
+        if has_job_skills:
+            final_score = (
+                (semantic_score * self.WEIGHT_SEMANTIC) +
+                (skills_score * self.WEIGHT_SKILLS) +
+                (experience_score * self.WEIGHT_EXPERIENCE) +
+                (logistics_score * self.WEIGHT_FILTERS)
+            )
+        else:
+            skills_score = 0.0
+            total_weight = self.WEIGHT_SEMANTIC + self.WEIGHT_EXPERIENCE + self.WEIGHT_FILTERS
+            final_score = (
+                (semantic_score * (self.WEIGHT_SEMANTIC / total_weight)) +
+                (experience_score * (self.WEIGHT_EXPERIENCE / total_weight)) +
+                (logistics_score * (self.WEIGHT_FILTERS / total_weight))
+            )
         
         return {
             "resume_id": str(resume.id),

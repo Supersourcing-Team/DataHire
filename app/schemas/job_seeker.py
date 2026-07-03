@@ -117,6 +117,16 @@ class JobApplicationResponse(BaseModel):
     match_score: Optional[int] = None
     location_label: Optional[str] = None
     status_label: Optional[str] = None
+    
+    # Salary and Experience details
+    experience_min_years: Optional[int] = None
+    experience_max_years: Optional[int] = None
+    experience_label: Optional[str] = None
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    salary_currency_code: Optional[str] = None
+    salary_currency_symbol: Optional[str] = None
+    salary_range_label: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -50,6 +50,7 @@ from app.schemas.job_seeker import (
     JobApplicationSubmitDetail,
     JobApplicationSubmitResponse
 )
+from app.schemas.job import JobPosterApplicantProfileResponse, TimelineEvent
 from app.api.v1.jobs import (
     _build_location_label,
     _format_experience_label,
@@ -1057,7 +1058,8 @@ def get_submitted_applications(
             joinedload(JobApplication.job).joinedload(JobPosting.company),
             joinedload(JobApplication.job).joinedload(JobPosting.city),
             joinedload(JobApplication.job).joinedload(JobPosting.state),
-            joinedload(JobApplication.job).joinedload(JobPosting.work_mode)
+            joinedload(JobApplication.job).joinedload(JobPosting.work_mode),
+            joinedload(JobApplication.job).joinedload(JobPosting.currency)
         )
         .filter(JobApplication.candidate_id == candidate.id)
     )
@@ -1212,6 +1214,9 @@ def get_submitted_applications(
         else:
             status_label = record.status.title()
             
+        currency_code = job.currency.code if job.currency else None
+        currency_symbol = job.currency.symbol if job.currency else None
+
         response.append(
             JobApplicationResponse(
                 id=record.id,
@@ -1224,7 +1229,15 @@ def get_submitted_applications(
                 applied_at=record.created_at,
                 match_score=ai_score,
                 location_label=location_label,
-                status_label=status_label
+                status_label=status_label,
+                experience_min_years=job.min_experience_years,
+                experience_max_years=job.max_experience_years,
+                experience_label=_format_experience_label(job.min_experience_years, job.max_experience_years),
+                salary_min=job.salary_min * 12 if job.salary_min is not None else None,
+                salary_max=job.salary_max * 12 if job.salary_max is not None else None,
+                salary_currency_code=currency_code,
+                salary_currency_symbol=currency_symbol,
+                salary_range_label=_format_salary_range(job.salary_min, job.salary_max, currency_symbol, currency_code)
             )
         )
 
@@ -1233,6 +1246,176 @@ def get_submitted_applications(
         return response[skip : skip + limit]
 
     return response
+
+
+@router.get("/jobs/{job_id}/application", response_model=JobPosterApplicantProfileResponse)
+def get_job_seeker_application_details(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+) -> JobPosterApplicantProfileResponse:
+    """
+    Get the detailed candidate application for a specific job posting,
+    including the resume used while applying, the cover letter, summary, and timeline.
+    """
+    candidate = get_candidate(current_user, db)
+
+    # Verify the application exists
+    app = db.query(JobApplication).filter(
+        JobApplication.job_id == job_id,
+        JobApplication.candidate_id == candidate.id
+    ).first()
+
+    if not app:
+        raise HTTPException(
+            status_code=404,
+            detail="Application on this job was not found."
+        )
+
+    # Fetch job posting
+    job = db.query(JobPosting).filter(
+        JobPosting.id == job_id,
+        JobPosting.is_active == True
+    ).first()
+
+    if not job:
+        raise HTTPException(
+            status_code=404,
+            detail="Job posting not found."
+        )
+
+    # Resolve the resume used (job-specific or primary)
+    resume = db.query(Resume).options(
+        joinedload(Resume.sections)
+    ).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.job_id == job_id
+    ).first()
+    
+    if not resume:
+        resume = db.query(Resume).options(
+            joinedload(Resume.sections)
+        ).filter(
+            Resume.candidate_id == candidate.id,
+            Resume.is_primary == True
+        ).first()
+
+    # Calculate AI match score
+    ai_score = 0
+    if resume and resume.overall_embedding is not None:
+        try:
+            matching_service = MatchingEngine(db)
+            score_details = matching_service.score_resume_for_job(resume.id, job_id)
+            ai_score = int(score_details["final_score"])
+        except Exception:
+            ai_score = 0
+
+    # Extract summary section content from resume
+    about_summary = None
+    if resume:
+        summary_section = next((s for s in resume.sections if s.section_type == "Summary"), None)
+        if summary_section:
+            about_summary = summary_section.optimized_content or summary_section.original_content
+
+    # Format salary range label if candidate specifies pref_min_salary
+    salary_range_label = None
+    if candidate.pref_min_salary is not None:
+        min_salary_k = candidate.pref_min_salary // 1000
+        salary_range_label = f"${min_salary_k}k - ${min_salary_k + 10}k /month"
+
+    # Construct the timeline dynamically
+    app_status = app.status.lower()
+    
+    # 1. View Details (always completed)
+    timeline = [
+        TimelineEvent(
+            title="View Details",
+            status="completed",
+            updated_at=app.created_at
+        )
+    ]
+    
+    # Helper to check completion
+    def get_stage_status(completed_statuses: list, active_statuses: list) -> str:
+        if app_status in completed_statuses:
+            return "completed"
+        if app_status in active_statuses:
+            return "active"
+        return "pending"
+
+    # 2. Inreview for Next Stage
+    inreview_completed = ["under_review", "shortlisted", "interviewing", "interviewed", "offered", "hired"]
+    inreview_active = ["applied"]
+    timeline.append(
+        TimelineEvent(
+            title="Inreview for Next Stage",
+            status=get_stage_status(inreview_completed, inreview_active),
+            updated_at=app.updated_at if app_status in inreview_completed else None
+        )
+    )
+
+    # 3. Candidate Shortlisted!
+    shortlist_completed = ["shortlisted", "interviewing", "interviewed", "offered", "hired"]
+    shortlist_active = ["under_review"]
+    timeline.append(
+        TimelineEvent(
+            title="Candidate Shortlisted!",
+            status=get_stage_status(shortlist_completed, shortlist_active),
+            updated_at=app.updated_at if app_status in shortlist_completed else None
+        )
+    )
+
+    # 4. Application successful (Candidate Selected!)
+    success_completed = ["offered", "hired"]
+    success_active = ["interviewing", "interviewed"]
+    timeline.append(
+        TimelineEvent(
+            title="Application successful",
+            status=get_stage_status(success_completed, success_active),
+            updated_at=app.updated_at if app_status in success_completed else None
+        )
+    )
+
+    # If the application is rejected or onhold
+    if app_status == "rejected":
+        timeline.append(
+            TimelineEvent(
+                title="Application Rejected",
+                status="completed",
+                updated_at=app.updated_at
+            )
+        )
+    elif app_status in ("onhold", "on_hold"):
+        timeline.append(
+            TimelineEvent(
+                title="Application On Hold",
+                status="completed",
+                updated_at=app.updated_at
+            )
+        )
+
+    # Prepare response
+    return JobPosterApplicantProfileResponse(
+        id=candidate.id,
+        full_name=candidate.full_name,
+        email=candidate.user.email if candidate.user else "",
+        phone=candidate.phone,
+        profile_picture=s3_service.get_presigned_url(candidate.profile_picture) if candidate.profile_picture else None,
+        is_verified=candidate.user.is_verified if candidate.user else False,
+        role=candidate.taxonomy_domain.name if candidate.taxonomy_domain else None,
+        ai_score=ai_score,
+        experience_years=resume.total_experience_years if resume else 0,
+        salary_range_label=salary_range_label,
+        employment_type=candidate.pref_role_type,
+        preferred_location=candidate.pref_locations,
+        status=app.status,
+        about_summary=about_summary,
+        resume_file_name=resume.file_name if resume else None,
+        resume_file_url=s3_service.get_presigned_url(resume.file_url) if resume else None,
+        cover_letter=s3_service.get_presigned_url(app.cover_letter) if app.cover_letter else None,
+        timeline=timeline,
+        is_viewed=app.is_viewed
+    )
 
 
 @router.post("/jobs/{job_id}/optimize-resume", response_model=OptimizeResumeResponse)
