@@ -37,7 +37,7 @@ async def authenticate_google(
                 value=refresh_token,
                 httponly=True,
                 secure=True,
-                samesite="lax",
+                samesite=None,
                 max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
                 path="/"
             )
@@ -129,7 +129,7 @@ async def complete_google_registration(
                 value=refresh_token,
                 httponly=True,
                 secure=True,
-                samesite="lax",
+                samesite=None,
                 max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
                 path="/"
             )
