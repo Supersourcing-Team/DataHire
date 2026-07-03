@@ -1322,7 +1322,7 @@ def get_employer_job_candidate_stats(
     )
     counts_map = {status: count for status, count in stage_counts}
 
-    application = counts_map.get("applied", 0)
+    application = sum(counts_map.values())
     shortlisted = counts_map.get("under_review", 0) + counts_map.get("shortlisted", 0)
     interview= counts_map.get("interviewing",0)
     onhold = counts_map.get("onhold", 0)
