@@ -38,7 +38,7 @@ async def authenticate_linkedin(
                 value=refresh_token,
                 httponly=True,
                 secure=True,
-                samesite="lax",
+                samesite=None,
                 max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
                 path="/"
             )
@@ -145,7 +145,7 @@ async def complete_linkedin_registration(
                 value=refresh_token,
                 httponly=True,
                 secure=True,
-                samesite="lax",
+                samesite=None,
                 max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
                 path="/"
             )
