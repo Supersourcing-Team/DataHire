@@ -1387,7 +1387,9 @@ def list_job_applicants(
     if status and status.lower() != "all":
         status_lower = status.lower()
         if status_lower == "applications" or status_lower == "applied":
-            query = query.filter(JobApplication.status == "applied")
+            # Keep all candidates in the "applied"/"applications" list permanently
+            # regardless of their current status (do not filter by status)
+            pass
         elif status_lower == "shortlisted":
             query = query.filter(JobApplication.status.in_(["under_review", "shortlisted"]))
         elif status_lower == "interview":
