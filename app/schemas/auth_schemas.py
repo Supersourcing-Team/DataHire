@@ -74,6 +74,7 @@ class UserResponse(BaseModel):
     updated_at: datetime
     onboarding_step: int = 0
     onboarding_completed: bool = False
+    is_phone_verified: bool 
     
     # We will include full onboarding data in the profile fields
     candidate_profile: Optional[CandidateProfile] = None
@@ -168,7 +169,8 @@ class UserResponse(BaseModel):
             onboarding_completed=onboarding_completed,
             candidate_profile=candidate_data,
             employer_profile=employer_data,
-            plan_tier=plan_tier
+            plan_tier=plan_tier,
+            is_phone_verified=user.candidate.is_phone_verified if (user.role == "candidate" and user.candidate) else False
         )
 
 class OTPRequest(EmailBaseModel):
