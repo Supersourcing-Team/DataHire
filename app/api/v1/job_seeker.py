@@ -57,6 +57,7 @@ from app.schemas.job_seeker import (
 from app.models.meta import MetaWorkStatus, MetaVisaStatus
 from app.models.taxonomy import TaxonomyDomain
 from app.services.otp_service import OTPService
+from app.services.s3_service import S3Service
 from app.schemas.job import JobPosterApplicantProfileResponse, TimelineEvent
 from app.api.v1.jobs import (
     _build_location_label,
@@ -68,7 +69,6 @@ from app.api.v1.jobs import (
 
 
 router = APIRouter(prefix="/job-seeker", tags=["job-seeker"])
-from app.services.s3_service import S3Service
 s3_service = S3Service()
 
 # Plan Limits configuration
@@ -2750,7 +2750,7 @@ def get_candidate_profile(
         email=current_user.email,
         full_name=candidate.full_name,
         phone=candidate.phone,
-        profile_picture=candidate.profile_picture,
+        profile_picture=s3_service.get_presigned_url(candidate.profile_picture),
         onboarding_step=candidate.onboarding_step,
         onboarding_completed=candidate.onboarding_completed,
         work_status_id=candidate.work_status_id,
@@ -2809,7 +2809,7 @@ def update_candidate_profile(
         email=current_user.email,
         full_name=candidate.full_name,
         phone=candidate.phone,
-        profile_picture=candidate.profile_picture,
+        profile_picture=s3_service.get_presigned_url(candidate.profile_picture),
         onboarding_step=candidate.onboarding_step,
         onboarding_completed=candidate.onboarding_completed,
         work_status_id=candidate.work_status_id,
