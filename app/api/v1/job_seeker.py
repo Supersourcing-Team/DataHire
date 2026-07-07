@@ -1608,7 +1608,7 @@ def generate_cover_letter_for_job(
     
     return CoverLetterResponse(cover_letter=cover_letter_text)
 
-@router.post("/jobs/{job_id}/analyze-fit", response_model=FitAnalysisResponse)
+@router.get("/jobs/{job_id}/analyze-fit", response_model=FitAnalysisResponse)
 def analyze_fit_for_job(
     job_id: UUID,
     db: Session = Depends(get_db),
