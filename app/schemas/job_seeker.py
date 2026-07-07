@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import List, Optional, Union, Dict, Any, Literal
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict
+import re
+from pydantic import BaseModel, ConfigDict, field_validator
 from app.schemas.job import JobDashboardCardResponse
 
 class CandidateCreditsResponse(BaseModel):
@@ -286,6 +287,13 @@ class CandidateProfileResponse(BaseModel):
     work_status_id: Optional[int] = None
     taxonomy_domain_id: Optional[int] = None
     visa_status_id: Optional[int] = None
+    current_address: Optional[str] = None
+    experience_level: Optional[str] = None
+    experience_years: Optional[int] = None
+    linkedin_url: Optional[str] = None
+    portfolio_url: Optional[str] = None
+    about_summary: Optional[str] = None
+    is_phone_verified: bool = False
     pref_role_type: Optional[str] = None
     pref_locations: Optional[str] = None
     pref_min_salary: Optional[int] = None
@@ -293,15 +301,107 @@ class CandidateProfileResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class CandidateProfileUpdate(BaseModel):
-    full_name: Optional[str] = None
-    phone: Optional[str] = None
+    full_name: str
+    phone: str
+    current_address: str
     profile_picture: Optional[str] = None
+    visa_status_id: Optional[int] = None
     work_status_id: Optional[int] = None
     taxonomy_domain_id: Optional[int] = None
-    visa_status_id: Optional[int] = None
+    experience_level: Optional[Literal["0-1", "1-3", "3-5", "5-7", "7-10", "10+"]] = None
+    experience_years: Optional[int] = None
+    linkedin_url: Optional[str] = None
+    portfolio_url: Optional[str] = None
+    about_summary: Optional[str] = None
     pref_role_type: Optional[str] = None
     pref_locations: Optional[str] = None
     pref_min_salary: Optional[int] = None
+
+    @field_validator("full_name")
+    @classmethod
+    def validate_full_name(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("full_name is required and cannot be empty")
+        return v.strip()
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        if not re.match(r"^\+[1-9]\d{1,14}$", v):
+            raise ValueError("phone must be in a valid international format (e.g. +14155552671)")
+        return v
+
+    @field_validator("current_address")
+    @classmethod
+    def validate_current_address(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("current_address is required and cannot be empty")
+        return v.strip()
+
+    @field_validator("experience_years")
+    @classmethod
+    def validate_experience_years(cls, v: Optional[int]) -> Optional[int]:
+        if v is not None and (v < 0 or v > 50):
+            raise ValueError("experience_years must be between 0 and 50")
+        return v
+
+    @field_validator("linkedin_url", "portfolio_url")
+    @classmethod
+    def validate_https_url(cls, v: Optional[str]) -> Optional[str]:
+        if v:
+            v_str = str(v).strip()
+            if v_str == "":
+                return None
+            if not v_str.startswith("https://"):
+                raise ValueError("URL must start with https://")
+            return v_str
+        return v
+
+    @field_validator("about_summary")
+    @classmethod
+    def validate_about_summary(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and len(v) > 2600:
+            raise ValueError("about_summary cannot exceed 2600 characters")
+        return v
+
+
+class SendOTPRequest(BaseModel):
+    phone: str
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        if not re.match(r"^\+[1-9]\d{1,14}$", v):
+            raise ValueError("phone must be in a valid international format (e.g. +14155552671)")
+        return v
+
+
+class SendOTPResponse(BaseModel):
+    message: str
+
+
+class VerifyOTPRequest(BaseModel):
+    phone: str
+    otp_code: str
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        if not re.match(r"^\+[1-9]\d{1,14}$", v):
+            raise ValueError("phone must be in a valid international format (e.g. +14155552671)")
+        return v
+
+    @field_validator("otp_code")
+    @classmethod
+    def validate_otp(cls, v: str) -> str:
+        if not re.match(r"^\d{6}$", v):
+            raise ValueError("otp_code must be exactly 6 digits")
+        return v
+
+
+class VerifyOTPResponse(BaseModel):
+    message: str
+    is_phone_verified: bool
 
 
 

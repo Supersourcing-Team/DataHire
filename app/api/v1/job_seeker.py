@@ -48,8 +48,15 @@ from app.schemas.job_seeker import (
     CandidatePreferencesResponse,
     JobApplicationSubmitRequest,
     JobApplicationSubmitDetail,
-    JobApplicationSubmitResponse
+    JobApplicationSubmitResponse,
+    SendOTPRequest,
+    SendOTPResponse,
+    VerifyOTPRequest,
+    VerifyOTPResponse
 )
+from app.models.meta import MetaWorkStatus, MetaVisaStatus
+from app.models.taxonomy import TaxonomyDomain
+from app.services.otp_service import OTPService
 from app.schemas.job import JobPosterApplicantProfileResponse, TimelineEvent
 from app.api.v1.jobs import (
     _build_location_label,
@@ -219,7 +226,7 @@ def get_dashboard_credits_score(
     # weekday() returns 0 for Monday, 6 for Sunday
     start_of_week = today - timedelta(days=today.weekday())
     
-    weekday_labels = ["MO", "TU", "WE", "TH", "FR", "SA", "SU"]
+    weekday_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
     running_week = []
     
     for i in range(7):
@@ -2749,6 +2756,13 @@ def get_candidate_profile(
         work_status_id=candidate.work_status_id,
         taxonomy_domain_id=candidate.taxonomy_domain_id,
         visa_status_id=candidate.visa_status_id,
+        current_address=candidate.current_address,
+        experience_level=candidate.experience_level,
+        experience_years=candidate.experience_years,
+        linkedin_url=candidate.linkedin_url,
+        portfolio_url=candidate.portfolio_url,
+        about_summary=candidate.about_summary,
+        is_phone_verified=candidate.is_phone_verified,
         pref_role_type=candidate.pref_role_type,
         pref_locations=candidate.pref_locations,
         pref_min_salary=candidate.pref_min_salary
@@ -2765,6 +2779,22 @@ def update_candidate_profile(
     """
     candidate = get_candidate(current_user, db)
     
+    # Validation checks for ForeignKey references (Must exist in database)
+    if profile_data.visa_status_id is not None:
+        visa = db.query(MetaVisaStatus).filter(MetaVisaStatus.id == profile_data.visa_status_id).first()
+        if not visa:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid visa_status_id: record does not exist")
+            
+    if profile_data.work_status_id is not None:
+        work = db.query(MetaWorkStatus).filter(MetaWorkStatus.id == profile_data.work_status_id).first()
+        if not work:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid work_status_id: record does not exist")
+
+    if profile_data.taxonomy_domain_id is not None:
+        domain = db.query(TaxonomyDomain).filter(TaxonomyDomain.id == profile_data.taxonomy_domain_id).first()
+        if not domain:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid taxonomy_domain_id: record does not exist")
+
     # Update candidate fields
     for field, value in profile_data.model_dump(exclude_unset=True).items():
         setattr(candidate, field, value)
@@ -2785,6 +2815,13 @@ def update_candidate_profile(
         work_status_id=candidate.work_status_id,
         taxonomy_domain_id=candidate.taxonomy_domain_id,
         visa_status_id=candidate.visa_status_id,
+        current_address=candidate.current_address,
+        experience_level=candidate.experience_level,
+        experience_years=candidate.experience_years,
+        linkedin_url=candidate.linkedin_url,
+        portfolio_url=candidate.portfolio_url,
+        about_summary=candidate.about_summary,
+        is_phone_verified=candidate.is_phone_verified,
         pref_role_type=candidate.pref_role_type,
         pref_locations=candidate.pref_locations,
         pref_min_salary=candidate.pref_min_salary
@@ -2816,9 +2853,77 @@ def delete_candidate_profile_picture(
         work_status_id=candidate.work_status_id,
         taxonomy_domain_id=candidate.taxonomy_domain_id,
         visa_status_id=candidate.visa_status_id,
+        current_address=candidate.current_address,
+        experience_level=candidate.experience_level,
+        experience_years=candidate.experience_years,
+        linkedin_url=candidate.linkedin_url,
+        portfolio_url=candidate.portfolio_url,
+        about_summary=candidate.about_summary,
+        is_phone_verified=candidate.is_phone_verified,
         pref_role_type=candidate.pref_role_type,
         pref_locations=candidate.pref_locations,
         pref_min_salary=candidate.pref_min_salary
+    )
+
+@router.post("/profile/phone/send-otp", response_model=SendOTPResponse)
+async def send_phone_otp(
+    payload: SendOTPRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Generate and mock send an OTP to the candidate's phone number.
+    """
+    # Rate limit check: resend allowed after approx 60 seconds
+    if not OTPService.can_request_otp_by_phone(db, payload.phone, "PHONE_VERIFICATION"):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Please wait 60 seconds before requesting a new OTP."
+        )
+
+    # Request/Generate and store OTP (valid for 5 mins)
+    success = await OTPService.request_otp_by_phone(db, payload.phone, "PHONE_VERIFICATION")
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to send OTP. Please try again."
+        )
+
+    return SendOTPResponse(message="OTP sent successfully")
+
+@router.post("/profile/phone/verify-otp", response_model=VerifyOTPResponse)
+async def verify_phone_otp(
+    payload: VerifyOTPRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Verify the phone OTP. If valid, set is_phone_verified = True on the candidate profile.
+    """
+    candidate = get_candidate(current_user, db)
+
+    # Verify the code
+    is_valid = await OTPService.verify_otp_by_phone(db, payload.phone, payload.otp_code, "PHONE_VERIFICATION")
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired OTP."
+        )
+
+    # If the user successfully verified a phone number that is different from candidate's current phone,
+    # update the candidate's phone number.
+    if candidate.phone != payload.phone:
+        candidate.phone = payload.phone
+    
+    candidate.is_phone_verified = True
+
+    db.add(candidate)
+    db.commit()
+    db.refresh(candidate)
+
+    return VerifyOTPResponse(
+        message="Phone verified successfully",
+        is_phone_verified=True
     )
 
 

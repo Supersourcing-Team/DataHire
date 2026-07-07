@@ -9,7 +9,8 @@ class OTPToken(Base):
     __tablename__ = "otp_tokens"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    email = Column(String(255), nullable=False, index=True)
+    email = Column(String(255), nullable=True, index=True)
+    phone = Column(String(20), nullable=True, index=True)
 
     @validates('email')
     def validate_email(self, key, address):
