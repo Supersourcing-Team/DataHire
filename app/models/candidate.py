@@ -14,6 +14,13 @@ class Candidate(Base):
     full_name = Column(String(255), nullable=False)
     phone = Column(String(20), nullable=True)
     profile_picture = Column(String(500), nullable=True)  # URL to profile image
+    current_address = Column(Text, nullable=True)
+    experience_level = Column(String(20), nullable=True)
+    experience_years = Column(Integer, nullable=True)
+    linkedin_url = Column(String(500), nullable=True)
+    portfolio_url = Column(String(500), nullable=True)
+    about_summary = Column(Text, nullable=True)
+    is_phone_verified = Column(Boolean, default=False, nullable=False)
     
     # Onboarding fields
     onboarding_step = Column(Integer, default=0, nullable=False)
@@ -55,6 +62,13 @@ class Candidate(Base):
         """Convert 0 or empty values to None to prevent ForeignKey constraints errors"""
         if value in (0, "0", ""):
             return None
+        return value
+
+    @validates("phone")
+    def validate_phone(self, key, value):
+        # Reset phone verification if number actually changes
+        if hasattr(self, "phone") and self.phone is not None and self.phone != value:
+            self.is_phone_verified = False
         return value
 
     def __repr__(self):
