@@ -404,4 +404,17 @@ class VerifyOTPResponse(BaseModel):
     is_phone_verified: bool
 
 
+class JobApplicationStatsResponse(BaseModel):
+    applied: int = 0
+    under_review: int = 0
+    shortlisted: int = 0
+    interviewing: int = 0
+    on_hold: int = 0
+    offered: int = 0
+    hired: int = 0
+    rejected: int = 0
+    total: int = 0
+
+
+
 

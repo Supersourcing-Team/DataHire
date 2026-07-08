@@ -32,6 +32,7 @@ from app.schemas.job_seeker import (
     SavedJobResponse,
     SavedJobsStatusResponse,
     JobApplicationResponse,
+    JobApplicationStatsResponse,
     OptimizeResumeResponse,
     OptimizeSectionResult,
     CoverLetterResponse,
@@ -1253,6 +1254,61 @@ def get_submitted_applications(
         return response[skip : skip + limit]
 
     return response
+
+
+@router.get("/applications/stats", response_model=JobApplicationStatsResponse)
+def get_job_application_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+) -> JobApplicationStatsResponse:
+    """
+    Get job application stats based on status for the current candidate.
+    """
+    candidate = get_candidate(current_user, db)
+    
+    stats_query = (
+        db.query(JobApplication.status, func.count(JobApplication.id))
+        .filter(JobApplication.candidate_id == candidate.id)
+        .group_by(JobApplication.status)
+        .all()
+    )
+    
+    stats_data = {
+        "applied": 0,
+        "under_review": 0,
+        "shortlisted": 0,
+        "interviewing": 0,
+        "on_hold": 0,
+        "offered": 0,
+        "hired": 0,
+        "rejected": 0,
+        "total": 0
+    }
+    
+    for status_str, count in stats_query:
+        if not status_str:
+            continue
+        status_lower = status_str.lower()
+        if status_lower == "applied":
+            stats_data["applied"] += count
+        elif status_lower == "under_review":
+            stats_data["under_review"] += count
+        elif status_lower == "shortlisted":
+            stats_data["shortlisted"] += count
+        elif status_lower in ("interviewing", "interviewed", "interview"):
+            stats_data["interviewing"] += count
+        elif status_lower in ("onhold", "on_hold"):
+            stats_data["on_hold"] += count
+        elif status_lower == "offered":
+            stats_data["offered"] += count
+        elif status_lower == "hired":
+            stats_data["hired"] += count
+        elif status_lower == "rejected":
+            stats_data["rejected"] += count
+        
+        stats_data["total"] += count
+        
+    return JobApplicationStatsResponse(**stats_data)
 
 
 @router.get("/jobs/{job_id}/application", response_model=JobPosterApplicantProfileResponse)
