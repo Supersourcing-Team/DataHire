@@ -143,6 +143,22 @@ async def upload_file(
                 db.add(current_user.candidate)
                 
             db.commit()
+        elif target_folder == S3Folder.COVER_LETTER:
+            if not current_user.candidate:
+                raise HTTPException(status_code=400, detail="User is not a candidate and cannot upload a cover letter.")
+            
+            from app.models.cover_letter import CoverLetter
+            existing_cls = db.query(CoverLetter).filter(CoverLetter.candidate_id == current_user.candidate.id).all()
+            is_default = len(existing_cls) == 0
+            
+            new_cl = CoverLetter(
+                candidate_id=current_user.candidate.id,
+                title=file.filename,
+                content=url,
+                is_default=is_default
+            )
+            db.add(new_cl)
+            db.commit()
 
         return {
             "message": "File uploaded successfully",

@@ -49,6 +49,73 @@ class GeminiOptimizationEngine:
                 "TASK: Optimize the provided content for professionalism, clarity, and alignment with the job description."
             )
 
+    def _get_general_system_instruction_for_section(self, section_type: SectionType) -> str:
+        """
+        Returns a system instruction for general resume section polishing without job details.
+        """
+        base_instruction = (
+            "You are an expert AI Resume Optimizer. Your goal is to review a candidate's resume section "
+            "and provide a generally polished, professional, and optimized version of it.\n"
+            "You MUST output raw JSON matching exactly this schema:\n"
+            "{ \"optimized_content\": \"string\", \"optimization_feedback\": \"string\" }\n"
+        )
+
+        if section_type == SectionType.SKILLS:
+            return base_instruction + (
+                "TASK: This is the SKILLS section. Format the skills into a clean, well-organized list. "
+                "Correct any spelling/casing issues. Do not write paragraphs."
+            )
+        elif section_type == SectionType.EXPERIENCE:
+            return base_instruction + (
+                "TASK: This is the EXPERIENCE section. Rewrite the bullet points to use strong action verbs "
+                "and quantify achievements/metrics where possible. Improve the professional tone and readability."
+            )
+        elif section_type == SectionType.SUMMARY:
+            return base_instruction + (
+                "TASK: This is the SUMMARY section. Write a compelling, concise 3-4 line professional summary "
+                "that highlights the candidate's core strengths, experience, and value proposition."
+            )
+        else:
+            return base_instruction + (
+                "TASK: Optimize the provided content for professionalism, grammar, clarity, and impact."
+            )
+
+    def optimize_section_general(self, section: ResumeSection) -> Dict[str, Any]:
+        """
+        Sends the specific ResumeSection to Gemini to get a generally optimized version without target job context.
+        """
+        system_instruction = self._get_general_system_instruction_for_section(section.section_type)
+        
+        user_prompt = f"""
+        {system_instruction}
+        
+        --- CANDIDATE'S ORIGINAL CONTENT ({section.section_type}) ---
+        {section.original_content}
+        
+        Provide the JSON output now:
+        """
+
+        try:
+            response = self.model.generate_content(
+                user_prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0.3
+                )
+            )
+            parsed_result = json.loads(response.text)
+            return {
+                "optimized_content": parsed_result.get("optimized_content", section.original_content),
+                "optimization_feedback": parsed_result.get("optimization_feedback", "")
+            }
+        except Exception as e:
+            logger.error(f"Gemini General Optimization Failed: {e}")
+            return {
+                "error": str(e),
+                "optimized_content": section.original_content,
+                "optimization_feedback": "Failed to connect to the Gemini Optimization AI."
+            }
+
     def optimize_section(self, job: JobPosting, section: ResumeSection) -> Dict[str, Any]:
         """
         Sends the specific ResumeSection and Job requirements to Gemini 1.5 Flash to get an optimized version.
