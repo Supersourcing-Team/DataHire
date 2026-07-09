@@ -162,6 +162,9 @@ class OptimizeResumeResponse(BaseModel):
 class CoverLetterResponse(BaseModel):
     cover_letter: str
 
+class CoverLetterGenerateRequest(BaseModel):
+    customization: Optional[str] = None
+
 class FitAnalysisResponse(BaseModel):
     final_score: int
     experience_match_percent: int
