@@ -36,6 +36,7 @@ from app.schemas.job_seeker import (
     OptimizeResumeResponse,
     OptimizeSectionResult,
     CoverLetterResponse,
+    CoverLetterGenerateRequest,
     FitAnalysisResponse,
     ResumeVersionResponse,
     ResumeStructureResponse,
@@ -1577,9 +1578,101 @@ def optimize_resume_for_job(
     
     return OptimizeResumeResponse(optimized_sections=optimized_sections)
 
+
+@router.post("/resume/optimize", response_model=OptimizeResumeResponse)
+def optimize_resume_general(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Optimize the primary resume generally (without a target job description).
+    """
+    candidate = get_candidate(current_user, db)
+    candidate = check_and_reset_candidate_credits(candidate, db)
+    
+    tier = candidate.plan_tier or "free"
+    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    
+    # Enforce limit for Free Plan resume optimization limit
+    if limits["monthly_resume_optimization_limit"] < 9999:
+        if candidate.resume_optimizations_used_this_month >= limits["monthly_resume_optimization_limit"]:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=f"You have reached your monthly Resume Optimization limit of {limits['monthly_resume_optimization_limit']}."
+            )
+            
+    # Check and deduct credits via CreditManager (Cost: 10 AI credits)
+    credit_manager.check_and_deduct_credits(
+        candidate=candidate,
+        cost=CreditManager.COST_RESUME_OPTIMIZATION,
+        limits=limits,
+        db=db
+    )
+            
+    # Get primary resume
+    primary_resume = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.is_primary == True
+    ).first()
+    if not primary_resume:
+        raise HTTPException(status_code=400, detail="You do not have a primary resume uploaded.")
+        
+    existing_resumes_count = db.query(Resume).filter(Resume.candidate_id == candidate.id).count()
+    
+    # Create new optimized resume version
+    new_resume = Resume(
+        candidate_id=candidate.id,
+        file_url=primary_resume.file_url,
+        file_name="Optimized Resume - General",
+        parent_resume_id=primary_resume.id,
+        job_id=None,
+        version_number=existing_resumes_count + 1,
+        is_primary=False,
+        total_experience_years=primary_resume.total_experience_years,
+        taxonomy_domain_id=primary_resume.taxonomy_domain_id,
+        extracted_skills=primary_resume.extracted_skills
+    )
+    db.add(new_resume)
+    db.flush() # Populate new_resume.id
+    
+    # Optimize resume sections
+    optimized_sections = []
+    for section in primary_resume.sections:
+        result = optimization_engine.optimize_section_general(section)
+        
+        # Save optimized content in a new section record linked to the new resume version
+        new_section = ResumeSection(
+            resume_id=new_resume.id,
+            section_type=section.section_type,
+            original_content=section.original_content,
+            optimized_content=result.get("optimized_content"),
+            optimization_metadata={
+                "feedback": result.get("optimization_feedback", "")
+            }
+        )
+        db.add(new_section)
+        
+        optimized_sections.append(
+            OptimizeSectionResult(
+                section_type=section.section_type,
+                original_content=section.original_content,
+                optimized_content=result.get("optimized_content"),
+                optimization_feedback=result.get("optimization_feedback")
+            )
+        )
+        
+    # Increment usage
+    candidate.resume_optimizations_used_this_month += 1
+    db.add(candidate)
+    db.commit()
+    
+    return OptimizeResumeResponse(optimized_sections=optimized_sections)
+
+
 @router.post("/jobs/{job_id}/generate-cover-letter", response_model=CoverLetterResponse)
 def generate_cover_letter_for_job(
     job_id: UUID,
+    payload: CoverLetterGenerateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
 ):
@@ -1626,19 +1719,57 @@ def generate_cover_letter_for_job(
     genai.configure(api_key=settings.GEMINI_API_KEY)
     model = genai.GenerativeModel('gemini-2.5-flash')
     
+    company_name = job.company.name if job.company else "Target Company"
+    company_desc = job.company.description if (job.company and job.company.description) else "A leading innovator in the industry."
+    job_overview = job.job_overview or job.description or ""
+    about_role = job.about_role or ""
+    requirements_str = "\n".join(f"- {r}" for r in job.requirements) if (job.requirements and isinstance(job.requirements, list)) else ""
+    responsibilities_str = "\n".join(f"- {r}" for r in job.responsibilities) if (job.responsibilities and isinstance(job.responsibilities, list)) else ""
+    work_mode_str = job.work_mode.name if job.work_mode else "Not specified"
+    total_exp = f"{primary_resume.total_experience_years} years" if primary_resume.total_experience_years else "Not specified"
+
+    customization_instruction = ""
+    if payload and payload.customization:
+        custom_lower = payload.customization.strip().lower()
+        if custom_lower == "shorten":
+            customization_instruction = "Make the cover letter extremely concise, limited to 2 short paragraphs max."
+        elif custom_lower in ("improve_tone", "improve tone"):
+            customization_instruction = "Polishing instructions: Ensure the tone is highly professional, warm, engaging, and confident."
+        elif custom_lower in ("more_technical", "more technical"):
+            customization_instruction = "Highlighting instructions: Emphasize technical skills, technical architectures, and specific technologies/tools matching the candidate's profile."
+        elif custom_lower in ("ats_optimize", "ats optimize"):
+            customization_instruction = "ATS optimization instructions: Focus on weaving in exact industry keywords, core requirements, and phrases from the job description to optimize search relevance."
+        else:
+            customization_instruction = f"Additional User Instruction: {payload.customization}"
+
     prompt = f"""
     You are an expert career assistant. Generate a highly professional, compelling, and customized cover letter for:
     
+    --- TARGET COMPANY ---
+    Name: {company_name}
+    About Company: {company_desc}
+    
     --- JOB POSITION ---
     Title: {job.title}
-    Company: {job.company.name if job.company else "Target Company"}
-    Description: {job.description}
+    Work Mode: {work_mode_str}
+    Job Overview: {job_overview}
+    About the Role: {about_role}
+    
+    Requirements:
+    {requirements_str}
+    
+    Responsibilities:
+    {responsibilities_str}
     
     --- CANDIDATE PROFILE ---
     Name: {candidate.full_name}
+    Total Experience: {total_exp}
     Skills: {resume_skills}
     
-    Generate a 3-4 paragraph cover letter. Tone should be professional, warm, and confident. Avoid generic platitudes. Output only the cover letter body.
+    {customization_instruction}
+    
+    Generate a cover letter customized to match the candidate's skills and experience to the target company's business domain and the job's responsibilities/requirements. 
+    The tone should be professional, warm, confident, and highly tailored. Avoid generic platitudes. Output only the cover letter body.
     """
     
     try:
