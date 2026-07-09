@@ -22,8 +22,22 @@ async def lifespan(app: FastAPI):
     from app.db.embedding_listener import register_embedding_listeners
     register_embedding_listeners()
     logger.info("Registered SQLAlchemy embedding listeners")
+
+    # Start background Redis notification listener
+    import asyncio
+    from app.core.redis_listener import redis_notification_listener
+    listener_task = asyncio.create_task(redis_notification_listener())
+    logger.info("Started background Redis Pub/Sub notification listener task")
     
     yield
+    
+    # Clean up background task on shutdown
+    logger.info("Shutting down background Redis Pub/Sub listener task...")
+    listener_task.cancel()
+    try:
+        await listener_task
+    except asyncio.CancelledError:
+        pass
     logger.info("Shutting down DataHire application...")
 
 # Create FastAPI app

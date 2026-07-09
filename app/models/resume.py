@@ -39,6 +39,7 @@ class Resume(Base):
     
     # Structured Data Extracted via LLM
     extracted_skills = Column(JSONB, nullable=True) # Array of candidate's skills
+    structured_data = Column(JSONB, nullable=True) # Full structured resume data
     
     # Semantic Search
     overall_embedding = Column(Vector(384), nullable=True) # Matches all-MiniLM-L6-v2 dimension
@@ -77,6 +78,8 @@ class ResumeSection(Base):
     
     # Stores missing keywords, lack of experience flags, visa notes, etc. generated during optimization
     optimization_metadata = Column(JSONB, nullable=True) 
+    structured_content = Column(JSONB, nullable=True) # Decomposed parsed JSON content for this section
+    optimized_structured_content = Column(JSONB, nullable=True) # Section-wise optimized structured JSON
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

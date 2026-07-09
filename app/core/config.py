@@ -44,11 +44,17 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: Optional[str] = None
     SMTP_FROM_EMAIL: str = "ayush@supersourcing.com"
     
+    # SendGrid
+    SENDGRID_API_KEY: Optional[str] = None
+    SENDGRID_FROM_EMAIL: str = "ayush@supersourcing.com"
+    SENDGRID_FROM_NAME: str = "DataHire"
+    
     # CORS
     ALLOWED_ORIGINS: list = ["http://localhost:3000"]
     
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = "ignore"
 
 settings = Settings()

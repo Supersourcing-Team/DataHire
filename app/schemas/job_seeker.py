@@ -187,6 +187,22 @@ class ResumeVersionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ResumeStructureResponse(BaseModel):
+    id: UUID
+    file_name: Optional[str] = None
+    file_url: Optional[str] = None
+    version_number: int
+    is_primary: bool
+    total_experience_years: int
+    extracted_skills: List[str] = []
+    taxonomy_domain_id: Optional[int] = None
+    taxonomy_domain_name: Optional[str] = None
+    sections: Dict[str, Optional[str]] = {}
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ResumeUploadRequest(BaseModel):
     file_name: str
     file_url: str
