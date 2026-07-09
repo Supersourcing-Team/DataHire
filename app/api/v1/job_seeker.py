@@ -1,5 +1,5 @@
 from datetime import datetime, timezone, timedelta
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Dict
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -38,6 +38,7 @@ from app.schemas.job_seeker import (
     CoverLetterResponse,
     FitAnalysisResponse,
     ResumeVersionResponse,
+    ResumeStructureResponse,
     ResumeUploadRequest,
     CoverLetterDetailResponse,
     CoverLetterCreateRequest,
@@ -1751,6 +1752,146 @@ def list_resumes(
             )
         )
     return response
+
+
+@router.get("/resumes/{resume_id}/structure")
+def get_resume_structure(
+    resume_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+) -> Dict[str, Any]:
+    """
+    Fetch the detailed extracted structured data (total experience, skills,
+    domain, and sections) of a specific uploaded resume formatted for the frontend.
+    """
+    candidate = get_candidate(current_user, db)
+    
+    resume = db.query(Resume).options(
+        joinedload(Resume.sections),
+        joinedload(Resume.taxonomy_domain)
+    ).filter(
+        Resume.id == resume_id,
+        Resume.candidate_id == candidate.id
+    ).first()
+    
+    if not resume:
+        raise HTTPException(
+            status_code=404,
+            detail="Resume not found."
+        )
+        
+    # Get the structured data from the Resume model
+    # If the resume is old and doesn't have structured_data, build a fallback
+    structured_data = resume.structured_data
+    if not structured_data:
+        summary_sec = next((s for s in resume.sections if s.section_type == "Summary"), None)
+        skills_sec = next((s for s in resume.sections if s.section_type == "Skills"), None)
+        experience_sec = next((s for s in resume.sections if s.section_type == "Experience"), None)
+        education_sec = next((s for s in resume.sections if s.section_type == "Education"), None)
+        projects_sec = next((s for s in resume.sections if s.section_type == "Projects"), None)
+        certifications_sec = next((s for s in resume.sections if s.section_type == "Certifications"), None)
+        
+        structured_data = {
+            "personalInfo": {
+                "fullName": candidate.full_name,
+                "email": current_user.email,
+                "phone": candidate.phone,
+                "location": candidate.current_address,
+                "linkedin": candidate.linkedin_url,
+                "github": None,
+                "portfolio": candidate.portfolio_url
+            },
+            "summary": {
+                "text": summary_sec.original_content if summary_sec else candidate.about_summary
+            },
+            "skills": {
+                "technical": resume.extracted_skills or [],
+                "soft": [],
+                "tools": []
+            },
+            "experience": [
+                {
+                    "id": "exp_1",
+                    "company": "N/A",
+                    "role": "N/A",
+                    "location": None,
+                    "employmentType": None,
+                    "startDate": None,
+                    "endDate": None,
+                    "isCurrent": False,
+                    "bullets": [experience_sec.original_content] if experience_sec else []
+                }
+            ] if experience_sec else [],
+            "education": [
+                {
+                    "id": "edu_1",
+                    "institution": "N/A",
+                    "degree": "N/A",
+                    "location": None,
+                    "startDate": None,
+                    "endDate": None,
+                    "grade": None,
+                    "isCurrent": False
+                }
+            ] if education_sec else [],
+            "projects": [
+                {
+                    "id": "proj_1",
+                    "title": "Project",
+                    "description": projects_sec.original_content,
+                    "techStack": [],
+                    "link": None,
+                    "startDate": None,
+                    "endDate": None,
+                    "bullets": []
+                }
+            ] if projects_sec else [],
+            "certifications": [
+                {
+                    "id": "cert_1",
+                    "title": certifications_sec.original_content,
+                    "issuer": "N/A",
+                    "issueDate": None,
+                    "expiryDate": None,
+                    "credentialUrl": None
+                }
+            ] if certifications_sec else [],
+            "achievements": [],
+            "languages": [],
+            "customSections": []
+        }
+
+    # Dynamically inject/overwrite properties to ensure they match current DB state
+    structured_data["resumeId"] = str(resume.id)
+    structured_data["userId"] = str(current_user.id)
+    structured_data["template"] = "template_1"
+    
+    # Overwrite profile image with S3 presigned URL
+    if "personalInfo" in structured_data:
+        structured_data["personalInfo"]["profileImage"] = s3_service.get_presigned_url(candidate.profile_picture) if candidate.profile_picture else None
+        
+        # Ensure email, phone, location, full_name, linkedin, portfolio are populated from candidate table if missing
+        if not structured_data["personalInfo"].get("fullName"):
+            structured_data["personalInfo"]["fullName"] = candidate.full_name
+        if not structured_data["personalInfo"].get("email"):
+            structured_data["personalInfo"]["email"] = current_user.email
+        if not structured_data["personalInfo"].get("phone"):
+            structured_data["personalInfo"]["phone"] = candidate.phone
+        if not structured_data["personalInfo"].get("location"):
+            structured_data["personalInfo"]["location"] = candidate.current_address
+        if not structured_data["personalInfo"].get("linkedin"):
+            structured_data["personalInfo"]["linkedin"] = candidate.linkedin_url
+        if not structured_data["personalInfo"].get("portfolio"):
+            structured_data["personalInfo"]["portfolio"] = candidate.portfolio_url
+
+    # Add metadata
+    structured_data["meta"] = {
+        "createdAt": resume.created_at.isoformat() if resume.created_at else None,
+        "updatedAt": resume.updated_at.isoformat() if resume.updated_at else None,
+        "version": resume.version_number
+    }
+
+    return structured_data
 
 
 @router.post("/resumes", response_model=ResumeVersionResponse)

@@ -99,6 +99,97 @@ class ResumeParserService:
                 "Skills": "string or null",
                 "Certifications": "string or null",
                 "Other": "string or null"
+            }},
+            "structured_data": {{
+                "personalInfo": {{
+                    "fullName": "string or null",
+                    "email": "string or null",
+                    "phone": "string or null",
+                    "location": "string or null",
+                    "linkedin": "string or null",
+                    "github": "string or null",
+                    "portfolio": "string or null"
+                }},
+                "summary": {{
+                    "text": "string or null"
+                }},
+                "skills": {{
+                    "technical": ["string"],
+                    "soft": ["string"],
+                    "tools": ["string"]
+                }},
+                "experience": [
+                    {{
+                        "id": "string",
+                        "company": "string",
+                        "role": "string",
+                        "location": "string or null",
+                        "employmentType": "string or null",
+                        "startDate": "YYYY-MM-DD or YYYY-MM or null",
+                        "endDate": "YYYY-MM-DD or YYYY-MM or null",
+                        "isCurrent": boolean,
+                        "bullets": ["string"]
+                    }}
+                ],
+                "education": [
+                    {{
+                        "id": "string",
+                        "institution": "string",
+                        "degree": "string",
+                        "location": "string or null",
+                        "startDate": "YYYY-MM-DD or YYYY-MM or null",
+                        "endDate": "YYYY-MM-DD or YYYY-MM or null",
+                        "grade": "string or null",
+                        "isCurrent": boolean
+                    }}
+                ],
+                "projects": [
+                    {{
+                        "id": "string",
+                        "title": "string",
+                        "description": "string or null",
+                        "techStack": ["string"],
+                        "link": "string or null",
+                        "startDate": "YYYY-MM-DD or YYYY-MM or null",
+                        "endDate": "YYYY-MM-DD or YYYY-MM or null",
+                        "bullets": ["string"]
+                    }}
+                ],
+                "certifications": [
+                    {{
+                        "id": "string",
+                        "title": "string",
+                        "issuer": "string",
+                        "issueDate": "YYYY-MM-DD or YYYY-MM or null",
+                        "expiryDate": "YYYY-MM-DD or YYYY-MM or null",
+                        "credentialUrl": "string or null"
+                    }}
+                ],
+                "achievements": [
+                    {{
+                        "id": "string",
+                        "text": "string"
+                    }}
+                ],
+                "languages": [
+                    {{
+                        "id": "string",
+                        "name": "string",
+                        "proficiency": "string or null"
+                    }}
+                ],
+                "customSections": [
+                    {{
+                        "id": "string",
+                        "title": "string",
+                        "items": [
+                            {{
+                                "id": "string",
+                                "text": "string"
+                            }}
+                        ]
+                    }}
+                ]
             }}
         }}
         
@@ -117,7 +208,7 @@ class ResumeParserService:
                     response_mime_type="application/json",
                     temperature=0.1
                 ),
-                request_options={"timeout": 15.0}
+                request_options={"timeout": 60.0}
             )
             parsed_result = json.loads(response.text)
             return parsed_result
@@ -131,6 +222,32 @@ class ResumeParserService:
                 "sections": {
                     "Summary": text[:1000] if text else "",
                     "Other": text
+                },
+                "structured_data": {
+                    "personalInfo": {
+                        "fullName": None,
+                        "email": None,
+                        "phone": None,
+                        "location": None,
+                        "linkedin": None,
+                        "github": None,
+                        "portfolio": None
+                    },
+                    "summary": {
+                        "text": text[:1000] if text else ""
+                    },
+                    "skills": {
+                        "technical": [],
+                        "soft": [],
+                        "tools": []
+                    },
+                    "experience": [],
+                    "education": [],
+                    "projects": [],
+                    "certifications": [],
+                    "achievements": [],
+                    "languages": [],
+                    "customSections": []
                 }
             }
 
@@ -175,6 +292,7 @@ class ResumeParserService:
         
         total_exp = parse_result.get("total_experience_years", 0)
         skills = parse_result.get("skills", [])
+        structured_data = parse_result.get("structured_data")
         
         # Deactivate existing primary resumes if new one is primary
         if is_primary:
@@ -188,7 +306,8 @@ class ResumeParserService:
             version_number=existing_resumes_count + 1,
             total_experience_years=total_exp,
             taxonomy_domain_id=domain_id,
-            extracted_skills=skills
+            extracted_skills=skills,
+            structured_data=structured_data
         )
         
         # Create Resume Sections and link them to new_resume before adding to db
@@ -207,9 +326,32 @@ class ResumeParserService:
             if not matched_sec_type:
                 matched_sec_type = SectionType.OTHER
                 
+            # Decompose section-wise structured data
+            sec_structured_content = None
+            if structured_data:
+                if matched_sec_type == SectionType.SUMMARY:
+                    sec_structured_content = structured_data.get("summary")
+                elif matched_sec_type == SectionType.EXPERIENCE:
+                    sec_structured_content = structured_data.get("experience")
+                elif matched_sec_type == SectionType.EDUCATION:
+                    sec_structured_content = structured_data.get("education")
+                elif matched_sec_type == SectionType.PROJECTS:
+                    sec_structured_content = structured_data.get("projects")
+                elif matched_sec_type == SectionType.SKILLS:
+                    sec_structured_content = structured_data.get("skills")
+                elif matched_sec_type == SectionType.CERTIFICATIONS:
+                    sec_structured_content = structured_data.get("certifications")
+                elif matched_sec_type == SectionType.OTHER:
+                    sec_structured_content = {
+                        "achievements": structured_data.get("achievements", []),
+                        "languages": structured_data.get("languages", []),
+                        "customSections": structured_data.get("customSections", [])
+                    }
+                
             new_section = ResumeSection(
                 section_type=matched_sec_type.value,
-                original_content=sec_content
+                original_content=sec_content,
+                structured_content=sec_structured_content
             )
             new_resume.sections.append(new_section)
             

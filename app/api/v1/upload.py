@@ -77,6 +77,7 @@ async def upload_file(
             
             total_exp = parse_result.get("total_experience_years", 0)
             skills = parse_result.get("skills", [])
+            structured_data = parse_result.get("structured_data")
             
             new_resume = Resume(
                 candidate_id=current_user.candidate.id,
@@ -86,7 +87,8 @@ async def upload_file(
                 version_number=len(existing_resumes) + 1,
                 total_experience_years=total_exp,
                 taxonomy_domain_id=domain_id,
-                extracted_skills=skills
+                extracted_skills=skills,
+                structured_data=structured_data
             )
             
             # Save sections
@@ -104,9 +106,32 @@ async def upload_file(
                 if not matched_sec_type:
                     matched_sec_type = SectionType.OTHER
                     
+                # Decompose section-wise structured data
+                sec_structured_content = None
+                if structured_data:
+                    if matched_sec_type == SectionType.SUMMARY:
+                        sec_structured_content = structured_data.get("summary")
+                    elif matched_sec_type == SectionType.EXPERIENCE:
+                        sec_structured_content = structured_data.get("experience")
+                    elif matched_sec_type == SectionType.EDUCATION:
+                        sec_structured_content = structured_data.get("education")
+                    elif matched_sec_type == SectionType.PROJECTS:
+                        sec_structured_content = structured_data.get("projects")
+                    elif matched_sec_type == SectionType.SKILLS:
+                        sec_structured_content = structured_data.get("skills")
+                    elif matched_sec_type == SectionType.CERTIFICATIONS:
+                        sec_structured_content = structured_data.get("certifications")
+                    elif matched_sec_type == SectionType.OTHER:
+                        sec_structured_content = {
+                            "achievements": structured_data.get("achievements", []),
+                            "languages": structured_data.get("languages", []),
+                            "customSections": structured_data.get("customSections", [])
+                        }
+                    
                 new_section = ResumeSection(
                     section_type=matched_sec_type.value,
-                    original_content=sec_content
+                    original_content=sec_content,
+                    structured_content=sec_structured_content
                 )
                 new_resume.sections.append(new_section)
                 
