@@ -2,7 +2,9 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Any, Dict
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi.responses import StreamingResponse
+
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, select, func, case
 
@@ -20,7 +22,9 @@ from app.models.job_report import JobReport
 from app.services.matching_engine import MatchingEngine
 from app.services.optimization_engine import optimization_engine
 from app.services.credit_manager import CreditManager, credit_manager
+from app.services.pdf_service import pdf_service
 from app.schemas.job_seeker import (
+    ResumePDFRequest,
     CandidateCreditsResponse,
     CandidateCreditsScoreResponse,
     WeekdayStatus,
@@ -2161,6 +2165,99 @@ def get_resume_structure(
         )
         
     return format_resume_structure(resume, candidate, current_user)
+
+
+@router.post("/resumes/download-pdf")
+async def download_resume_pdf(
+    request: Request,
+    current_user: User = Depends(require_candidate)
+):
+    """
+    Generate and download a PDF version of the resume.
+    Accepts either:
+    1. A raw HTML body (Content-Type: text/html or text/plain)
+    2. A JSON body with {"html_content": "<html_string>"} (Content-Type: application/json)
+    """
+    import json
+    import re
+    import logging
+    
+    logger = logging.getLogger(__name__)
+    content_type = request.headers.get("Content-Type", "")
+    body_bytes = await request.body()
+    
+    html_content = ""
+    if "application/json" in content_type:
+        try:
+            # Try parsing as standard JSON
+            payload = json.loads(body_bytes.decode("utf-8"))
+            html_content = payload.get("html_content", "")
+        except Exception as json_err:
+            logger.warning("Standard JSON parsing failed, attempting lenient regex/cleaning fallback: %s", json_err)
+            body_str = body_bytes.decode("utf-8").strip()
+            
+            # Extract content between first double quote after "html_content" and the last double quote
+            key_index = body_str.find('"html_content"')
+            if key_index != -1:
+                colon_index = body_str.find(':', key_index)
+                if colon_index != -1:
+                    start_quote = body_str.find('"', colon_index)
+                    if start_quote != -1:
+                        end_quote = body_str.rfind('"')
+                        if end_quote > start_quote:
+                            html_content = body_str[start_quote + 1:end_quote]
+            
+            if not html_content:
+                cleaned_str = body_str
+                if cleaned_str.startswith("{"):
+                    cleaned_str = cleaned_str[1:].strip()
+                if cleaned_str.endswith("}"):
+                    cleaned_str = cleaned_str[:-1].strip()
+                if cleaned_str.startswith('"html_content"'):
+                    cleaned_str = cleaned_str[len('"html_content"'):].strip()
+                    if cleaned_str.startswith(":"):
+                        cleaned_str = cleaned_str[1:].strip()
+                if cleaned_str.startswith('"') and cleaned_str.endswith('"'):
+                    cleaned_str = cleaned_str[1:-1]
+                html_content = cleaned_str
+    else:
+        # Raw HTML body
+        html_content = body_bytes.decode("utf-8")
+
+    if not html_content:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="HTML content is required."
+        )
+
+    try:
+        # Resolve escape sequences if they are represented as literal chars
+        if "\\n" in html_content:
+            html_content = html_content.replace("\\n", "\n")
+        if "\\t" in html_content:
+            html_content = html_content.replace("\\t", "\t")
+        if '\\"' in html_content:
+            html_content = html_content.replace('\\"', '"')
+        if "\\'" in html_content:
+            html_content = html_content.replace("\\'", "'")
+            
+        pdf_bytes = pdf_service.convert_html_to_pdf(html_content)
+        
+        import io
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": 'attachment; filename="resume.pdf"',
+                "Content-Length": str(len(pdf_bytes))
+            }
+        )
+    except Exception as e:
+        logger.error("Failed to generate PDF: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate PDF: {str(e)}"
+        )
 
 
 @router.post("/resumes", response_model=ResumeVersionResponse)
