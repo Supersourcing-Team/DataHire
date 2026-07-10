@@ -27,8 +27,9 @@ def _get_text_to_embed(target) -> str:
         sections = getattr(target, "sections")
         if isinstance(sections, list):
             for sec in sections:
-                if hasattr(sec, "original_content") and getattr(sec, "original_content"):
-                    parts.append(str(getattr(sec, "original_content")))
+                content = getattr(sec, "optimized_content", None) or getattr(sec, "original_content", None)
+                if content:
+                    parts.append(str(content))
             
     # Check job sections list fields
     for field in ["requirements", "responsibilities", "benefits"]:
