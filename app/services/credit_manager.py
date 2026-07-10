@@ -12,6 +12,7 @@ class CreditManager:
     """
     COST_RESUME_OPTIMIZATION = 10
     COST_COVER_LETTER_GENERATION = 3
+    COST_SECTION_OPTIMIZATION = 2
 
     @classmethod
     def check_credits(cls, candidate: Candidate, cost: int, limits: dict) -> bool:
