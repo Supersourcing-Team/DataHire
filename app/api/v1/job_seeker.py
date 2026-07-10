@@ -14,7 +14,7 @@ from app.models.job import JobPosting, JobStatus
 from app.models.company import Company
 from app.models.application import JobApplication
 from app.models.saved_job import SavedJob
-from app.models.resume import Resume, ResumeSection
+from app.models.resume import Resume, ResumeSection, SectionType
 from app.models.cover_letter import CoverLetter
 from app.models.job_report import JobReport
 from app.services.matching_engine import MatchingEngine
@@ -35,6 +35,7 @@ from app.schemas.job_seeker import (
     JobApplicationStatsResponse,
     OptimizeResumeResponse,
     OptimizeSectionResult,
+    OptimizeSectionRequest,
     CoverLetterResponse,
     CoverLetterGenerateRequest,
     FitAnalysisResponse,
@@ -1667,6 +1668,89 @@ def optimize_resume_general(
     db.commit()
     
     return OptimizeResumeResponse(optimized_sections=optimized_sections)
+
+
+@router.post("/resumes/{resume_id}/sections/{section_type}/optimize", response_model=OptimizeSectionResult)
+def optimize_resume_section(
+    resume_id: UUID,
+    section_type: SectionType,
+    payload: OptimizeSectionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Optimize a specific section of a resume.
+    If job_id is passed, optimizes against the job description; otherwise, performs a general polish.
+    """
+    candidate = get_candidate(current_user, db)
+    candidate = check_and_reset_candidate_credits(candidate, db)
+    
+    # 1. Fetch the resume and ensure it belongs to the candidate
+    resume = db.query(Resume).filter(
+        Resume.id == resume_id,
+        Resume.candidate_id == candidate.id
+    ).first()
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+        
+    # 2. Find the specific section
+    section = db.query(ResumeSection).filter(
+        ResumeSection.resume_id == resume.id,
+        ResumeSection.section_type == section_type.value
+    ).first()
+    if not section:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Section '{section_type.value}' not found in this resume."
+        )
+        
+    # 3. Check credits (Section-wise optimization costs 2 AI credits)
+    tier = candidate.plan_tier or "free"
+    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    
+    credit_manager.check_and_deduct_credits(
+        candidate=candidate,
+        cost=CreditManager.COST_SECTION_OPTIMIZATION,
+        limits=limits,
+        db=db
+    )
+    
+    # 4. Optimize the section based on whether job_id is passed
+    if payload.job_id:
+        job = db.query(JobPosting).filter(
+            JobPosting.id == payload.job_id,
+            JobPosting.is_active == True
+        ).first()
+        if not job:
+            raise HTTPException(status_code=404, detail="Job posting not found.")
+            
+        result = optimization_engine.optimize_section(job, section)
+        
+        # Save optimized content back to the section
+        section.optimized_content = result.get("optimized_content")
+        section.optimization_metadata = {
+            "missing_keywords": result.get("missing_keywords", []),
+            "feedback": result.get("optimization_feedback", "")
+        }
+    else:
+        result = optimization_engine.optimize_section_general(section)
+        
+        # Save optimized content back to the section
+        section.optimized_content = result.get("optimized_content")
+        section.optimization_metadata = {
+            "feedback": result.get("optimization_feedback", "")
+        }
+        
+    db.add(section)
+    db.commit()
+    db.refresh(section)
+    
+    return OptimizeSectionResult(
+        section_type=section.section_type,
+        original_content=section.original_content,
+        optimized_content=section.optimized_content,
+        optimization_feedback=section.optimization_metadata.get("feedback") if section.optimization_metadata else None
+    )
 
 
 @router.post("/jobs/{job_id}/generate-cover-letter", response_model=CoverLetterResponse)
