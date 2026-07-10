@@ -77,7 +77,7 @@ async def upload_file(
             
             total_exp = parse_result.get("total_experience_years", 0)
             skills = parse_result.get("skills", [])
-            structured_data = parse_result.get("structured_data")
+            structured_data = parse_result.get("structured_data") or {}
             
             new_resume = Resume(
                 candidate_id=current_user.candidate.id,
@@ -91,47 +91,111 @@ async def upload_file(
                 structured_data=structured_data
             )
             
-            # Save sections
-            sections_dict = parse_result.get("sections", {}) or {}
-            for sec_name, sec_content in sections_dict.items():
-                if not sec_content or not sec_content.strip():
-                    continue
-                    
-                matched_sec_type = None
-                for st in SectionType:
-                    if st.value.lower() == sec_name.lower():
-                        matched_sec_type = st
-                        break
+            # Build sections_dict dynamically in Python from structured_data
+            sections_dict = {}
+            
+            summary_text = structured_data.get("summary", {}).get("text", "")
+            if summary_text:
+                sections_dict[SectionType.SUMMARY] = (summary_text, structured_data.get("summary"))
                 
-                if not matched_sec_type:
-                    matched_sec_type = SectionType.OTHER
+            exp_list = structured_data.get("experience", [])
+            if exp_list:
+                exp_strs = []
+                for exp in exp_list:
+                    company = exp.get("company", "N/A")
+                    role = exp.get("role", "N/A")
+                    location = exp.get("location")
+                    dates = f"{exp.get('startDate', '')} - {exp.get('endDate') or 'Present'}"
+                    bullets = "\n".join(f"- {b}" for b in exp.get("bullets", []))
+                    item_str = f"{role} at {company}"
+                    if location:
+                        item_str += f" ({location})"
+                    item_str += f"\n{dates}\n{bullets}"
+                    exp_strs.append(item_str)
+                sections_dict[SectionType.EXPERIENCE] = ("\n\n".join(exp_strs), exp_list)
+                
+            edu_list = structured_data.get("education", [])
+            if edu_list:
+                edu_strs = []
+                for edu in edu_list:
+                    inst = edu.get("institution", "N/A")
+                    degree = edu.get("degree", "N/A")
+                    grade = edu.get("grade")
+                    dates = f"{edu.get('startDate', '')} - {edu.get('endDate') or 'Present'}"
+                    item_str = f"{degree} from {inst} ({dates})"
+                    if grade:
+                        item_str += f" | Grade: {grade}"
+                    edu_strs.append(item_str)
+                sections_dict[SectionType.EDUCATION] = ("\n\n".join(edu_strs), edu_list)
+                
+            proj_list = structured_data.get("projects", [])
+            if proj_list:
+                proj_strs = []
+                for proj in proj_list:
+                    title = proj.get("title", "N/A")
+                    desc = proj.get("description", "")
+                    tech = ", ".join(proj.get("techStack", []))
+                    bullets = "\n".join(f"- {b}" for b in proj.get("bullets", []))
+                    item_str = f"Project: {title}"
+                    if tech:
+                        item_str += f" [Tech: {tech}]"
+                    if desc:
+                        item_str += f"\n{desc}"
+                    if bullets:
+                        item_str += f"\n{bullets}"
+                    proj_strs.append(item_str)
+                sections_dict[SectionType.PROJECTS] = ("\n\n".join(proj_strs), proj_list)
+                
+            skills_data = structured_data.get("skills", {})
+            if skills_data:
+                tech_s = ", ".join(skills_data.get("technical", []))
+                soft_s = ", ".join(skills_data.get("soft", []))
+                tools_s = ", ".join(skills_data.get("tools", []))
+                skills_parts = []
+                if tech_s:
+                    skills_parts.append(f"Technical Skills: {tech_s}")
+                if soft_s:
+                    skills_parts.append(f"Soft Skills: {soft_s}")
+                if tools_s:
+                    skills_parts.append(f"Tools: {tools_s}")
+                if skills_parts:
+                    sections_dict[SectionType.SKILLS] = ("\n".join(skills_parts), skills_data)
                     
-                # Decompose section-wise structured data
-                sec_structured_content = None
-                if structured_data:
-                    if matched_sec_type == SectionType.SUMMARY:
-                        sec_structured_content = structured_data.get("summary")
-                    elif matched_sec_type == SectionType.EXPERIENCE:
-                        sec_structured_content = structured_data.get("experience")
-                    elif matched_sec_type == SectionType.EDUCATION:
-                        sec_structured_content = structured_data.get("education")
-                    elif matched_sec_type == SectionType.PROJECTS:
-                        sec_structured_content = structured_data.get("projects")
-                    elif matched_sec_type == SectionType.SKILLS:
-                        sec_structured_content = structured_data.get("skills")
-                    elif matched_sec_type == SectionType.CERTIFICATIONS:
-                        sec_structured_content = structured_data.get("certifications")
-                    elif matched_sec_type == SectionType.OTHER:
-                        sec_structured_content = {
-                            "achievements": structured_data.get("achievements", []),
-                            "languages": structured_data.get("languages", []),
-                            "customSections": structured_data.get("customSections", [])
-                        }
-                    
+            cert_list = structured_data.get("certifications", [])
+            if cert_list:
+                cert_strs = []
+                for cert in cert_list:
+                    title = cert.get("title", "N/A")
+                    issuer = cert.get("issuer", "N/A")
+                    issue_date = cert.get("issueDate", "")
+                    cert_strs.append(f"{title} by {issuer} ({issue_date})")
+                sections_dict[SectionType.CERTIFICATIONS] = ("\n".join(cert_strs), cert_list)
+                
+            other_parts = []
+            achievements = structured_data.get("achievements", [])
+            if achievements:
+                other_parts.append("Achievements:\n" + "\n".join(f"- {a.get('text', '')}" for a in achievements))
+            languages = structured_data.get("languages", [])
+            if languages:
+                other_parts.append("Languages:\n" + "\n".join(f"- {l.get('name', '')} ({l.get('proficiency', 'N/A')})" for l in languages))
+            custom_sections = structured_data.get("customSections", [])
+            for cs in custom_sections:
+                title = cs.get("title", "Custom Section")
+                items = cs.get("items", [])
+                other_parts.append(f"{title}:\n" + "\n".join(f"- {i.get('text', '')}" for i in items))
+            if other_parts:
+                sections_dict[SectionType.OTHER] = ("\n\n".join(other_parts), {
+                    "achievements": achievements,
+                    "languages": languages,
+                    "customSections": custom_sections
+                })
+
+            # Save constructed sections to new_resume
+            for sec_type, (sec_content, sec_struct) in sections_dict.items():
                 new_section = ResumeSection(
-                    section_type=matched_sec_type.value,
+                    section_type=sec_type.value,
                     original_content=sec_content,
-                    structured_content=sec_structured_content
+                    structured_content=sec_struct
                 )
                 new_resume.sections.append(new_section)
                 
