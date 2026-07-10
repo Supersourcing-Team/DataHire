@@ -1484,7 +1484,173 @@ def get_job_seeker_application_details(
     )
 
 
-@router.post("/jobs/{job_id}/optimize-resume", response_model=OptimizeResumeResponse)
+def format_resume_structure(resume: Resume, candidate: Candidate, user: User) -> Dict[str, Any]:
+    structured_data = resume.structured_data
+    if not structured_data:
+        summary_sec = next((s for s in resume.sections if s.section_type == "Summary"), None)
+        skills_sec = next((s for s in resume.sections if s.section_type == "Skills"), None)
+        experience_sec = next((s for s in resume.sections if s.section_type == "Experience"), None)
+        education_sec = next((s for s in resume.sections if s.section_type == "Education"), None)
+        projects_sec = next((s for s in resume.sections if s.section_type == "Projects"), None)
+        certifications_sec = next((s for s in resume.sections if s.section_type == "Certifications"), None)
+        
+        structured_data = {
+            "personalInfo": {
+                "fullName": candidate.full_name,
+                "email": user.email,
+                "phone": candidate.phone,
+                "location": candidate.current_address,
+                "linkedin": candidate.linkedin_url,
+                "github": None,
+                "portfolio": candidate.portfolio_url
+            },
+            "summary": {
+                "text": (summary_sec.optimized_content or summary_sec.original_content) if summary_sec else candidate.about_summary
+            },
+            "skills": {
+                "technical": resume.extracted_skills or [],
+                "soft": [],
+                "tools": []
+            },
+            "experience": [
+                {
+                    "id": "exp_1",
+                    "company": "N/A",
+                    "role": "N/A",
+                    "location": None,
+                    "employmentType": None,
+                    "startDate": None,
+                    "endDate": None,
+                    "isCurrent": False,
+                    "bullets": [experience_sec.optimized_content or experience_sec.original_content] if experience_sec else []
+                }
+            ] if experience_sec else [],
+            "education": [
+                {
+                    "id": "edu_1",
+                    "institution": "N/A",
+                    "degree": "N/A",
+                    "location": None,
+                    "startDate": None,
+                    "endDate": None,
+                    "grade": None,
+                    "isCurrent": False
+                }
+            ] if education_sec else [],
+            "projects": [
+                {
+                    "id": "proj_1",
+                    "title": "Project",
+                    "description": projects_sec.optimized_content or projects_sec.original_content if projects_sec else None,
+                    "techStack": [],
+                    "link": None,
+                    "startDate": None,
+                    "endDate": None,
+                    "bullets": []
+                }
+            ] if projects_sec else [],
+            "certifications": [
+                {
+                    "id": "cert_1",
+                    "title": certifications_sec.optimized_content or certifications_sec.original_content if certifications_sec else None,
+                    "issuer": "N/A",
+                    "issueDate": None,
+                    "expiryDate": None,
+                    "credentialUrl": None
+                }
+            ] if certifications_sec else [],
+            "achievements": [],
+            "languages": [],
+            "customSections": []
+        }
+
+    # Dynamically inject/overwrite properties to ensure they match current DB state
+    structured_data["resumeId"] = str(resume.id)
+    structured_data["userId"] = str(user.id)
+    structured_data["template"] = "template_1"
+    
+    # Overwrite profile image with S3 presigned URL
+    if "personalInfo" in structured_data:
+        structured_data["personalInfo"]["profileImage"] = s3_service.get_presigned_url(candidate.profile_picture) if candidate.profile_picture else None
+        
+        # Ensure email, phone, location, full_name, linkedin, portfolio are populated from candidate table if missing
+        if not structured_data["personalInfo"].get("fullName"):
+            structured_data["personalInfo"]["fullName"] = candidate.full_name
+        if not structured_data["personalInfo"].get("email"):
+            structured_data["personalInfo"]["email"] = user.email
+        if not structured_data["personalInfo"].get("phone"):
+            structured_data["personalInfo"]["phone"] = candidate.phone
+        if not structured_data["personalInfo"].get("location"):
+            structured_data["personalInfo"]["location"] = candidate.current_address
+        if not structured_data["personalInfo"].get("linkedin"):
+            structured_data["personalInfo"]["linkedin"] = candidate.linkedin_url
+        if not structured_data["personalInfo"].get("portfolio"):
+            structured_data["personalInfo"]["portfolio"] = candidate.portfolio_url
+
+    # Add metadata
+    structured_data["meta"] = {
+        "createdAt": resume.created_at.isoformat() if resume.created_at else None,
+        "updatedAt": resume.updated_at.isoformat() if resume.updated_at else None,
+        "version": resume.version_number
+    }
+
+    return structured_data
+
+
+def update_structured_data_with_optimized_sections(structured_data: Dict[str, Any], sections: List[ResumeSection]) -> Dict[str, Any]:
+    if not structured_data:
+        return structured_data
+        
+    import copy
+    import re
+    sd = copy.deepcopy(structured_data)
+    
+    for sec in sections:
+        content = sec.optimized_content or sec.original_content
+        if not content:
+            continue
+            
+        s_type = sec.section_type
+        if s_type == "Summary":
+            if "summary" not in sd:
+                sd["summary"] = {}
+            sd["summary"]["text"] = content
+            
+        elif s_type == "Skills":
+            skills_list = [s.strip() for s in re.split(r'[,\n•*-]+', content) if s.strip()]
+            if "skills" not in sd:
+                sd["skills"] = {"technical": [], "soft": [], "tools": []}
+            sd["skills"]["technical"] = list(set(sd["skills"].get("technical", []) + skills_list))
+            
+        elif s_type == "Experience":
+            bullets = []
+            for line in content.splitlines():
+                line_str = line.strip()
+                if not line_str:
+                    continue
+                cleaned = re.sub(r'^([•\-*\d\.\s]+)', '', line_str).strip()
+                if cleaned:
+                    bullets.append(cleaned)
+            
+            if "experience" in sd and isinstance(sd["experience"], list) and len(sd["experience"]) > 0:
+                sd["experience"][0]["bullets"] = bullets
+                
+        elif s_type == "Projects":
+            bullets = []
+            for line in content.splitlines():
+                line_str = line.strip()
+                if not line_str:
+                    continue
+                cleaned = re.sub(r'^([•\-*\d\.\s]+)', '', line_str).strip()
+                if cleaned:
+                    bullets.append(cleaned)
+            if "projects" in sd and isinstance(sd["projects"], list) and len(sd["projects"]) > 0:
+                sd["projects"][0]["bullets"] = bullets
+                
+    return sd
+
+
+@router.post("/jobs/{job_id}/optimize-resume")
 def optimize_resume_for_job(
     job_id: UUID,
     db: Session = Depends(get_db),
@@ -1540,13 +1706,14 @@ def optimize_resume_for_job(
         is_primary=False,
         total_experience_years=primary_resume.total_experience_years,
         taxonomy_domain_id=primary_resume.taxonomy_domain_id,
-        extracted_skills=union_skills
+        extracted_skills=union_skills,
+        structured_data=primary_resume.structured_data
     )
     db.add(new_resume)
     db.flush() # Populate new_resume.id
     
     # Optimize resume sections
-    optimized_sections = []
+    new_sections = []
     for section in primary_resume.sections:
         result = optimization_engine.optimize_section(job, section)
         
@@ -1562,31 +1729,30 @@ def optimize_resume_for_job(
             }
         )
         db.add(new_section)
+        new_sections.append(new_section)
         
-        optimized_sections.append(
-            OptimizeSectionResult(
-                section_type=section.section_type,
-                original_content=section.original_content,
-                optimized_content=result.get("optimized_content"),
-                optimization_feedback=result.get("optimization_feedback")
-            )
-        )
+    # Update new resume's structured_data using the optimized sections
+    from sqlalchemy.orm.attributes import flag_modified
+    new_resume.structured_data = update_structured_data_with_optimized_sections(new_resume.structured_data, new_sections)
+    flag_modified(new_resume, "structured_data")
         
     # Increment usage
     candidate.resume_optimizations_used_this_month += 1
     db.add(candidate)
     db.commit()
+    db.refresh(new_resume)
     
-    return OptimizeResumeResponse(optimized_sections=optimized_sections)
+    return format_resume_structure(new_resume, candidate, current_user)
 
 
-@router.post("/resume/optimize", response_model=OptimizeResumeResponse)
+@router.post("/resume/optimize")
 def optimize_resume_general(
+    resume_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
 ):
     """
-    Optimize the primary resume generally (without a target job description).
+    Optimize a specific resume generally (without a target job description).
     """
     candidate = get_candidate(current_user, db)
     candidate = check_and_reset_candidate_credits(candidate, db)
@@ -1610,13 +1776,13 @@ def optimize_resume_general(
         db=db
     )
             
-    # Get primary resume
+    # Get specific resume
     primary_resume = db.query(Resume).filter(
-        Resume.candidate_id == candidate.id,
-        Resume.is_primary == True
+        Resume.id == resume_id,
+        Resume.candidate_id == candidate.id
     ).first()
     if not primary_resume:
-        raise HTTPException(status_code=400, detail="You do not have a primary resume uploaded.")
+        raise HTTPException(status_code=404, detail="Resume not found.")
         
     existing_resumes_count = db.query(Resume).filter(Resume.candidate_id == candidate.id).count()
     
@@ -1631,13 +1797,14 @@ def optimize_resume_general(
         is_primary=False,
         total_experience_years=primary_resume.total_experience_years,
         taxonomy_domain_id=primary_resume.taxonomy_domain_id,
-        extracted_skills=primary_resume.extracted_skills
+        extracted_skills=primary_resume.extracted_skills,
+        structured_data=primary_resume.structured_data
     )
     db.add(new_resume)
     db.flush() # Populate new_resume.id
     
     # Optimize resume sections
-    optimized_sections = []
+    new_sections = []
     for section in primary_resume.sections:
         result = optimization_engine.optimize_section_general(section)
         
@@ -1652,22 +1819,20 @@ def optimize_resume_general(
             }
         )
         db.add(new_section)
+        new_sections.append(new_section)
         
-        optimized_sections.append(
-            OptimizeSectionResult(
-                section_type=section.section_type,
-                original_content=section.original_content,
-                optimized_content=result.get("optimized_content"),
-                optimization_feedback=result.get("optimization_feedback")
-            )
-        )
+    # Update new resume's structured_data using the optimized sections
+    from sqlalchemy.orm.attributes import flag_modified
+    new_resume.structured_data = update_structured_data_with_optimized_sections(new_resume.structured_data, new_sections)
+    flag_modified(new_resume, "structured_data")
         
     # Increment usage
     candidate.resume_optimizations_used_this_month += 1
     db.add(candidate)
     db.commit()
+    db.refresh(new_resume)
     
-    return OptimizeResumeResponse(optimized_sections=optimized_sections)
+    return format_resume_structure(new_resume, candidate, current_user)
 
 
 @router.post("/resumes/{resume_id}/sections/{section_type}/optimize", response_model=OptimizeSectionResult)
@@ -1801,7 +1966,7 @@ def generate_cover_letter_for_job(
     from app.core.config import settings
     
     genai.configure(api_key=settings.GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    model = genai.GenerativeModel('gemini-3.1-flash-lite')
     
     company_name = job.company.name if job.company else "Target Company"
     company_desc = job.company.description if (job.company and job.company.description) else "A leading innovator in the industry."
@@ -1995,118 +2160,7 @@ def get_resume_structure(
             detail="Resume not found."
         )
         
-    # Get the structured data from the Resume model
-    # If the resume is old and doesn't have structured_data, build a fallback
-    structured_data = resume.structured_data
-    if not structured_data:
-        summary_sec = next((s for s in resume.sections if s.section_type == "Summary"), None)
-        skills_sec = next((s for s in resume.sections if s.section_type == "Skills"), None)
-        experience_sec = next((s for s in resume.sections if s.section_type == "Experience"), None)
-        education_sec = next((s for s in resume.sections if s.section_type == "Education"), None)
-        projects_sec = next((s for s in resume.sections if s.section_type == "Projects"), None)
-        certifications_sec = next((s for s in resume.sections if s.section_type == "Certifications"), None)
-        
-        structured_data = {
-            "personalInfo": {
-                "fullName": candidate.full_name,
-                "email": current_user.email,
-                "phone": candidate.phone,
-                "location": candidate.current_address,
-                "linkedin": candidate.linkedin_url,
-                "github": None,
-                "portfolio": candidate.portfolio_url
-            },
-            "summary": {
-                "text": summary_sec.original_content if summary_sec else candidate.about_summary
-            },
-            "skills": {
-                "technical": resume.extracted_skills or [],
-                "soft": [],
-                "tools": []
-            },
-            "experience": [
-                {
-                    "id": "exp_1",
-                    "company": "N/A",
-                    "role": "N/A",
-                    "location": None,
-                    "employmentType": None,
-                    "startDate": None,
-                    "endDate": None,
-                    "isCurrent": False,
-                    "bullets": [experience_sec.original_content] if experience_sec else []
-                }
-            ] if experience_sec else [],
-            "education": [
-                {
-                    "id": "edu_1",
-                    "institution": "N/A",
-                    "degree": "N/A",
-                    "location": None,
-                    "startDate": None,
-                    "endDate": None,
-                    "grade": None,
-                    "isCurrent": False
-                }
-            ] if education_sec else [],
-            "projects": [
-                {
-                    "id": "proj_1",
-                    "title": "Project",
-                    "description": projects_sec.original_content,
-                    "techStack": [],
-                    "link": None,
-                    "startDate": None,
-                    "endDate": None,
-                    "bullets": []
-                }
-            ] if projects_sec else [],
-            "certifications": [
-                {
-                    "id": "cert_1",
-                    "title": certifications_sec.original_content,
-                    "issuer": "N/A",
-                    "issueDate": None,
-                    "expiryDate": None,
-                    "credentialUrl": None
-                }
-            ] if certifications_sec else [],
-            "achievements": [],
-            "languages": [],
-            "customSections": []
-        }
-
-    # Dynamically inject/overwrite properties to ensure they match current DB state
-    structured_data["resumeId"] = str(resume.id)
-    structured_data["userId"] = str(current_user.id)
-    structured_data["template"] = "template_1"
-    
-    # Overwrite profile image with S3 presigned URL
-    if "personalInfo" in structured_data:
-        structured_data["personalInfo"]["profileImage"] = s3_service.get_presigned_url(candidate.profile_picture) if candidate.profile_picture else None
-        
-        # Ensure email, phone, location, full_name, linkedin, portfolio are populated from candidate table if missing
-        if not structured_data["personalInfo"].get("fullName"):
-            structured_data["personalInfo"]["fullName"] = candidate.full_name
-        if not structured_data["personalInfo"].get("email"):
-            structured_data["personalInfo"]["email"] = current_user.email
-        if not structured_data["personalInfo"].get("phone"):
-            structured_data["personalInfo"]["phone"] = candidate.phone
-        if not structured_data["personalInfo"].get("location"):
-            structured_data["personalInfo"]["location"] = candidate.current_address
-        if not structured_data["personalInfo"].get("linkedin"):
-            structured_data["personalInfo"]["linkedin"] = candidate.linkedin_url
-        if not structured_data["personalInfo"].get("portfolio"):
-            structured_data["personalInfo"]["portfolio"] = candidate.portfolio_url
-
-    # Add metadata
-    structured_data["meta"] = {
-        "createdAt": resume.created_at.isoformat() if resume.created_at else None,
-        "updatedAt": resume.updated_at.isoformat() if resume.updated_at else None,
-        "version": resume.version_number
-    }
-
-    return structured_data
+    return format_resume_structure(resume, candidate, current_user)
 
 
 @router.post("/resumes", response_model=ResumeVersionResponse)
@@ -2179,7 +2233,7 @@ def set_default_resume(
     return {"message": "Resume set as default successfully."}
 
 
-@router.post("/resumes/{resume_id}/reoptimize", response_model=OptimizeResumeResponse)
+@router.post("/resumes/{resume_id}/reoptimize")
 def reoptimize_resume(
     resume_id: UUID,
     db: Session = Depends(get_db),
@@ -2211,7 +2265,7 @@ def reoptimize_resume(
     )
     
     # Optimize existing sections
-    optimized_sections = []
+    new_sections = []
     for section in resume.sections:
         result = optimization_engine.optimize_section(job, section)
         
@@ -2221,22 +2275,21 @@ def reoptimize_resume(
             "feedback": result.get("optimization_feedback", "")
         }
         db.add(section)
-        
-        optimized_sections.append(
-            OptimizeSectionResult(
-                section_type=section.section_type,
-                original_content=section.original_content,
-                optimized_content=section.optimized_content,
-                optimization_feedback=result.get("optimization_feedback")
-            )
-        )
+        new_sections.append(section)
         
     # Re-union skills just in case job skills updated
     resume.extracted_skills = list(set(resume.extracted_skills or []) | set(job.extracted_skills or []))
+    
+    # Update structured_data using the optimized sections
+    from sqlalchemy.orm.attributes import flag_modified
+    resume.structured_data = update_structured_data_with_optimized_sections(resume.structured_data, new_sections)
+    flag_modified(resume, "structured_data")
+    
     db.add(resume)
     db.commit()
+    db.refresh(resume)
     
-    return OptimizeResumeResponse(optimized_sections=optimized_sections)
+    return format_resume_structure(resume, candidate, current_user)
 
 
 @router.delete("/resumes/{resume_id}")
@@ -2491,7 +2544,7 @@ def reoptimize_cover_letter(
     from app.core.config import settings
     
     genai.configure(api_key=settings.GEMINI_API_KEY)
-    model = genai.GenerativeModel('gemini-2.5-flash')
+    model = genai.GenerativeModel('gemini-3.1-flash-lite')
     
     prompt = f"""
     You are an expert career assistant. Generate a highly professional, compelling, and customized cover letter for:
