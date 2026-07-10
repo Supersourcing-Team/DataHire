@@ -206,6 +206,10 @@ class ResumeStructureResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class OptimizeSectionRequest(BaseModel):
+    job_id: Optional[UUID] = None
+
+
 class ResumeUploadRequest(BaseModel):
     file_name: str
     file_url: str
