@@ -439,5 +439,10 @@ class JobApplicationStatsResponse(BaseModel):
     total: int = 0
 
 
+class ResumePDFRequest(BaseModel):
+    html_content: str
+
+
+
 
 

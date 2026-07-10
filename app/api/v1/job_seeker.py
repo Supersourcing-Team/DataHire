@@ -3,6 +3,8 @@ from typing import List, Optional, Any, Dict
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
+
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, select, func, case
 
@@ -20,7 +22,9 @@ from app.models.job_report import JobReport
 from app.services.matching_engine import MatchingEngine
 from app.services.optimization_engine import optimization_engine
 from app.services.credit_manager import CreditManager, credit_manager
+from app.services.pdf_service import pdf_service
 from app.schemas.job_seeker import (
+    ResumePDFRequest,
     CandidateCreditsResponse,
     CandidateCreditsScoreResponse,
     WeekdayStatus,
@@ -2161,6 +2165,33 @@ def get_resume_structure(
         )
         
     return format_resume_structure(resume, candidate, current_user)
+
+
+@router.post("/resumes/download-pdf")
+def download_resume_pdf(
+    payload: ResumePDFRequest,
+    current_user: User = Depends(require_candidate)
+):
+    """
+    Generate and download a PDF version of the resume from an HTML body.
+    """
+    try:
+        pdf_bytes = pdf_service.convert_html_to_pdf(payload.html_content)
+        
+        import io
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": 'attachment; filename="resume.pdf"',
+                "Content-Length": str(len(pdf_bytes))
+            }
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate PDF: {str(e)}"
+        )
 
 
 @router.post("/resumes", response_model=ResumeVersionResponse)
