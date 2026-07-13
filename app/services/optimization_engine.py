@@ -169,5 +169,78 @@ class GeminiOptimizationEngine:
                 "optimization_feedback": "Failed to connect to the Gemini Optimization AI."
             }
 
+    def analyze_resume_fit(self, resume_content: str, job_description: str, embedding_score: int) -> Dict[str, Any]:
+        """
+        Compares candidate's resume content against a job description, taking into account
+        a pre-calculated embedding match score. Returns status, gaps, and strengths using Gemini.
+        """
+        match_status = "low"
+        if embedding_score >= 75:
+            match_status = "high"
+        elif embedding_score >= 50:
+            match_status = "medium"
+
+        system_instruction = (
+            "You are an expert AI Applicant Tracking System (ATS) and Resume Evaluator.\n"
+            "Your goal is to compare a candidate's resume content against a target job description and "
+            "provide a structured JSON output.\n"
+            "You MUST output raw JSON matching exactly this schema:\n"
+            "{\n"
+            "  \"match_status\": \"string\",\n"
+            "  \"status_message\": \"string\",\n"
+            "  \"gaps\": [\"string\"],\n"
+            "  \"strengths\": [\"string\"]\n"
+            "}\n"
+            "Rules for evaluation:\n"
+            "1. You are given a pre-calculated candidate match score of "
+            f"{embedding_score} out of 100, which corresponds to the match status '{match_status}'.\n"
+            "2. Set the 'match_status' field in your JSON output to exactly the provided status: "
+            f"'{match_status}'.\n"
+            "3. Write a status_message summarizing the fit, keeping it aligned with the match score of "
+            f"{embedding_score}%. For low scores, be honest but encouraging (e.g. mention that it likely needs optimization).\n"
+            "4. Under 'gaps', list up to 6 actionable bullet points describing missing skills, experience, or certifications based on the comparison, formatted as concise professional bullet points (e.g., 'Proficient in containerization using Docker, enabling efficient application deployment.').\n"
+            "5. Under 'strengths', list up to 6 key areas of strong alignment or matching qualifications.\n"
+            "6. For low match scores, list more 'gaps' than 'strengths'. For high match scores, list more 'strengths' and keep 'gaps' minimal or empty."
+        )
+
+        user_prompt = f"""
+        {system_instruction}
+
+        --- TARGET JOB DESCRIPTION ---
+        {job_description}
+
+        --- CANDIDATE RESUME CONTENT ---
+        {resume_content}
+
+        Provide the JSON output now:
+        """
+
+        try:
+            response = self.model.generate_content(
+                user_prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0.3
+                )
+            )
+            parsed_result = json.loads(response.text)
+            return {
+                "score": embedding_score,
+                "match_status": match_status,
+                "status_message": parsed_result.get("status_message", f"Your resume match score is {embedding_score}%."),
+                "gaps": parsed_result.get("gaps", []),
+                "strengths": parsed_result.get("strengths", [])
+            }
+        except Exception as e:
+            logger.error(f"Gemini Resume Fit Analysis Failed: {e}")
+            return {
+                "error": str(e),
+                "score": embedding_score,
+                "match_status": match_status,
+                "status_message": f"Failed to connect to the Gemini Optimization AI. Your calculated score is {embedding_score}%.",
+                "gaps": [],
+                "strengths": []
+            }
+
 # Export singleton instance
 optimization_engine = GeminiOptimizationEngine()
