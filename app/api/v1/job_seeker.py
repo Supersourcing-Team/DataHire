@@ -28,6 +28,8 @@ from app.schemas.job_seeker import (
     ResumePDFRequest,
     ResumeAnalyzeFitRequest,
     ResumeAnalyzeFitResponse,
+    AISuggestionItem,
+    ResumeSuggestionsResponse,
     CandidateCreditsResponse,
     CandidateCreditsScoreResponse,
     WeekdayStatus,
@@ -2274,6 +2276,105 @@ def analyze_resume_fit_endpoint(
     )
 
 
+@router.get("/resumes/{resume_id}/suggestions", response_model=ResumeSuggestionsResponse)
+def get_resume_suggestions_endpoint(
+    resume_id: UUID,
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Returns missing keywords and AI suggestions for a given resume version
+    compared against a job posting, dynamically updated with resume optimization.
+    """
+    candidate = get_candidate(current_user, db)
+    
+    # 1. Fetch the resume and check candidate ownership
+    resume = db.query(Resume).options(joinedload(Resume.sections)).filter(
+        Resume.id == resume_id,
+        Resume.candidate_id == candidate.id
+    ).first()
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+        
+    # 2. Fetch the target JobPosting
+    job = db.query(JobPosting).filter(JobPosting.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job posting not found.")
+        
+    # 3. Reconstruct the current resume content using optimized_content where available
+    sections = resume.sections
+    sections_texts = []
+    has_optimized_summary = False
+    has_optimized_skills = False
+    has_optimized_experience = False
+    has_optimized_certifications = False
+    
+    for sec in sections:
+        content = sec.optimized_content or sec.original_content
+        if content:
+            sections_texts.append(f"[{sec.section_type}]\n{content}")
+            
+        if sec.section_type == SectionType.SUMMARY.value and sec.optimized_content:
+            has_optimized_summary = True
+        elif sec.section_type == SectionType.SKILLS.value and sec.optimized_content:
+            has_optimized_skills = True
+        elif sec.section_type == SectionType.EXPERIENCE.value and sec.optimized_content:
+            has_optimized_experience = True
+        elif sec.section_type == SectionType.CERTIFICATIONS.value and sec.optimized_content:
+            has_optimized_certifications = True
+            
+    resume_content = "\n\n".join(sections_texts)
+    if not resume_content.strip():
+        resume_content = resume.file_name or "Resume"
+        
+    # 4. Call the Gemini optimization/matching engine to generate suggestions
+    job_description = job.description or ""
+    if not job_description.strip() and job.job_overview:
+        job_description = job.job_overview
+        
+    job_skills = job.extracted_skills or []
+    
+    analysis = optimization_engine.get_resume_suggestions(resume_content, job_description, job_skills)
+    
+    # 5. Dynamic filtering and post-processing
+    # Ensure missing keywords are strictly NOT present in the resume content (case-insensitive)
+    resume_content_lower = resume_content.lower()
+    cleaned_missing_keywords = []
+    for kw in analysis.get("missing_keywords", []):
+        if kw.lower() not in resume_content_lower:
+            cleaned_missing_keywords.append(kw)
+    
+    # Dynamically dismiss suggestions if their section has optimized content
+    filtered_suggestions = []
+    for sug in analysis.get("ai_suggestions", []):
+        title_lower = sug.get("title", "").lower()
+        if "summary" in title_lower and has_optimized_summary:
+            continue
+        if "skills" in title_lower and has_optimized_skills:
+            continue
+        if ("experience" in title_lower or "impact" in title_lower or "metrics" in title_lower) and has_optimized_experience:
+            continue
+        if "certifications" in title_lower and has_optimized_certifications:
+            continue
+        filtered_suggestions.append(
+            AISuggestionItem(
+                title=sug.get("title", "Improvement Suggestion"),
+                description=sug.get("description", ""),
+                impact=sug.get("impact", "medium")
+            )
+        )
+        
+    # If the user has resolved all missing keywords, filter out the skills improvement suggestion
+    if len(cleaned_missing_keywords) == 0:
+        filtered_suggestions = [s for s in filtered_suggestions if "skills" not in s.title.lower()]
+        
+    return ResumeSuggestionsResponse(
+        missing_keywords=cleaned_missing_keywords,
+        ai_suggestions=filtered_suggestions
+    )
+
+
 @router.post("/resumes/download-pdf")
 async def download_resume_pdf(
     request: Request,
@@ -2519,12 +2620,18 @@ def delete_resume(
 
 @router.get("/cover-letters", response_model=List[CoverLetterDetailResponse])
 def list_cover_letters(
+    skip: int = 0,
+    limit: int = 10,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
 ):
     """List all saved cover letters for the candidate."""
     candidate = get_candidate(current_user, db)
-    cover_letters = db.query(CoverLetter).filter(CoverLetter.candidate_id == candidate.id).order_by(CoverLetter.created_at.desc()).all()
+    cover_letters = db.query(CoverLetter).filter(
+        CoverLetter.candidate_id == candidate.id
+    ).order_by(
+        CoverLetter.created_at.desc()
+    ).offset(skip).limit(limit).all()
     
     response = []
     matching_service = MatchingEngine(db)
