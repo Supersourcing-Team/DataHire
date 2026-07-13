@@ -175,7 +175,7 @@ class FitAnalysisResponse(BaseModel):
     missing_keywords: List[str]
 
 class ResumeAnalyzeFitRequest(BaseModel):
-    job_description: str = Field(..., alias="job_descriptions")
+    job_id: UUID = Field(..., alias="job_id")
     model_config = ConfigDict(populate_by_name=True)
 
 class ResumeAnalyzeFitResponse(BaseModel):
