@@ -23,8 +23,11 @@ from app.services.matching_engine import MatchingEngine
 from app.services.optimization_engine import optimization_engine
 from app.services.credit_manager import CreditManager, credit_manager
 from app.services.pdf_service import pdf_service
+from app.services.embedding_service import embedding_service
 from app.schemas.job_seeker import (
     ResumePDFRequest,
+    ResumeAnalyzeFitRequest,
+    ResumeAnalyzeFitResponse,
     CandidateCreditsResponse,
     CandidateCreditsScoreResponse,
     WeekdayStatus,
@@ -2165,6 +2168,97 @@ def get_resume_structure(
         )
         
     return format_resume_structure(resume, candidate, current_user)
+
+
+@router.post("/resumes/{resume_id}/analyze-fit", response_model=ResumeAnalyzeFitResponse)
+def analyze_resume_fit_endpoint(
+    resume_id: UUID,
+    payload: ResumeAnalyzeFitRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Analyzes a specific resume against a job description, returning
+    the match score, status, gaps, and strengths based on embedding similarity.
+    """
+    import numpy as np
+    candidate = get_candidate(current_user, db)
+    
+    # 1. Fetch the resume and check ownership
+    resume = db.query(Resume).options(joinedload(Resume.sections)).filter(
+        Resume.id == resume_id,
+        Resume.candidate_id == candidate.id
+    ).first()
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+        
+    # 2. Get the resume content for LLM processing
+    sections = resume.sections
+    if not sections:
+        resume_content = json.dumps(resume.structured_data) if resume.structured_data else ""
+    else:
+        sections_texts = []
+        for sec in sections:
+            content = sec.optimized_content or sec.original_content
+            if content:
+                sections_texts.append(f"[{sec.section_type}]\n{content}")
+        resume_content = "\n\n".join(sections_texts)
+        
+    if not resume_content.strip():
+        resume_content = resume.file_name or "Resume"
+
+    # 3. Calculate embedding-based match score
+    job_desc_embedding = embedding_service.get_embedding(payload.job_description)
+    
+    # Auto-generate resume embedding if it is missing
+    if resume.overall_embedding is None:
+        parts = []
+        if resume.extracted_skills:
+            parts.append(" ".join(resume.extracted_skills))
+        for sec in sections:
+            content = sec.optimized_content or sec.original_content
+            if content:
+                parts.append(content)
+        resume_text = " ".join(parts)
+        if not resume_text.strip():
+            resume_text = resume.file_name or "Resume"
+        resume.overall_embedding = embedding_service.get_embedding(resume_text)
+        db.add(resume)
+        db.commit()
+
+    vec1 = np.array(job_desc_embedding)
+    vec2 = np.array(resume.overall_embedding)
+    
+    dot_product = np.dot(vec1, vec2)
+    norm_v1 = np.linalg.norm(vec1)
+    norm_v2 = np.linalg.norm(vec2)
+    
+    if norm_v1 == 0 or norm_v2 == 0:
+        similarity = 0.0
+    else:
+        similarity = float(dot_product / (norm_v1 * norm_v2))
+        
+    # Calibrated Cosine Similarity: Scale similarity in range [0.70, 0.85] to [0, 100]
+    if similarity < 0.70:
+        score = 0
+    elif similarity > 0.85:
+        score = 100
+    else:
+        score = int(((similarity - 0.70) / (0.85 - 0.70)) * 100)
+        
+    # 4. Call the Gemini optimization/matching engine to analyze fit
+    analysis = optimization_engine.analyze_resume_fit(resume_content, payload.job_description, score)
+    
+    if "error" in analysis:
+        raise HTTPException(status_code=500, detail=analysis["status_message"])
+        
+    return ResumeAnalyzeFitResponse(
+        score=analysis["score"],
+        match_status=analysis["match_status"],
+        status_message=analysis["status_message"],
+        gaps=analysis["gaps"],
+        strengths=analysis["strengths"]
+    )
 
 
 @router.post("/resumes/download-pdf")

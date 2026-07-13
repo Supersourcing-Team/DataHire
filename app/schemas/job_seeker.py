@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import List, Optional, Union, Dict, Any, Literal
 from uuid import UUID
 import re
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, Field
 from app.schemas.job import JobDashboardCardResponse
 
 class CandidateCreditsResponse(BaseModel):
@@ -173,6 +173,17 @@ class FitAnalysisResponse(BaseModel):
     resume_alignment_percent: int
     matching_skills: List[str]
     missing_keywords: List[str]
+
+class ResumeAnalyzeFitRequest(BaseModel):
+    job_description: str = Field(..., alias="job_descriptions")
+    model_config = ConfigDict(populate_by_name=True)
+
+class ResumeAnalyzeFitResponse(BaseModel):
+    score: int
+    match_status: str
+    status_message: str
+    gaps: List[str]
+    strengths: List[str]
 
 
 class ResumeVersionResponse(BaseModel):
