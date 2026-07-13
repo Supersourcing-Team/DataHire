@@ -185,6 +185,15 @@ class ResumeAnalyzeFitResponse(BaseModel):
     gaps: List[str]
     strengths: List[str]
 
+class AISuggestionItem(BaseModel):
+    title: str
+    description: str
+    impact: Literal["high", "medium", "low"]
+
+class ResumeSuggestionsResponse(BaseModel):
+    missing_keywords: List[str]
+    ai_suggestions: List[AISuggestionItem]
+
 
 class ResumeVersionResponse(BaseModel):
     id: UUID
