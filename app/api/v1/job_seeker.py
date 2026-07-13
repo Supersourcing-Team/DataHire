@@ -2207,8 +2207,26 @@ def analyze_resume_fit_endpoint(
     if not resume_content.strip():
         resume_content = resume.file_name or "Resume"
 
-    # 3. Calculate embedding-based match score
-    job_desc_embedding = embedding_service.get_embedding(payload.job_description)
+    # 3. Fetch the JobPosting from the database
+    job = db.query(JobPosting).filter(JobPosting.id == payload.job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job posting not found.")
+        
+    # Auto-generate job embedding if it is missing
+    if job.embedding is None:
+        description = job.description or ""
+        if not description.strip() and job.job_overview:
+            description = job.job_overview
+        job.embedding = embedding_service.get_embedding(description)
+        db.add(job)
+        db.commit()
+        
+    job_description = job.description or ""
+    if not job_description.strip() and job.job_overview:
+        job_description = job.job_overview
+
+    # Calculate embedding-based match score
+    job_desc_embedding = job.embedding
     
     # Auto-generate resume embedding if it is missing
     if resume.overall_embedding is None:
@@ -2238,16 +2256,11 @@ def analyze_resume_fit_endpoint(
     else:
         similarity = float(dot_product / (norm_v1 * norm_v2))
         
-    # Calibrated Cosine Similarity: Scale similarity in range [0.70, 0.85] to [0, 100]
-    if similarity < 0.70:
-        score = 0
-    elif similarity > 0.85:
-        score = 100
-    else:
-        score = int(((similarity - 0.70) / (0.85 - 0.70)) * 100)
+    # Use direct similarity percentage without calibrating to 0
+    score = int(similarity * 100)
         
     # 4. Call the Gemini optimization/matching engine to analyze fit
-    analysis = optimization_engine.analyze_resume_fit(resume_content, payload.job_description, score)
+    analysis = optimization_engine.analyze_resume_fit(resume_content, job_description, score)
     
     if "error" in analysis:
         raise HTTPException(status_code=500, detail=analysis["status_message"])
