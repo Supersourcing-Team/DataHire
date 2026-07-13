@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, List
 import google.generativeai as genai
 
 from app.models.job import JobPosting
@@ -240,6 +240,71 @@ class GeminiOptimizationEngine:
                 "status_message": f"Failed to connect to the Gemini Optimization AI. Your calculated score is {embedding_score}%.",
                 "gaps": [],
                 "strengths": []
+            }
+
+    def get_resume_suggestions(self, resume_content: str, job_description: str, job_skills: List[str]) -> Dict[str, Any]:
+        """
+        Dynamically analyzes the current resume content against the job description and its skills
+        to return missing keywords and a list of actionable AI suggestions.
+        """
+        system_instruction = (
+            "You are an expert ATS (Applicant Tracking System) and Resume Consultant.\n"
+            "Your task is to analyze the candidate's current resume content against the target job description "
+            "and provide feedback in structured JSON format.\n"
+            "You MUST output raw JSON matching exactly this schema:\n"
+            "{\n"
+            "  \"missing_keywords\": [\"string\"],\n"
+            "  \"ai_suggestions\": [\n"
+            "    {\n"
+            "      \"title\": \"string\",\n"
+            "      \"description\": \"string\",\n"
+            "      \"impact\": \"high\" | \"medium\" | \"low\"\n"
+            "    }\n"
+            "  ]\n"
+            "}\n"
+            "Rules:\n"
+            "1. 'missing_keywords': Identify which of the following job-required skills are missing from "
+            f"the candidate's resume: {', '.join(job_skills)}.\n"
+            "   Only list skills that are NOT present in the resume content.\n"
+            "2. 'ai_suggestions': Provide up to 4 actionable suggestions to improve the resume. "
+            "Only suggest improvements for areas that are not already optimized.\n"
+            "   - If the summary section is brief or lacks impact, suggest 'Enhance summary' with high impact.\n"
+            "   - If the experience section lacks metrics/quantification, suggest 'Add more impact metrics' with high impact.\n"
+            "   - If there are missing key skills, suggest 'Improve skills section' with medium impact.\n"
+            "   - If certifications are missing but relevant to the job, suggest 'Add certifications' with medium/high impact.\n"
+            "   - If a section has already been optimized or improved, DO NOT include the suggestion for that section."
+        )
+
+        user_prompt = f"""
+        {system_instruction}
+
+        --- TARGET JOB DESCRIPTION ---
+        {job_description}
+
+        --- CANDIDATE RESUME CONTENT ---
+        {resume_content}
+
+        Provide the JSON output now:
+        """
+
+        try:
+            response = self.model.generate_content(
+                user_prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0.2
+                )
+            )
+            parsed_result = json.loads(response.text)
+            return {
+                "missing_keywords": parsed_result.get("missing_keywords", []),
+                "ai_suggestions": parsed_result.get("ai_suggestions", [])
+            }
+        except Exception as e:
+            logger.error(f"Failed to generate resume suggestions: {e}")
+            return {
+                "missing_keywords": [],
+                "ai_suggestions": []
             }
 
 # Export singleton instance
