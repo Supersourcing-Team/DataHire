@@ -569,13 +569,24 @@ def apply_to_job(
         Resume.file_url == payload.resume_url
     ).first()
     if not resume:
+        # Check saved resumes limit
+        tier = candidate.plan_tier or "free"
+        limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+        existing_resumes_count = db.query(Resume).filter(
+            Resume.candidate_id == candidate.id,
+            Resume.is_deleted == False
+        ).count()
+        if existing_resumes_count >= limits["saved_resumes_limit"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"You have reached your limit of {limits['saved_resumes_limit']} saved resumes. Please delete an existing resume to apply with a new one."
+            )
+            
         # Create a new resume record copying metadata from primary resume
         primary_res = db.query(Resume).filter(
             Resume.candidate_id == candidate.id,
             Resume.is_primary == True
         ).first()
-        
-        existing_resumes_count = db.query(Resume).filter(Resume.candidate_id == candidate.id).count()
         
         resume = Resume(
             candidate_id=candidate.id,
@@ -612,6 +623,21 @@ def apply_to_job(
                 db.add(new_section)
             db.flush()
     else:
+        # If it was soft-deleted, check limit and restore
+        if resume.is_deleted:
+            tier = candidate.plan_tier or "free"
+            limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+            existing_resumes_count = db.query(Resume).filter(
+                Resume.candidate_id == candidate.id,
+                Resume.is_deleted == False
+            ).count()
+            if existing_resumes_count >= limits["saved_resumes_limit"]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"You have reached your limit of {limits['saved_resumes_limit']} saved resumes. Please delete an existing resume to reuse this one."
+                )
+            resume.is_deleted = False
+            
         # Link existing resume to this job if not already
         if resume.job_id != job.id:
             resume.job_id = job.id
@@ -1700,6 +1726,17 @@ def optimize_resume_for_job(
                 detail=f"You have reached your monthly Resume Optimization limit of {limits['monthly_resume_optimization_limit']}."
             )
             
+    # Check saved resumes limit
+    existing_non_deleted_count = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.is_deleted == False
+    ).count()
+    if existing_non_deleted_count >= limits["saved_resumes_limit"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"You have reached your limit of {limits['saved_resumes_limit']} saved resumes. Please delete an existing resume to optimize a new one."
+        )
+            
     # Check and deduct credits via CreditManager (Cost: 10 AI credits)
     credit_manager.check_and_deduct_credits(
         candidate=candidate,
@@ -1793,6 +1830,17 @@ def optimize_resume_general(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail=f"You have reached your monthly Resume Optimization limit of {limits['monthly_resume_optimization_limit']}."
             )
+            
+    # Check saved resumes limit
+    existing_non_deleted_count = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.is_deleted == False
+    ).count()
+    if existing_non_deleted_count >= limits["saved_resumes_limit"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"You have reached your limit of {limits['saved_resumes_limit']} saved resumes. Please delete an existing resume to optimize a new one."
+        )
             
     # Check and deduct credits via CreditManager (Cost: 10 AI credits)
     credit_manager.check_and_deduct_credits(
@@ -2118,8 +2166,6 @@ def analyze_fit_for_job(
         matching_skills=insights.get("matched_skills", []),
         missing_keywords=missing_skills
     )
-
-
 # --- SAVED RESUMES MANAGEMENT ---
 
 @router.get("/resumes", response_model=PaginatedResumeVersionResponse)
@@ -2131,7 +2177,10 @@ def list_resumes(
 ):
     """List all saved resume versions for the candidate."""
     candidate = get_candidate(current_user, db)
-    resumes = db.query(Resume).filter(Resume.candidate_id == candidate.id).order_by(Resume.version_number.desc()).all()
+    resumes = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.is_deleted == False
+    ).order_by(Resume.version_number.desc()).all()
     
     response = []
     matching_service = MatchingEngine(db)
@@ -2165,8 +2214,8 @@ def list_resumes(
             )
         )
     return {"resumes": response[skip : skip + limit], "count": len(response)}
-
-
+ 
+ 
 @router.get("/resumes/{resume_id}/structure")
 def get_resume_structure(
     resume_id: UUID,
@@ -2184,7 +2233,8 @@ def get_resume_structure(
         joinedload(Resume.taxonomy_domain)
     ).filter(
         Resume.id == resume_id,
-        Resume.candidate_id == candidate.id
+        Resume.candidate_id == candidate.id,
+        Resume.is_deleted == False
     ).first()
     
     if not resume:
@@ -2640,13 +2690,32 @@ def delete_resume(
 ):
     """Delete a saved resume version (cannot delete default primary)."""
     candidate = get_candidate(current_user, db)
-    resume = db.query(Resume).filter(Resume.id == resume_id, Resume.candidate_id == candidate.id).first()
+    resume = db.query(Resume).filter(
+        Resume.id == resume_id,
+        Resume.candidate_id == candidate.id,
+        Resume.is_deleted == False
+    ).first()
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found.")
     if resume.is_primary:
         raise HTTPException(status_code=400, detail="Cannot delete default (primary) resume.")
         
-    db.delete(resume)
+    # Check if the resume is used in any job application
+    has_applied = False
+    if resume.job_id:
+        has_applied = db.query(JobApplication).filter(
+            JobApplication.candidate_id == candidate.id,
+            JobApplication.job_id == resume.job_id
+        ).first() is not None
+
+    if has_applied:
+        # Soft delete
+        resume.is_deleted = True
+        db.add(resume)
+    else:
+        # Hard delete
+        db.delete(resume)
+        
     db.commit()
     return {"message": "Resume deleted successfully."}
 
