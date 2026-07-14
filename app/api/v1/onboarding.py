@@ -59,6 +59,18 @@ async def candidate_step_1(
         if existing_resume.taxonomy_domain_id:
             candidate.taxonomy_domain_id = existing_resume.taxonomy_domain_id
     else:
+        from app.api.v1.job_seeker import PLAN_LIMITS
+        tier = candidate.plan_tier or "free"
+        limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+        existing_resumes_count = db.query(Resume).filter(
+            Resume.candidate_id == candidate.id,
+            Resume.is_deleted == False
+        ).count()
+        if existing_resumes_count >= limits["saved_resumes_limit"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"You have reached your limit of {limits['saved_resumes_limit']} saved resumes. Please delete an existing resume to complete onboarding."
+            )
         from app.services.resume_parser import resume_parser_service
         new_resume = await asyncio.to_thread(
             resume_parser_service.parse_and_save_resume,
