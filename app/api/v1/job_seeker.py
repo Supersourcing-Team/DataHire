@@ -49,9 +49,11 @@ from app.schemas.job_seeker import (
     CoverLetterGenerateRequest,
     FitAnalysisResponse,
     ResumeVersionResponse,
+    PaginatedResumeVersionResponse,
     ResumeStructureResponse,
     ResumeUploadRequest,
     CoverLetterDetailResponse,
+    PaginatedCoverLetterDetailResponse,
     CoverLetterCreateRequest,
     CoverLetterUpdateRequest,
     SaveJobRequest,
@@ -88,28 +90,37 @@ s3_service = S3Service()
 PLAN_LIMITS = {
     "free": {
         "name": "Free",
-        "daily_apply_limit": 3,
-        "monthly_ai_credits": 60,
-        "monthly_resume_optimization_limit": 3,
-        "monthly_cover_letter_limit": 3,
+        "daily_apply_limit": 0,
+        "monthly_ai_credits": 150,
+        "monthly_resume_optimization_limit": 4,
+        "monthly_cover_letter_limit": 0, # Manual upload only
         "missing_skills_analysis_enabled": False,
         "saved_resumes_limit": 7,
     },
-    "pro": {
-        "name": "Pro",
-        "daily_apply_limit": 6,
-        "monthly_ai_credits": 400,
-        "monthly_resume_optimization_limit": 99,
-        "monthly_cover_letter_limit": 99,
+    "silver": {
+        "name": "Silver",
+        "daily_apply_limit": 3,
+        "monthly_ai_credits": 800,
+        "monthly_resume_optimization_limit": 15,
+        "monthly_cover_letter_limit": 9999,
         "missing_skills_analysis_enabled": True,
         "saved_resumes_limit": 30,
     },
-    "premium": {
-        "name": "Premium",
-        "daily_apply_limit": 9,
-        "monthly_ai_credits": 700,
-        "monthly_resume_optimization_limit": 999,
-        "monthly_cover_letter_limit": 999,
+    "gold": {
+        "name": "Gold",
+        "daily_apply_limit": 5,
+        "monthly_ai_credits": 1200,
+        "monthly_resume_optimization_limit": 22,
+        "monthly_cover_letter_limit": 9999,
+        "missing_skills_analysis_enabled": True,
+        "saved_resumes_limit": 9999,
+    },
+    "platinum": {
+        "name": "Platinum",
+        "daily_apply_limit": 9999,
+        "monthly_ai_credits": 99999,
+        "monthly_resume_optimization_limit": 9999,
+        "monthly_cover_letter_limit": 9999,
         "missing_skills_analysis_enabled": True,
         "saved_resumes_limit": 99999,
     }
@@ -139,7 +150,8 @@ def check_and_reset_candidate_credits(candidate: Candidate, db: Session) -> Cand
     # Check monthly reset (UTC month boundary)
     last_monthly_reset_utc = candidate.monthly_credits_reset_at.astimezone(timezone.utc) if candidate.monthly_credits_reset_at.tzinfo else candidate.monthly_credits_reset_at.replace(tzinfo=timezone.utc)
     if last_monthly_reset_utc.year < now.year or last_monthly_reset_utc.month < now.month:
-        candidate.monthly_ai_credits_used = 0
+        if candidate.plan_tier != "free":
+            candidate.monthly_ai_credits_used = 0
         candidate.resume_optimizations_used_this_month = 0
         candidate.cover_letters_generated_this_month = 0
         candidate.monthly_credits_reset_at = now
@@ -551,24 +563,6 @@ def apply_to_job(
     if existing_app:
         raise HTTPException(status_code=400, detail="You have already applied to this job.")
         
-    # Enforce plan limits
-    tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
-    
-    # 1. Auto apply credit check
-    if candidate.daily_apply_credits_used >= limits["daily_apply_limit"]:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=f"You have reached your daily apply limit of {limits['daily_apply_limit']} for the {limits['name']} plan."
-        )
-        
-    # 2. Monthly AI credit check
-    if candidate.monthly_ai_credits_used >= limits["monthly_ai_credits"]:
-        raise HTTPException(
-            status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=f"You have reached your monthly AI credit limit of {limits['monthly_ai_credits']}."
-        )
-        
     # Resolve the resume passed in payload
     # Check if this candidate already has a resume with the specified file_url
     resume = db.query(Resume).filter(
@@ -625,12 +619,7 @@ def apply_to_job(
         cover_letter=payload.cover_letter_url
     )
     
-    # Deduct credits
-    candidate.daily_apply_credits_used += 1
-    candidate.monthly_ai_credits_used += 1
-    
     db.add(new_app)
-    db.add(candidate)
     db.commit()
     db.refresh(new_app)
     
@@ -1946,7 +1935,12 @@ def generate_cover_letter_for_job(
     
     # Enforce limit for Free Plan cover letter limit
     if limits["monthly_cover_letter_limit"] < 9999:
-        if candidate.cover_letters_generated_this_month >= limits["monthly_cover_letter_limit"]:
+        if limits["monthly_cover_letter_limit"] == 0:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="The Free plan only supports manual upload of cover letters. Please upgrade to a paid plan to use AI generation."
+            )
+        elif candidate.cover_letters_generated_this_month >= limits["monthly_cover_letter_limit"]:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail=f"You have reached your monthly Cover Letter Generation limit of {limits['monthly_cover_letter_limit']}."
@@ -2100,8 +2094,10 @@ def analyze_fit_for_job(
 
 # --- SAVED RESUMES MANAGEMENT ---
 
-@router.get("/resumes", response_model=List[ResumeVersionResponse])
+@router.get("/resumes", response_model=PaginatedResumeVersionResponse)
 def list_resumes(
+    skip: int = 0,
+    limit: int = 10,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
 ):
@@ -2140,7 +2136,7 @@ def list_resumes(
                 ai_score=ai_score
             )
         )
-    return response
+    return {"resumes": response[skip : skip + limit], "count": len(response)}
 
 
 @router.get("/resumes/{resume_id}/structure")
@@ -2561,6 +2557,14 @@ def reoptimize_resume(
     tier = candidate.plan_tier or "free"
     limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
     
+    # Enforce limit for Free Plan resume optimization limit
+    if limits["monthly_resume_optimization_limit"] < 9999:
+        if candidate.resume_optimizations_used_this_month >= limits["monthly_resume_optimization_limit"]:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=f"You have reached your monthly Resume Optimization limit of {limits['monthly_resume_optimization_limit']}."
+            )
+            
     # Deduct credit via CreditManager (Cost: 10 AI credits)
     credit_manager.check_and_deduct_credits(
         candidate=candidate,
@@ -2590,6 +2594,9 @@ def reoptimize_resume(
     resume.structured_data = update_structured_data_with_optimized_sections(resume.structured_data, new_sections)
     flag_modified(resume, "structured_data")
     
+    candidate.resume_optimizations_used_this_month += 1
+    db.add(candidate)
+    
     db.add(resume)
     db.commit()
     db.refresh(resume)
@@ -2618,7 +2625,7 @@ def delete_resume(
 
 # --- SAVED COVER LETTERS MANAGEMENT ---
 
-@router.get("/cover-letters", response_model=List[CoverLetterDetailResponse])
+@router.get("/cover-letters", response_model=PaginatedCoverLetterDetailResponse)
 def list_cover_letters(
     skip: int = 0,
     limit: int = 10,
@@ -2631,7 +2638,7 @@ def list_cover_letters(
         CoverLetter.candidate_id == candidate.id
     ).order_by(
         CoverLetter.created_at.desc()
-    ).offset(skip).limit(limit).all()
+    ).all()
     
     response = []
     matching_service = MatchingEngine(db)
@@ -2656,7 +2663,7 @@ def list_cover_letters(
                          ai_score = int(score_details["final_score"])
                      except Exception:
                          ai_score = None
-                         
+                          
         response.append(
             CoverLetterDetailResponse(
                 id=cl.id,
@@ -2671,7 +2678,7 @@ def list_cover_letters(
                 ai_score=ai_score
             )
         )
-    return response
+    return {"cover_letters": response[skip : skip + limit], "count": len(response)}
 
 
 @router.post("/cover-letters", response_model=CoverLetterDetailResponse)
@@ -2832,6 +2839,19 @@ def reoptimize_cover_letter(
     tier = candidate.plan_tier or "free"
     limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
     
+    # Enforce limit for Free Plan cover letter limit
+    if limits["monthly_cover_letter_limit"] < 9999:
+        if limits["monthly_cover_letter_limit"] == 0:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="The Free plan only supports manual upload of cover letters. Please upgrade to a paid plan to use AI generation."
+            )
+        elif candidate.cover_letters_generated_this_month >= limits["monthly_cover_letter_limit"]:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=f"You have reached your monthly Cover Letter Generation limit of {limits['monthly_cover_letter_limit']}."
+            )
+            
     # Deduct credit via CreditManager (Cost: 3 AI credits)
     credit_manager.check_and_deduct_credits(
         candidate=candidate,
@@ -3000,7 +3020,15 @@ def get_auto_apply_jobs(
     
     tier = candidate.plan_tier or "free"
     limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    if limits["daily_apply_limit"] == 0:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Auto-apply is not available on the Free plan. Please upgrade to Silver or Gold."
+        )
+
     plan_limit = limits["daily_apply_limit"]
+    remaining_monthly = (limits["monthly_ai_credits"] - candidate.monthly_ai_credits_used) // 2
+    plan_limit = min(plan_limit, remaining_monthly)
     if limit is None:
         limit = plan_limit
     else:
@@ -3011,10 +3039,10 @@ def get_auto_apply_jobs(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail=f"You have reached your daily apply limit of {limits['daily_apply_limit']} for the {limits['name']} plan."
         )
-    if candidate.monthly_ai_credits_used >= limits["monthly_ai_credits"]:
+    if (limits["monthly_ai_credits"] - candidate.monthly_ai_credits_used) < 2:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=f"You have reached your monthly AI credit limit of {limits['monthly_ai_credits']}."
+            detail="You do not have enough monthly AI credits to auto-apply (each application costs 2 credits)."
         )
         
     primary_resume = db.query(Resume).filter(
@@ -3175,7 +3203,15 @@ def execute_auto_apply(
     
     tier = candidate.plan_tier or "free"
     limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    if limits["daily_apply_limit"] == 0:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Auto-apply is not available on the Free plan. Please upgrade to Silver or Gold."
+        )
+
     plan_limit = limits["daily_apply_limit"]
+    remaining_monthly = (limits["monthly_ai_credits"] - candidate.monthly_ai_credits_used) // 2
+    plan_limit = min(plan_limit, remaining_monthly)
     if limit is None:
         limit = plan_limit
     else:
@@ -3187,10 +3223,10 @@ def execute_auto_apply(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
             detail=f"You have reached your daily apply limit of {limits['daily_apply_limit']} for the {limits['name']} plan."
         )
-    if candidate.monthly_ai_credits_used >= limits["monthly_ai_credits"]:
+    if (limits["monthly_ai_credits"] - candidate.monthly_ai_credits_used) < 2:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
-            detail=f"You have reached your monthly AI credit limit of {limits['monthly_ai_credits']}."
+            detail="You do not have enough monthly AI credits to auto-apply (each application costs 2 credits)."
         )
         
     primary_resume = db.query(Resume).filter(
@@ -3277,7 +3313,7 @@ def execute_auto_apply(
     scored_jobs.sort(key=lambda x: x[1], reverse=True)
     
     remaining_daily = limits["daily_apply_limit"] - candidate.daily_apply_credits_used
-    remaining_monthly = limits["monthly_ai_credits"] - candidate.monthly_ai_credits_used
+    remaining_monthly = (limits["monthly_ai_credits"] - candidate.monthly_ai_credits_used) // 2
     max_to_apply = min(limit, remaining_daily, remaining_monthly)
     
     top_matches = scored_jobs[:max_to_apply]
@@ -3297,7 +3333,7 @@ def execute_auto_apply(
         
         # Deduct credit
         candidate.daily_apply_credits_used += 1
-        candidate.monthly_ai_credits_used += 1
+        candidate.monthly_ai_credits_used += 2
         
         db.add(new_app)
         db.commit()

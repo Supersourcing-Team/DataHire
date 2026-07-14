@@ -463,6 +463,17 @@ class ResumePDFRequest(BaseModel):
     html_content: str
 
 
+class PaginatedResumeVersionResponse(BaseModel):
+    resumes: List[ResumeVersionResponse]
+    count: int
+
+
+class PaginatedCoverLetterDetailResponse(BaseModel):
+    cover_letters: List[CoverLetterDetailResponse]
+    count: int
+
+
+
 
 
 

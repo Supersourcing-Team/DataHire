@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.db.session import get_db
 from app.models.job import JobPosting, JobStatus
+from app.models.company import Company
 from app.models.user import User, UserRole
 from app.models.candidate import Candidate
 from app.models.saved_job import SavedJob
@@ -34,6 +35,33 @@ from app.core.dependencies import require_employer, get_optional_current_active_
 router = APIRouter(prefix="/job-posters", tags=["job-posters"])
 job_flow_router = APIRouter(tags=["job-posters"])
 s3_service = S3Service()
+
+POSTER_PLAN_LIMITS = {
+    "free": {
+        "name": "Free",
+        "job_postings_limit": 3,
+        "is_lifetime_cap": True,
+        "resume_access_limit": 5,
+    },
+    "startup": {
+        "name": "Startup",
+        "job_postings_limit": 5,
+        "is_lifetime_cap": False,
+        "resume_access_limit": 20,
+    },
+    "msme": {
+        "name": "MSME",
+        "job_postings_limit": 15,
+        "is_lifetime_cap": False,
+        "resume_access_limit": 50,
+    },
+    "enterprise": {
+        "name": "Enterprise",
+        "job_postings_limit": 50,
+        "is_lifetime_cap": False,
+        "resume_access_limit": 100,
+    }
+}
 
 
 def _format_posted_ago(created_at: datetime) -> str:
@@ -569,6 +597,38 @@ def publish_job_final(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Job title is required to publish."
             )
+            
+        # Check company plan posting limit
+        if db_job.status != JobStatus.PUBLISHED:
+            company = db.query(Company).filter(Company.id == db_job.company_id).first()
+            if company:
+                tier = company.plan_tier or "free"
+                limits = POSTER_PLAN_LIMITS.get(tier, POSTER_PLAN_LIMITS["free"])
+                if limits["is_lifetime_cap"]:
+                    # Count total published/closed jobs created for the company (excluding drafts)
+                    published_jobs = db.query(JobPosting).filter(
+                        JobPosting.company_id == company.id,
+                        JobPosting.status.in_([JobStatus.PUBLISHED, JobStatus.CLOSED]),
+                        JobPosting.id != db_job.id
+                    ).count()
+                    if published_jobs >= limits["job_postings_limit"]:
+                        raise HTTPException(
+                            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                            detail=f"You have reached your lifetime job posting limit of {limits['job_postings_limit']} for the {limits['name']} plan. Please upgrade to post more."
+                        )
+                else:
+                    # Count active job postings (status == JobStatus.PUBLISHED)
+                    active_jobs = db.query(JobPosting).filter(
+                        JobPosting.company_id == company.id,
+                        JobPosting.status == JobStatus.PUBLISHED,
+                        JobPosting.id != db_job.id
+                    ).count()
+                    if active_jobs >= limits["job_postings_limit"]:
+                        raise HTTPException(
+                            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                            detail=f"You have reached your active job posting limit of {limits['job_postings_limit']} for the {limits['name']} plan. Close or archive an active job to publish a new one."
+                        )
+                        
         db_job.status = JobStatus.PUBLISHED
         db_job.is_active = True
     else:
@@ -1546,6 +1606,21 @@ def get_applicant_profile(
         )
 
     if not app.is_viewed:
+        company = db.query(Company).filter(Company.id == company_id).first()
+        if company:
+            tier = company.plan_tier or "free"
+            limits = POSTER_PLAN_LIMITS.get(tier, POSTER_PLAN_LIMITS["free"])
+            
+            viewed_count = db.query(JobApplication).filter(
+                JobApplication.job_id == job_id,
+                JobApplication.is_viewed == True
+            ).count()
+            
+            if viewed_count >= limits["resume_access_limit"]:
+                raise HTTPException(
+                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                    detail=f"You have reached your resume access limit of {limits['resume_access_limit']} candidates for this job under the {limits['name']} plan. Please upgrade your plan."
+                )
         app.is_viewed = True
         db.commit()
         db.refresh(app)

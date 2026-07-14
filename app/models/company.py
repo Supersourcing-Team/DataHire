@@ -45,6 +45,10 @@ class Company(Base):
     state_id = Column(Integer, ForeignKey("meta_states.id", ondelete="SET NULL"), nullable=True)
     city_id = Column(Integer, ForeignKey("meta_cities.id", ondelete="SET NULL"), nullable=True)
 
+    plan_tier = Column(String(20), default="free", nullable=False)  # free, startup, msme, enterprise
+    subscription_duration_months = Column(Integer, default=0, nullable=False)  # 0, 3, 6, 12
+    subscription_ends_at = Column(DateTime(timezone=True), nullable=True)
+
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
