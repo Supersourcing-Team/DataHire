@@ -69,7 +69,21 @@ async def upload_file(
             
             # Create Resume in db
             from app.models.resume import Resume, ResumeSection, SectionType
-            existing_resumes = db.query(Resume).filter(Resume.candidate_id == current_user.candidate.id).all()
+            from app.api.v1.job_seeker import PLAN_LIMITS
+            tier = current_user.candidate.plan_tier or "free"
+            limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+            
+            existing_resumes = db.query(Resume).filter(
+                Resume.candidate_id == current_user.candidate.id,
+                Resume.is_deleted == False
+            ).all()
+            
+            if len(existing_resumes) >= limits["saved_resumes_limit"]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"You have reached your limit of {limits['saved_resumes_limit']} saved resumes. Please delete an existing resume to upload a new one."
+                )
+            
             is_primary = len(existing_resumes) == 0
             
             if is_primary:

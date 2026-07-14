@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Integer, Text, ForeignKey, DateTime, Boolean
+from sqlalchemy import Column, String, Integer, Text, ForeignKey, DateTime, Boolean, Index
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
@@ -32,6 +32,7 @@ class Resume(Base):
     job_id = Column(UUID(as_uuid=True), ForeignKey("job_postings.id", ondelete="SET NULL"), nullable=True)
     version_number = Column(Integer, default=1, nullable=False)
     is_primary = Column(Boolean, default=False, nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
     
     # Metadata for quick filtering
     total_experience_years = Column(Integer, default=0, nullable=False)
@@ -52,6 +53,15 @@ class Resume(Base):
     taxonomy_domain = relationship("TaxonomyDomain")
     job = relationship("JobPosting")
     sections = relationship("ResumeSection", back_populates="resume", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index(
+            "uq_candidate_primary_resume",
+            "candidate_id",
+            unique=True,
+            postgresql_where=(is_primary == True)
+        ),
+    )
 
 
     @validates("taxonomy_domain_id")
