@@ -46,7 +46,7 @@ def execute_auto_apply_for_all(db: Session) -> dict:
             
             # Check remaining daily and monthly credits
             remaining_daily = limits["daily_apply_limit"] - candidate.daily_apply_credits_used
-            remaining_monthly = limits["monthly_ai_credits"] - candidate.monthly_ai_credits_used
+            remaining_monthly = (limits["monthly_ai_credits"] - candidate.monthly_ai_credits_used) // 2
             max_to_apply = min(remaining_daily, remaining_monthly)
             
             if max_to_apply <= 0:
@@ -153,7 +153,7 @@ def execute_auto_apply_for_all(db: Session) -> dict:
                 
                 # Deduct credits
                 candidate.daily_apply_credits_used += 1
-                candidate.monthly_ai_credits_used += 1
+                candidate.monthly_ai_credits_used += 2
                 
                 db.add(new_app)
                 apps_created += 1

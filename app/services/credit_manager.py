@@ -10,9 +10,9 @@ class CreditManager:
     Manages checking and deducting credits for LLM and platform actions.
     Modular design allows rules to be easily updated or changed to section-wise deductions.
     """
-    COST_RESUME_OPTIMIZATION = 10
-    COST_COVER_LETTER_GENERATION = 3
-    COST_SECTION_OPTIMIZATION = 2
+    COST_RESUME_OPTIMIZATION = 15
+    COST_COVER_LETTER_GENERATION = 15
+    COST_SECTION_OPTIMIZATION = 10
 
     @classmethod
     def check_credits(cls, candidate: Candidate, cost: int, limits: dict) -> bool:
