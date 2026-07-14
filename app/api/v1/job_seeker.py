@@ -102,7 +102,7 @@ PLAN_LIMITS = {
         "daily_apply_limit": 3,
         "monthly_ai_credits": 800,
         "monthly_resume_optimization_limit": 15,
-        "monthly_cover_letter_limit": 9999,
+        "monthly_cover_letter_limit": 100,
         "missing_skills_analysis_enabled": True,
         "saved_resumes_limit": 30,
     },
@@ -111,18 +111,18 @@ PLAN_LIMITS = {
         "daily_apply_limit": 5,
         "monthly_ai_credits": 1200,
         "monthly_resume_optimization_limit": 22,
-        "monthly_cover_letter_limit": 9999,
+        "monthly_cover_letter_limit": 500,
         "missing_skills_analysis_enabled": True,
-        "saved_resumes_limit": 9999,
+        "saved_resumes_limit": 50,
     },
     "platinum": {
         "name": "Platinum",
         "daily_apply_limit": 9999,
         "monthly_ai_credits": 99999,
-        "monthly_resume_optimization_limit": 9999,
-        "monthly_cover_letter_limit": 9999,
+        "monthly_resume_optimization_limit": 50,
+        "monthly_cover_letter_limit": 1000,
         "missing_skills_analysis_enabled": True,
-        "saved_resumes_limit": 99999,
+        "saved_resumes_limit": 100,
     }
 }
 
@@ -150,8 +150,7 @@ def check_and_reset_candidate_credits(candidate: Candidate, db: Session) -> Cand
     # Check monthly reset (UTC month boundary)
     last_monthly_reset_utc = candidate.monthly_credits_reset_at.astimezone(timezone.utc) if candidate.monthly_credits_reset_at.tzinfo else candidate.monthly_credits_reset_at.replace(tzinfo=timezone.utc)
     if last_monthly_reset_utc.year < now.year or last_monthly_reset_utc.month < now.month:
-        if candidate.plan_tier != "free":
-            candidate.monthly_ai_credits_used = 0
+        candidate.monthly_ai_credits_used = 0
         candidate.resume_optimizations_used_this_month = 0
         candidate.cover_letters_generated_this_month = 0
         candidate.monthly_credits_reset_at = now
@@ -571,29 +570,58 @@ def apply_to_job(
     ).first()
     if not resume:
         # Create a new resume record copying metadata from primary resume
+        primary_res = db.query(Resume).filter(
+            Resume.candidate_id == candidate.id,
+            Resume.is_primary == True
+        ).first()
+        
+        existing_resumes_count = db.query(Resume).filter(Resume.candidate_id == candidate.id).count()
+        
         resume = Resume(
             candidate_id=candidate.id,
             file_url=payload.resume_url,
             file_name=payload.resume_name,
             job_id=job.id,
+            parent_resume_id=primary_res.id if primary_res else None,
+            version_number=existing_resumes_count + 1,
             is_primary=False,
             total_experience_years=0
         )
-        primary_res = db.query(Resume).filter(
-            Resume.candidate_id == candidate.id,
-            Resume.is_primary == True
-        ).first()
         if primary_res:
             resume.total_experience_years = primary_res.total_experience_years
             resume.taxonomy_domain_id = primary_res.taxonomy_domain_id
             resume.overall_embedding = primary_res.overall_embedding
             resume.extracted_skills = primary_res.extracted_skills
+            resume.structured_data = primary_res.structured_data
+            
         db.add(resume)
         db.flush()
+        
+        if primary_res:
+            from app.models.resume import ResumeSection
+            for section in primary_res.sections:
+                new_section = ResumeSection(
+                    resume_id=resume.id,
+                    section_type=section.section_type,
+                    original_content=section.original_content,
+                    optimized_content=section.optimized_content,
+                    optimization_metadata=section.optimization_metadata,
+                    structured_content=section.structured_content,
+                    optimized_structured_content=section.optimized_structured_content
+                )
+                db.add(new_section)
+            db.flush()
     else:
         # Link existing resume to this job if not already
         if resume.job_id != job.id:
             resume.job_id = job.id
+            if not resume.parent_resume_id:
+                primary_res = db.query(Resume).filter(
+                    Resume.candidate_id == candidate.id,
+                    Resume.is_primary == True
+                ).first()
+                if primary_res and resume.id != primary_res.id:
+                    resume.parent_resume_id = primary_res.id
             db.flush()
 
     # Calculate AI score for this application using the selected resume
