@@ -49,9 +49,11 @@ from app.schemas.job_seeker import (
     CoverLetterGenerateRequest,
     FitAnalysisResponse,
     ResumeVersionResponse,
+    PaginatedResumeVersionResponse,
     ResumeStructureResponse,
     ResumeUploadRequest,
     CoverLetterDetailResponse,
+    PaginatedCoverLetterDetailResponse,
     CoverLetterCreateRequest,
     CoverLetterUpdateRequest,
     SaveJobRequest,
@@ -2092,8 +2094,10 @@ def analyze_fit_for_job(
 
 # --- SAVED RESUMES MANAGEMENT ---
 
-@router.get("/resumes", response_model=List[ResumeVersionResponse])
+@router.get("/resumes", response_model=PaginatedResumeVersionResponse)
 def list_resumes(
+    skip: int = 0,
+    limit: int = 10,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
 ):
@@ -2132,7 +2136,7 @@ def list_resumes(
                 ai_score=ai_score
             )
         )
-    return response
+    return {"resumes": response[skip : skip + limit], "count": len(response)}
 
 
 @router.get("/resumes/{resume_id}/structure")
@@ -2621,7 +2625,7 @@ def delete_resume(
 
 # --- SAVED COVER LETTERS MANAGEMENT ---
 
-@router.get("/cover-letters", response_model=List[CoverLetterDetailResponse])
+@router.get("/cover-letters", response_model=PaginatedCoverLetterDetailResponse)
 def list_cover_letters(
     skip: int = 0,
     limit: int = 10,
@@ -2634,7 +2638,7 @@ def list_cover_letters(
         CoverLetter.candidate_id == candidate.id
     ).order_by(
         CoverLetter.created_at.desc()
-    ).offset(skip).limit(limit).all()
+    ).all()
     
     response = []
     matching_service = MatchingEngine(db)
@@ -2659,7 +2663,7 @@ def list_cover_letters(
                          ai_score = int(score_details["final_score"])
                      except Exception:
                          ai_score = None
-                         
+                          
         response.append(
             CoverLetterDetailResponse(
                 id=cl.id,
@@ -2674,7 +2678,7 @@ def list_cover_letters(
                 ai_score=ai_score
             )
         )
-    return response
+    return {"cover_letters": response[skip : skip + limit], "count": len(response)}
 
 
 @router.post("/cover-letters", response_model=CoverLetterDetailResponse)
