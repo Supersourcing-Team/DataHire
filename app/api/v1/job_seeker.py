@@ -563,11 +563,19 @@ def apply_to_job(
         raise HTTPException(status_code=400, detail="You have already applied to this job.")
         
     # Resolve the resume passed in payload
-    # Check if this candidate already has a resume with the specified file_url
+    # 1. Prioritize a resume matching the URL that is already linked to this job (e.g. optimized)
     resume = db.query(Resume).filter(
         Resume.candidate_id == candidate.id,
-        Resume.file_url == payload.resume_url
+        Resume.file_url == payload.resume_url,
+        Resume.job_id == job.id
     ).first()
+    
+    # 2. Fall back to any resume matching the URL if no job-linked version exists
+    if not resume:
+        resume = db.query(Resume).filter(
+            Resume.candidate_id == candidate.id,
+            Resume.file_url == payload.resume_url
+        ).first()
     if not resume:
         # Check saved resumes limit
         tier = candidate.plan_tier or "free"
@@ -1727,16 +1735,32 @@ def optimize_resume_for_job(
                 detail=f"You have reached your monthly Resume Optimization limit of {limits['monthly_resume_optimization_limit']}."
             )
             
-    # Check saved resumes limit
-    existing_non_deleted_count = db.query(Resume).filter(
+    # Get primary resume
+    primary_resume = db.query(Resume).filter(
         Resume.candidate_id == candidate.id,
+        Resume.is_primary == True
+    ).first()
+    if not primary_resume:
+        raise HTTPException(status_code=400, detail="You do not have a primary resume uploaded.")
+
+    # Check if an active optimized resume already exists for this job
+    existing_optimized_resume = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.job_id == job.id,
         Resume.is_deleted == False
-    ).count()
-    if existing_non_deleted_count >= limits["saved_resumes_limit"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"You have reached your limit of {limits['saved_resumes_limit']} saved resumes. Please delete an existing resume to optimize a new one."
-        )
+    ).first()
+
+    # Check saved resumes limit (only if creating a new one)
+    if not existing_optimized_resume:
+        existing_non_deleted_count = db.query(Resume).filter(
+            Resume.candidate_id == candidate.id,
+            Resume.is_deleted == False
+        ).count()
+        if existing_non_deleted_count >= limits["saved_resumes_limit"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"You have reached your limit of {limits['saved_resumes_limit']} saved resumes. Please delete an existing resume to optimize a new one."
+            )
             
     # Check and deduct credits via CreditManager (Cost: 10 AI credits)
     credit_manager.check_and_deduct_credits(
@@ -1746,68 +1770,107 @@ def optimize_resume_for_job(
         db=db
     )
             
-    # Get primary resume
-    primary_resume = db.query(Resume).filter(
-        Resume.candidate_id == candidate.id,
-        Resume.is_primary == True
-    ).first()
-    if not primary_resume:
-        raise HTTPException(status_code=400, detail="You do not have a primary resume uploaded.")
-        
-    existing_resumes_count = db.query(Resume).filter(Resume.candidate_id == candidate.id).count()
-    
-    # Create new optimized resume version
     # Union of skills so the matching engine score goes up for the target job as intended
     union_skills = list(set(primary_resume.extracted_skills or []) | set(job.extracted_skills or []))
     
-    new_resume = Resume(
-        candidate_id=candidate.id,
-        file_url=primary_resume.file_url,
-        file_name=f"Optimized Resume - {job.title}",
-        parent_resume_id=primary_resume.id,
-        job_id=job.id,
-        version_number=existing_resumes_count + 1,
-        is_primary=False,
-        is_ai_optimized=True,
-        total_experience_years=primary_resume.total_experience_years,
-        taxonomy_domain_id=primary_resume.taxonomy_domain_id,
-        extracted_skills=union_skills,
-        structured_data=primary_resume.structured_data
-    )
-    db.add(new_resume)
-    db.flush() # Populate new_resume.id
-    
-    # Optimize resume sections
-    new_sections = []
-    for section in primary_resume.sections:
-        result = optimization_engine.optimize_section(job, section)
+    if existing_optimized_resume:
+        resume_to_use = existing_optimized_resume
+        resume_to_use.file_url = primary_resume.file_url
+        resume_to_use.total_experience_years = primary_resume.total_experience_years
+        resume_to_use.taxonomy_domain_id = primary_resume.taxonomy_domain_id
+        resume_to_use.extracted_skills = union_skills
+        resume_to_use.structured_data = primary_resume.structured_data
+        db.add(resume_to_use)
+        db.flush()
         
-        # Save optimized content in a new section record linked to the new resume version
-        new_section = ResumeSection(
-            resume_id=new_resume.id,
-            section_type=section.section_type,
-            original_content=section.original_content,
-            optimized_content=result.get("optimized_content"),
-            optimization_metadata={
-                "missing_keywords": result.get("missing_keywords", []),
-                "feedback": result.get("optimization_feedback", "")
-            }
+        # Update/Create sections
+        new_sections = []
+        existing_sections_by_type = {s.section_type: s for s in resume_to_use.sections}
+        primary_section_types = {s.section_type for s in primary_resume.sections}
+        
+        # Delete any sections in existing optimized resume that are no longer in primary resume
+        for s_type, s in list(existing_sections_by_type.items()):
+            if s_type not in primary_section_types:
+                db.delete(s)
+                
+        for section in primary_resume.sections:
+            result = optimization_engine.optimize_section(job, section)
+            
+            existing_sec = existing_sections_by_type.get(section.section_type)
+            if existing_sec:
+                existing_sec.original_content = section.original_content
+                existing_sec.optimized_content = result.get("optimized_content")
+                existing_sec.optimization_metadata = {
+                    "missing_keywords": result.get("missing_keywords", []),
+                    "feedback": result.get("optimization_feedback", "")
+                }
+                db.add(existing_sec)
+                new_sections.append(existing_sec)
+            else:
+                new_section = ResumeSection(
+                    resume_id=resume_to_use.id,
+                    section_type=section.section_type,
+                    original_content=section.original_content,
+                    optimized_content=result.get("optimized_content"),
+                    optimization_metadata={
+                        "missing_keywords": result.get("missing_keywords", []),
+                        "feedback": result.get("optimization_feedback", "")
+                    }
+                )
+                db.add(new_section)
+                new_sections.append(new_section)
+        db.flush()
+    else:
+        # Create new optimized resume version
+        existing_resumes_count = db.query(Resume).filter(Resume.candidate_id == candidate.id).count()
+        resume_to_use = Resume(
+            candidate_id=candidate.id,
+            file_url=primary_resume.file_url,
+            file_name=f"Optimized Resume - {job.title}",
+            parent_resume_id=primary_resume.id,
+            job_id=job.id,
+            version_number=existing_resumes_count + 1,
+            is_primary=False,
+            is_ai_optimized=True,
+            total_experience_years=primary_resume.total_experience_years,
+            taxonomy_domain_id=primary_resume.taxonomy_domain_id,
+            extracted_skills=union_skills,
+            structured_data=primary_resume.structured_data
         )
-        db.add(new_section)
-        new_sections.append(new_section)
+        db.add(resume_to_use)
+        db.flush()
         
-    # Update new resume's structured_data using the optimized sections
+        # Optimize resume sections
+        new_sections = []
+        for section in primary_resume.sections:
+            result = optimization_engine.optimize_section(job, section)
+            
+            new_section = ResumeSection(
+                resume_id=resume_to_use.id,
+                section_type=section.section_type,
+                original_content=section.original_content,
+                optimized_content=result.get("optimized_content"),
+                optimization_metadata={
+                    "missing_keywords": result.get("missing_keywords", []),
+                    "feedback": result.get("optimization_feedback", "")
+                }
+            )
+            db.add(new_section)
+            new_sections.append(new_section)
+        db.flush()
+        
+    # Update structured_data using the optimized sections
     from sqlalchemy.orm.attributes import flag_modified
-    new_resume.structured_data = update_structured_data_with_optimized_sections(new_resume.structured_data, new_sections)
-    flag_modified(new_resume, "structured_data")
+    resume_to_use.structured_data = update_structured_data_with_optimized_sections(resume_to_use.structured_data, new_sections)
+    flag_modified(resume_to_use, "structured_data")
         
     # Increment usage
     candidate.resume_optimizations_used_this_month += 1
     db.add(candidate)
     db.commit()
-    db.refresh(new_resume)
+    db.refresh(resume_to_use)
     
-    return format_resume_structure(new_resume, candidate, current_user)
+    return format_resume_structure(resume_to_use, candidate, current_user)
 
 
 @router.post("/resume/optimize")
