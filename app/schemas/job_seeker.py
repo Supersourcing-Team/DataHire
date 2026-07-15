@@ -201,6 +201,7 @@ class ResumeVersionResponse(BaseModel):
     file_url: Optional[str] = None
     version_number: int
     is_primary: bool
+    is_ai_optimized: bool = False
     created_at: datetime
     job_id: Optional[UUID] = None
     job_title: Optional[str] = None

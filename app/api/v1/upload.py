@@ -98,6 +98,7 @@ async def upload_file(
                 file_url=url,
                 file_name=file.filename,
                 is_primary=is_primary,
+                is_ai_optimized=False,
                 version_number=len(existing_resumes) + 1,
                 total_experience_years=total_exp,
                 taxonomy_domain_id=domain_id,

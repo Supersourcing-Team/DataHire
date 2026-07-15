@@ -596,6 +596,7 @@ def apply_to_job(
             parent_resume_id=primary_res.id if primary_res else None,
             version_number=existing_resumes_count + 1,
             is_primary=False,
+            is_ai_optimized=False,
             total_experience_years=0
         )
         if primary_res:
@@ -1767,6 +1768,7 @@ def optimize_resume_for_job(
         job_id=job.id,
         version_number=existing_resumes_count + 1,
         is_primary=False,
+        is_ai_optimized=True,
         total_experience_years=primary_resume.total_experience_years,
         taxonomy_domain_id=primary_resume.taxonomy_domain_id,
         extracted_skills=union_skills,
@@ -1869,6 +1871,7 @@ def optimize_resume_general(
         job_id=None,
         version_number=existing_resumes_count + 1,
         is_primary=False,
+        is_ai_optimized=True,
         total_experience_years=primary_resume.total_experience_years,
         taxonomy_domain_id=primary_resume.taxonomy_domain_id,
         extracted_skills=primary_resume.extracted_skills,
@@ -2180,7 +2183,7 @@ def list_resumes(
     resumes = db.query(Resume).filter(
         Resume.candidate_id == candidate.id,
         Resume.is_deleted == False
-    ).order_by(Resume.version_number.desc()).all()
+    ).order_by(Resume.is_primary.desc(), Resume.version_number.desc()).all()
     
     response = []
     matching_service = MatchingEngine(db)
@@ -2206,6 +2209,7 @@ def list_resumes(
                 file_url=s3_service.get_presigned_url(r.file_url),
                 version_number=r.version_number,
                 is_primary=r.is_primary,
+                is_ai_optimized=r.is_ai_optimized,
                 created_at=r.created_at,
                 job_id=r.job_id,
                 job_title=job_title,
@@ -2583,6 +2587,7 @@ def upload_resume(
         file_url=s3_service.get_presigned_url(new_resume.file_url),
         version_number=new_resume.version_number,
         is_primary=new_resume.is_primary,
+        is_ai_optimized=new_resume.is_ai_optimized,
         created_at=new_resume.created_at,
         job_id=None,
         job_title=None,
