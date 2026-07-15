@@ -853,23 +853,12 @@ def get_saved_jobs_status(
         if not job or not job.is_active:
             continue
             
-        # Calculate AI match score using direct in-memory engine evaluation to avoid duplicate queries
+        # Calculate AI match score using the central MatchingEngine with pre-loaded objects
         ai_score = 0
         if primary_resume and primary_resume.overall_embedding is not None:
             try:
-                semantic_score = matching_service.evaluate_semantic_fit(job, primary_resume)
-                skills_eval = matching_service.evaluate_skills_overlap(job, primary_resume)
-                skills_score = skills_eval["score"]
-                experience_score = matching_service.evaluate_experience_match(job, primary_resume)
-                logistics_score = matching_service.evaluate_logistics(job, primary_resume)
-                
-                final_score = (
-                    (semantic_score * MatchingEngine.WEIGHT_SEMANTIC) +
-                    (skills_score * MatchingEngine.WEIGHT_SKILLS) +
-                    (experience_score * MatchingEngine.WEIGHT_EXPERIENCE) +
-                    (logistics_score * MatchingEngine.WEIGHT_FILTERS)
-                )
-                ai_score = int(final_score)
+                score_details = matching_service.score_resume_object_for_job_object(primary_resume, job)
+                ai_score = int(score_details["final_score"])
             except Exception:
                 ai_score = 0
                 
@@ -1013,23 +1002,12 @@ def get_saved_jobs_pipeline(
         is_applied = app_record is not None
         app_status = app_record.status if app_record else None
         
-        # Calculate AI match score using direct in-memory evaluation to avoid duplicate queries
+        # Calculate AI match score using the central MatchingEngine with pre-loaded objects
         ai_score = 0
         if primary_resume and primary_resume.overall_embedding is not None:
             try:
-                semantic_score = matching_service.evaluate_semantic_fit(job, primary_resume)
-                skills_eval = matching_service.evaluate_skills_overlap(job, primary_resume)
-                skills_score = skills_eval["score"]
-                experience_score = matching_service.evaluate_experience_match(job, primary_resume)
-                logistics_score = matching_service.evaluate_logistics(job, primary_resume)
-                
-                final_score = (
-                    (semantic_score * MatchingEngine.WEIGHT_SEMANTIC) +
-                    (skills_score * MatchingEngine.WEIGHT_SKILLS) +
-                    (experience_score * MatchingEngine.WEIGHT_EXPERIENCE) +
-                    (logistics_score * MatchingEngine.WEIGHT_FILTERS)
-                )
-                ai_score = int(final_score)
+                score_details = matching_service.score_resume_object_for_job_object(primary_resume, job)
+                ai_score = int(score_details["final_score"])
             except Exception:
                 ai_score = 0
                 
