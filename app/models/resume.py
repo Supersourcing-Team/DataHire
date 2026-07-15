@@ -33,6 +33,7 @@ class Resume(Base):
     version_number = Column(Integer, default=1, nullable=False)
     is_primary = Column(Boolean, default=False, nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
+    is_ai_optimized = Column(Boolean, default=False, server_default="false", nullable=False)
     
     # Metadata for quick filtering
     total_experience_years = Column(Integer, default=0, nullable=False)
