@@ -296,6 +296,7 @@ class ResumeParserService:
             file_url=file_url,
             file_name=file_name,
             is_primary=is_primary,
+            is_ai_optimized=False,
             version_number=existing_resumes_count + 1,
             total_experience_years=total_exp,
             taxonomy_domain_id=domain_id,
