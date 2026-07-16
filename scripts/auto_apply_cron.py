@@ -1,7 +1,6 @@
 import os
 import sys
 
-# Add project root to python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.tasks.auto_apply import dispatch_auto_apply_all_task
