@@ -924,15 +924,33 @@ def get_saved_jobs_status(
 @router.get("/dashboard/saved-jobs/pipeline", response_model=List[JobSeekerFeedResponse])
 def get_saved_jobs_pipeline(
     status: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
 ):
     candidate = get_candidate(current_user, db)
     
     # 1. Fetch all saved records for candidate with eager loading of relations to prevent duplicate hits in the loop
-    saved_records = (
+    query = (
         db.query(SavedJob)
         .filter(SavedJob.candidate_id == candidate.id)
+    )
+    
+    if search:
+        query = (
+            query
+            .join(JobPosting, SavedJob.job_id == JobPosting.id)
+            .join(Company, JobPosting.company_id == Company.id)
+            .filter(
+                or_(
+                    JobPosting.title.ilike(f"%{search}%"),
+                    Company.name.ilike(f"%{search}%")
+                )
+            )
+        )
+        
+    saved_records = (
+        query
         .options(
             joinedload(SavedJob.job).joinedload(JobPosting.company),
             joinedload(SavedJob.job).joinedload(JobPosting.city),
@@ -3885,6 +3903,7 @@ async def verify_phone_otp(
 @router.get("/recommended-jobs", response_model=List[JobSeekerFeedResponse])
 def get_recommended_jobs(
     resume_id: Optional[UUID] = None,
+    search: Optional[str] = Query(None),
     limit: int = Query(default=10, le=50),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
@@ -3936,6 +3955,18 @@ def get_recommended_jobs(
         JobPosting.status == JobStatus.PUBLISHED,
         ~JobPosting.id.in_(skipped_job_ids_query)
     )
+
+    if search:
+        query = (
+            query
+            .join(Company, JobPosting.company_id == Company.id)
+            .filter(
+                or_(
+                    JobPosting.title.ilike(f"%{search}%"),
+                    Company.name.ilike(f"%{search}%")
+                )
+            )
+        )
 
     # DB-level ranking clauses
     order_by_clauses = []
