@@ -19,6 +19,7 @@ from app.models.saved_job import SavedJob
 from app.models.cover_letter import CoverLetter
 from app.models.job_report import JobReport
 from app.models.notification import Notification, NotificationPreference
+from app.models.payment import Transaction
 
 __all__ = [
     "Base",
@@ -37,6 +38,7 @@ __all__ = [
     "MetaWorkStatus", "MetaVisaStatus",
     "JobPosting", "Resume", "ResumeSection",
     "JobApplication", "SavedJob", "CoverLetter", "JobReport",
-    "Notification", "NotificationPreference"
+    "Notification", "NotificationPreference",
+    "Transaction"
 ]
 
