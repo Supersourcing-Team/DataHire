@@ -46,6 +46,8 @@ class Company(Base):
     city_id = Column(Integer, ForeignKey("meta_cities.id", ondelete="SET NULL"), nullable=True)
 
     plan_tier = Column(String(20), default="free", nullable=False)  # free, startup, msme, enterprise
+    stripe_customer_id = Column(String(255), nullable=True, index=True)
+    stripe_subscription_id = Column(String(255), nullable=True, index=True)
     subscription_duration_months = Column(Integer, default=0, nullable=False)  # 0, 3, 6, 12
     subscription_ends_at = Column(DateTime(timezone=True), nullable=True)
 

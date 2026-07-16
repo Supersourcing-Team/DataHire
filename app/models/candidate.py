@@ -36,6 +36,9 @@ class Candidate(Base):
 
     # Subscription and Credit System
     plan_tier = Column(String(20), default="free", nullable=False)  # free, pro, premium
+    stripe_customer_id = Column(String(255), nullable=True, index=True)
+    stripe_subscription_id = Column(String(255), nullable=True, index=True)
+    subscription_ends_at = Column(DateTime(timezone=True), nullable=True)
     daily_apply_credits_used = Column(Integer, default=0, nullable=False)
     monthly_ai_credits_used = Column(Integer, default=0, nullable=False)
     resume_optimizations_used_this_month = Column(Integer, default=0, nullable=False)

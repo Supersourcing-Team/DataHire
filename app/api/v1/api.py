@@ -60,6 +60,10 @@ api_router.include_router(admin_router)
 from app.api.v1.notifications import router as notifications_router
 api_router.include_router(notifications_router)
 
+# Include Billing router
+from app.api.v1.billing import router as billing_router
+api_router.include_router(billing_router)
+
 @api_router.get("/")
 async def api_info():
     """API information endpoint."""
@@ -71,6 +75,9 @@ async def api_info():
             "linkedin": "/auth/linkedin",
             "google": "/auth/google",
             "jobs_dashboard": "/jobs/dashboard",
+            "billing_checkout": "/billing/create-checkout-session",
+            "billing_portal": "/billing/create-portal-session",
+            "billing_status": "/billing/status",
             "admin_hiring_funnel": "/admin/dashboard/hiring-funnel",
             "admin_growth_analytics": "/admin/dashboard/growth-analytics",
             "admin_candidate_dashboard": "/admin/dashboard/candidates",

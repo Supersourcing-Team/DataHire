@@ -52,6 +52,36 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: list = ["http://localhost:3000"]
     
+    # Stripe Integration
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_PUBLISHABLE_KEY: Optional[str] = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+    FRONTEND_URL: str = "http://localhost:3000"
+    
+    # Candidate Stripe Prices
+    STRIPE_PRICE_CANDIDATE_PRO: str = "price_placeholder_candidate_pro"
+    STRIPE_PRICE_CANDIDATE_PREMIUM: str = "price_placeholder_candidate_premium"
+    
+    # Company Stripe Prices
+    STRIPE_PRICE_COMPANY_STARTUP: str = "price_placeholder_company_startup"
+    STRIPE_PRICE_COMPANY_MSME: str = "price_placeholder_company_msme"
+    STRIPE_PRICE_COMPANY_ENTERPRISE: str = "price_placeholder_company_enterprise"
+
+    @property
+    def candidate_stripe_prices(self) -> dict:
+        return {
+            "pro": self.STRIPE_PRICE_CANDIDATE_PRO,
+            "premium": self.STRIPE_PRICE_CANDIDATE_PREMIUM,
+        }
+
+    @property
+    def company_stripe_prices(self) -> dict:
+        return {
+            "startup": self.STRIPE_PRICE_COMPANY_STARTUP,
+            "msme": self.STRIPE_PRICE_COMPANY_MSME,
+            "enterprise": self.STRIPE_PRICE_COMPANY_ENTERPRISE,
+        }
+    
     class Config:
         env_file = ".env"
         case_sensitive = True
