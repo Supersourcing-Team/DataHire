@@ -549,7 +549,6 @@ def get_ai_match_engine_dashboard(
     }
 
 
-<<<<<<< HEAD
 @router.get("/dashboard/ai-match-insights", response_model=AdminAIMatchInsightsResponse)
 def get_ai_match_insights(
     db: Session = Depends(get_db),
@@ -633,8 +632,6 @@ def get_ai_match_insights(
     }
 
 
-=======
->>>>>>> 453d493727057c2ffe62dd88f1b09012f54cddad
 @router.get("/candidates", response_model=List[AdminCandidateResponse])
 def get_all_candidates(
     search: Optional[str] = Query(None),
