@@ -43,12 +43,22 @@ class CandidateCreditsScoreResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+class ScoredResumeResponse(BaseModel):
+    resume_id: UUID
+    resume_name: Optional[str] = None
+    ats_score: int
+    is_default: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class JobSeekerFeedResponse(JobDashboardCardResponse):
     saved: bool = False
     applied: bool = False
     application_status: Optional[str] = None
     apply_mode: Optional[str] = None
     coverLetter: Optional[bool] = None
+    resumes: List[ScoredResumeResponse] = []
 
 class AIMatchOverview(BaseModel):
     experience_match_percent: int
