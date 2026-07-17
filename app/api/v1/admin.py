@@ -468,6 +468,86 @@ def get_hiring_funnel_analytics(
     )
 
 
+@router.get("/dashboard/hiring_&_jobs")
+def get_hiring_and_jobs_dashboard(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> dict:
+    """Get hiring and jobs KPIs summary for the admin dashboard (Admin only)."""
+    active_jobs = db.query(JobPosting).filter(JobPosting.status == JobStatus.PUBLISHED).count()
+    closed_jobs = db.query(JobPosting).filter(JobPosting.status == JobStatus.CLOSED).count()
+    total_jobs = active_jobs + closed_jobs
+    
+    active_jobs_ratio = round((active_jobs / total_jobs) * 100, 1) if total_jobs > 0 else 0.0
+    
+    apps = db.query(JobApplication).count()
+    hires = db.query(JobApplication).filter(JobApplication.status == "hired").count()
+
+    return {
+        "title": "HIRING & JOBS",
+        "total_jobs": total_jobs,
+        "total_jobs_formatted": f"{total_jobs:,}",
+        "active_jobs_ratio": active_jobs_ratio,
+        "active_jobs_ratio_label": f"{active_jobs_ratio:.1f}%",
+        "active_jobs": active_jobs,
+        "active_jobs_label": f"Active: {active_jobs}",
+        "closed_jobs": closed_jobs,
+        "closed_jobs_label": f"Closed: {closed_jobs}",
+        "apps": apps,
+        "apps_label": f"Apps: {apps:,}",
+        "hires": hires,
+        "hires_label": f"Hires: {hires:,}"
+    }
+
+
+@router.get("/dashboard/ai-match-engine")
+def get_ai_match_engine_dashboard(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> dict:
+    """Get AI Match Engine KPIs summary for the admin dashboard (Admin only)."""
+    from app.services.matching_engine import MatchingEngine
+    
+    applications = (
+        db.query(JobApplication)
+        .options(
+            joinedload(JobApplication.job),
+            selectinload(JobApplication.candidate).selectinload(Candidate.resumes)
+        )
+        .all()
+    )
+    
+    total_analyses = len(applications)
+    total_matches = 0
+    total_gaps = 0
+    
+    matching_service = MatchingEngine(db)
+    for app in applications:
+        job = app.job
+        # Find primary resume
+        resume = next((r for r in app.candidate.resumes if r.is_primary and not r.is_deleted), None)
+        if resume and job:
+            skills_eval = matching_service.evaluate_skills_overlap(job, resume)
+            total_matches += len(skills_eval.get("matched", []))
+            total_gaps += len(skills_eval.get("missing", []))
+            
+    gap_analysis_rate = round((total_gaps / total_analyses) * 100, 1) if total_analyses > 0 else 0.0
+
+    return {
+        "title": "AI MATCH ENGINE",
+        "total_analyses": total_analyses,
+        "total_analyses_formatted": f"{total_analyses:,}",
+        "gap_analysis_rate": gap_analysis_rate,
+        "gap_analysis_rate_label": f"{gap_analysis_rate:.1f}%",
+        "total_matches": total_matches,
+        "total_matches_formatted": f"{total_matches:,}",
+        "total_gaps": total_gaps,
+        "total_gaps_formatted": f"{total_gaps:,}",
+        "matches_label": f"Matches: {total_matches:,}",
+        "gaps_label": f"Gaps: {total_gaps:,}"
+    }
+
+
 @router.get("/candidates", response_model=List[AdminCandidateResponse])
 def get_all_candidates(
     search: Optional[str] = Query(None),
@@ -849,6 +929,8 @@ def revoke_company(
 @router.get("/companies/{company_id}/jobs", response_model=List[AdminJobResponse])
 def get_company_jobs(
     company_id: UUID,
+    skip: int = 0,
+    limit: int = 100,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ) -> List[AdminJobResponse]:
@@ -874,6 +956,8 @@ def get_company_jobs(
         )
         .filter(JobPosting.company_id == company_id)
         .order_by(JobPosting.created_at.desc())
+        .offset(skip)
+        .limit(limit)
         .all()
     )
 
