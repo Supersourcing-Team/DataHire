@@ -565,19 +565,29 @@ def apply_to_job(
         raise HTTPException(status_code=400, detail="You have already applied to this job.")
         
     # Resolve the resume passed in payload
-    # 1. Prioritize a resume matching the URL that is already linked to this job (e.g. optimized)
-    resume = db.query(Resume).filter(
-        Resume.candidate_id == candidate.id,
-        Resume.file_url == payload.resume_url,
-        Resume.job_id == job.id
-    ).first()
+    from app.services.s3_service import clean_s3_url
+    payload_clean_url = clean_s3_url(payload.resume_url)
     
+    # Query all candidate resumes to match using cleaned S3 URLs in memory
+    all_resumes = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.is_deleted == False
+    ).all()
+    
+    resume = None
+    # 1. Prioritize a resume matching the URL that is already linked to this job (e.g. optimized)
+    for r in all_resumes:
+        if clean_s3_url(r.file_url) == payload_clean_url and r.job_id == job.id:
+            resume = r
+            break
+            
     # 2. Fall back to any resume matching the URL if no job-linked version exists
     if not resume:
-        resume = db.query(Resume).filter(
-            Resume.candidate_id == candidate.id,
-            Resume.file_url == payload.resume_url
-        ).first()
+        for r in all_resumes:
+            if clean_s3_url(r.file_url) == payload_clean_url:
+                resume = r
+                break
+                
     if not resume:
         # Check saved resumes limit
         tier = candidate.plan_tier or "free"
@@ -600,7 +610,7 @@ def apply_to_job(
         
         resume = Resume(
             candidate_id=candidate.id,
-            file_url=payload.resume_url,
+            file_url=payload_clean_url,
             file_name=payload.resume_name,
             job_id=job.id,
             parent_resume_id=primary_res.id if primary_res else None,
@@ -649,8 +659,8 @@ def apply_to_job(
                 )
             resume.is_deleted = False
             
-        # Link existing resume to this job if not already
-        if resume.job_id != job.id:
+        # Link existing resume to this job if not already (DO NOT modify job_id of primary resume)
+        if not resume.is_primary and resume.job_id != job.id:
             resume.job_id = job.id
             if not resume.parent_resume_id:
                 primary_res = db.query(Resume).filter(
@@ -1650,7 +1660,9 @@ def format_resume_structure(resume: Resume, candidate: Candidate, user: User) ->
     structured_data["meta"] = {
         "createdAt": resume.created_at.isoformat() if resume.created_at else None,
         "updatedAt": resume.updated_at.isoformat() if resume.updated_at else None,
-        "version": resume.version_number
+        "version": resume.version_number,
+        "is_ai_optimized": resume.is_ai_optimized,
+        "job_id": str(resume.job_id) if resume.job_id else None
     }
 
     return structured_data
@@ -1682,29 +1694,53 @@ def update_structured_data_with_optimized_sections(structured_data: Dict[str, An
             sd["skills"]["technical"] = list(set(sd["skills"].get("technical", []) + skills_list))
             
         elif s_type == "Experience":
-            bullets = []
-            for line in content.splitlines():
-                line_str = line.strip()
-                if not line_str:
-                    continue
-                cleaned = re.sub(r'^([•\-*\d\.\s]+)', '', line_str).strip()
-                if cleaned:
-                    bullets.append(cleaned)
-            
             if "experience" in sd and isinstance(sd["experience"], list) and len(sd["experience"]) > 0:
-                sd["experience"][0]["bullets"] = bullets
+                blocks = []
+                current_bullets = []
+                for line in content.splitlines():
+                    line_str = line.strip()
+                    if not line_str:
+                        continue
+                    if line_str.startswith(('-', '•', '*')) or (re.match(r'^\d+\.', line_str)):
+                        cleaned = re.sub(r'^([•\-*\d\.\s]+)', '', line_str).strip()
+                        if cleaned:
+                            current_bullets.append(cleaned)
+                    else:
+                        if current_bullets:
+                            blocks.append(current_bullets)
+                            current_bullets = []
+                if current_bullets:
+                    blocks.append(current_bullets)
+                
+                for i, job_item in enumerate(sd["experience"]):
+                    if i < len(blocks):
+                        job_item["bullets"] = blocks[i]
                 
         elif s_type == "Projects":
-            bullets = []
-            for line in content.splitlines():
-                line_str = line.strip()
-                if not line_str:
-                    continue
-                cleaned = re.sub(r'^([•\-*\d\.\s]+)', '', line_str).strip()
-                if cleaned:
-                    bullets.append(cleaned)
             if "projects" in sd and isinstance(sd["projects"], list) and len(sd["projects"]) > 0:
-                sd["projects"][0]["bullets"] = bullets
+                blocks = []
+                current_bullets = []
+                for line in content.splitlines():
+                    line_str = line.strip()
+                    if not line_str:
+                        continue
+                    if line_str.startswith(('-', '•', '*')) or (re.match(r'^\d+\.', line_str)):
+                        cleaned = re.sub(r'^([•\-*\d\.\s]+)', '', line_str).strip()
+                        if cleaned:
+                            current_bullets.append(cleaned)
+                    else:
+                        if current_bullets:
+                            blocks.append(current_bullets)
+                            current_bullets = []
+                if current_bullets:
+                    blocks.append(current_bullets)
+                
+                if blocks:
+                    for i, proj_item in enumerate(sd["projects"]):
+                        if i < len(blocks):
+                            proj_item["bullets"] = blocks[i]
+                else:
+                    sd["projects"][0]["description"] = content
                 
     return sd
 
@@ -2045,6 +2081,13 @@ def optimize_resume_section(
         }
         
     db.add(section)
+    
+    # Update structured_data using the optimized section
+    from sqlalchemy.orm.attributes import flag_modified
+    resume.structured_data = update_structured_data_with_optimized_sections(resume.structured_data, [section])
+    flag_modified(resume, "structured_data")
+    db.add(resume)
+    
     db.commit()
     db.refresh(section)
     
@@ -2630,10 +2673,13 @@ def upload_resume(
     """Save a manually uploaded resume from S3 URL."""
     candidate = get_candidate(current_user, db)
     
+    from app.services.s3_service import clean_s3_url
+    clean_url = clean_s3_url(data.file_url)
+    
     # Check if this resume was already parsed during the upload stage
     existing_resume = db.query(Resume).filter(
         Resume.candidate_id == candidate.id,
-        Resume.file_url == data.file_url
+        Resume.file_url == clean_url
     ).first()
     
     if existing_resume:
@@ -2651,7 +2697,7 @@ def upload_resume(
         new_resume = resume_parser_service.parse_and_save_resume(
             db=db,
             candidate=candidate,
-            file_url=data.file_url,
+            file_url=clean_url,
             file_name=data.file_name,
             is_primary=is_primary
         )

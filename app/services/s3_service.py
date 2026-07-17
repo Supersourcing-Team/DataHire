@@ -166,3 +166,14 @@ class S3Service:
             return presigned_url
         except Exception:
             return url
+
+def clean_s3_url(url: str) -> str:
+    """Strips query parameters and signature from S3 URLs, returning the static base URL."""
+    if not url:
+        return url
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url)
+        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+    except Exception:
+        return url
