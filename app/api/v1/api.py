@@ -98,6 +98,7 @@ async def api_info():
             "admin_hiring_and_jobs": "/admin/dashboard/hiring_&_jobs",
             "admin_company_jobs": "/admin/companies/{company_id}/jobs",
             "admin_ai_match_engine": "/admin/dashboard/ai-match-engine",
+            "admin_ai_match_insights": "/admin/dashboard/ai-match-insights",
             "job_seeker_recommended_jobs_resumes": "/job-seeker/recommended-jobs/resumes",
             # Add more endpoints as they are created
         }

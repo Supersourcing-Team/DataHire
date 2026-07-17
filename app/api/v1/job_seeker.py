@@ -2251,6 +2251,9 @@ def list_resumes(
         job_title = None
         company_name = None
         ai_score = None
+        strong_match = False
+        strong_match_roles = []
+        strong_match_role = None
         if r.job_id:
             job = db.query(JobPosting).filter(JobPosting.id == r.job_id).first()
             if job:
@@ -2261,6 +2264,13 @@ def list_resumes(
                     ai_score = int(score_details["final_score"])
                 except Exception:
                     ai_score = None
+                
+                if ai_score is not None:
+                    threshold = job.ai_score_threshold if (job.ai_score_threshold and job.ai_score_threshold > 0) else 70
+                    strong_match = ai_score >= threshold
+                if candidate.pref_role_type:
+                    strong_match_roles = [role.strip() for role in candidate.pref_role_type.split(",") if role.strip()]
+                    strong_match_role = candidate.pref_role_type
                     
         response.append(
             ResumeVersionResponse(
@@ -2269,12 +2279,16 @@ def list_resumes(
                 file_url=s3_service.get_presigned_url(r.file_url),
                 version_number=r.version_number,
                 is_primary=r.is_primary,
+                is_default=r.is_primary,
                 is_ai_optimized=r.is_ai_optimized,
                 created_at=r.created_at,
                 job_id=r.job_id,
                 job_title=job_title,
                 company_name=company_name,
-                ai_score=ai_score
+                ai_score=ai_score,
+                strong_match=strong_match,
+                strong_match_roles=strong_match_roles,
+                strong_match_role=strong_match_role
             )
         )
     return {"resumes": response[skip : skip + limit], "count": len(response)}
@@ -2647,12 +2661,16 @@ def upload_resume(
         file_url=s3_service.get_presigned_url(new_resume.file_url),
         version_number=new_resume.version_number,
         is_primary=new_resume.is_primary,
+        is_default=new_resume.is_primary,
         is_ai_optimized=new_resume.is_ai_optimized,
         created_at=new_resume.created_at,
         job_id=None,
         job_title=None,
         company_name=None,
-        ai_score=None
+        ai_score=None,
+        strong_match=False,
+        strong_match_roles=[],
+        strong_match_role=None
     )
 
 
@@ -4112,6 +4130,13 @@ def get_recommended_jobs_resumes(
         except Exception:
             ai_score = 0
             
+        threshold = job.ai_score_threshold if (job.ai_score_threshold and job.ai_score_threshold > 0) else 70
+        strong_match = ai_score >= threshold
+        
+        strong_match_roles = []
+        if candidate.pref_role_type:
+            strong_match_roles = [role.strip() for role in candidate.pref_role_type.split(",") if role.strip()]
+            
         response.append(
             ResumeVersionResponse(
                 id=r.id,
@@ -4119,12 +4144,16 @@ def get_recommended_jobs_resumes(
                 file_url=s3_service.get_presigned_url(r.file_url),
                 version_number=r.version_number,
                 is_primary=r.is_primary,
+                is_default=r.is_primary,
                 is_ai_optimized=r.is_ai_optimized,
                 created_at=r.created_at,
                 job_id=job.id,
                 job_title=job.title,
                 company_name=job.company.name if job.company else None,
-                ai_score=ai_score
+                ai_score=ai_score,
+                strong_match=strong_match,
+                strong_match_roles=strong_match_roles,
+                strong_match_role=candidate.pref_role_type
             )
         )
 
