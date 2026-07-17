@@ -39,6 +39,7 @@ from app.schemas.job_seeker import (
     JobSeekerDetailResponse,
     AIMatchOverview,
     ScoredResumeResponse,
+    ScoredResumeResponse,
     SavedJobResponse,
     SavedJobsStatusResponse,
     JobApplicationResponse,
@@ -2251,6 +2252,9 @@ def list_resumes(
         job_title = None
         company_name = None
         ai_score = None
+        strong_match = False
+        strong_match_roles = []
+        strong_match_role = None
         if r.job_id:
             job = db.query(JobPosting).filter(JobPosting.id == r.job_id).first()
             if job:
@@ -2261,6 +2265,13 @@ def list_resumes(
                     ai_score = int(score_details["final_score"])
                 except Exception:
                     ai_score = None
+                
+                if ai_score is not None:
+                    threshold = job.ai_score_threshold if (job.ai_score_threshold and job.ai_score_threshold > 0) else 70
+                    strong_match = ai_score >= threshold
+                if candidate.pref_role_type:
+                    strong_match_roles = [role.strip() for role in candidate.pref_role_type.split(",") if role.strip()]
+                    strong_match_role = candidate.pref_role_type
                     
         response.append(
             ResumeVersionResponse(
@@ -2269,12 +2280,16 @@ def list_resumes(
                 file_url=s3_service.get_presigned_url(r.file_url),
                 version_number=r.version_number,
                 is_primary=r.is_primary,
+                is_default=r.is_primary,
                 is_ai_optimized=r.is_ai_optimized,
                 created_at=r.created_at,
                 job_id=r.job_id,
                 job_title=job_title,
                 company_name=company_name,
-                ai_score=ai_score
+                ai_score=ai_score,
+                strong_match=strong_match,
+                strong_match_roles=strong_match_roles,
+                strong_match_role=strong_match_role
             )
         )
     return {"resumes": response[skip : skip + limit], "count": len(response)}
@@ -2647,12 +2662,16 @@ def upload_resume(
         file_url=s3_service.get_presigned_url(new_resume.file_url),
         version_number=new_resume.version_number,
         is_primary=new_resume.is_primary,
+        is_default=new_resume.is_primary,
         is_ai_optimized=new_resume.is_ai_optimized,
         created_at=new_resume.created_at,
         job_id=None,
         job_title=None,
         company_name=None,
-        ai_score=None
+        ai_score=None,
+        strong_match=False,
+        strong_match_roles=[],
+        strong_match_role=None
     )
 
 
@@ -3915,14 +3934,21 @@ def get_recommended_jobs(
     1. Querying active/published jobs (excluding those in skipped_jobs list).
     2. Ranking at database level using SQL case expressions for matching taxonomy domain and experience years.
     3. Detailed scoring of the top 100 candidate jobs using MatchingEngine against all candidate resumes.
+    3. Detailed scoring of the top 100 candidate jobs using MatchingEngine against all candidate resumes.
     4. Sorting by the detailed match score descending and returning the top `limit`.
     """
     candidate = get_candidate(current_user, db)
     
     # 1. Resolve resumes to use for scoring
+    # 1. Resolve resumes to use for scoring
     if resume_id:
         resumes = db.query(Resume).filter(
+        resumes = db.query(Resume).filter(
             Resume.id == resume_id,
+            Resume.candidate_id == candidate.id,
+            Resume.is_deleted == False
+        ).all()
+        if not resumes:
             Resume.candidate_id == candidate.id,
             Resume.is_deleted == False
         ).all()
@@ -3933,15 +3959,24 @@ def get_recommended_jobs(
             )
     else:
         resumes = db.query(Resume).filter(
+        resumes = db.query(Resume).filter(
             Resume.candidate_id == candidate.id,
+            Resume.is_deleted == False
+        ).all()
+        if not resumes:
             Resume.is_deleted == False
         ).all()
         if not resumes:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="You do not have any resumes uploaded. A resume is required to generate recommendations."
+                detail="You do not have any resumes uploaded. A resume is required to generate recommendations."
             )
 
+    # 2. Extract experience and domain criteria (using primary resume if available, otherwise first resume)
+    primary_resume = next((r for r in resumes if r.is_primary), resumes[0])
+    candidate_exp = candidate.experience_years if candidate.experience_years is not None else primary_resume.total_experience_years
+    candidate_domain = candidate.taxonomy_domain_id if candidate.taxonomy_domain_id is not None else primary_resume.taxonomy_domain_id
     # 2. Extract experience and domain criteria (using primary resume if available, otherwise first resume)
     primary_resume = next((r for r in resumes if r.is_primary), resumes[0])
     candidate_exp = candidate.experience_years if candidate.experience_years is not None else primary_resume.total_experience_years
@@ -3993,9 +4028,32 @@ def get_recommended_jobs(
     jobs_pool = query.order_by(*order_by_clauses).limit(100).all()
 
     # 5. Score candidate jobs pool using MatchingEngine against all candidate resumes
+    # 5. Score candidate jobs pool using MatchingEngine against all candidate resumes
     matching_service = MatchingEngine(db)
     scored_jobs = []
     for job in jobs_pool:
+        job_resumes_scores = []
+        for r in resumes:
+            try:
+                score_details = matching_service.score_resume_object_for_job_object(r, job)
+                final_score = score_details["final_score"]
+            except Exception:
+                final_score = 0.0
+            job_resumes_scores.append(
+                ScoredResumeResponse(
+                    resume_id=r.id,
+                    resume_name=r.file_name,
+                    ats_score=int(final_score),
+                    is_default=r.is_primary
+                )
+            )
+        
+        # Sort candidate resumes by ats_score descending
+        job_resumes_scores.sort(key=lambda x: x.ats_score, reverse=True)
+        # Use highest score as job's final recommendation score
+        best_score = job_resumes_scores[0].ats_score if job_resumes_scores else 0.0
+        
+        scored_jobs.append((job, best_score, job_resumes_scores))
         job_resumes_scores = []
         for r in resumes:
             try:
@@ -4024,6 +4082,7 @@ def get_recommended_jobs(
 
     # 7. Construct response for top recommended jobs
     feed_items = []
+    for job, ai_score, job_resumes in scored_jobs[:limit]:
     for job, ai_score, job_resumes in scored_jobs[:limit]:
         is_saved = db.query(SavedJob).filter(
             SavedJob.candidate_id == candidate.id,
@@ -4077,10 +4136,73 @@ def get_recommended_jobs(
                 apply_mode=app_record.apply_mode if app_record else None,
                 coverLetter=job.cover_letter_required,
                 resumes=job_resumes
+                coverLetter=job.cover_letter_required,
+                resumes=job_resumes
             )
         )
 
     return feed_items
+
+
+@router.get("/recommended-jobs/resumes", response_model=List[ResumeVersionResponse])
+def get_recommended_jobs_resumes(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+) -> List[ResumeVersionResponse]:
+    """Get all candidate resumes scored against a specific job, sorted in descending order of matching score."""
+    candidate = get_candidate(current_user, db)
+    job = db.query(JobPosting).filter(JobPosting.id == job_id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job posting not found."
+        )
+
+    resumes = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.is_deleted == False
+    ).all()
+
+    response = []
+    matching_service = MatchingEngine(db)
+    for r in resumes:
+        try:
+            score_details = matching_service.score_resume_object_for_job_object(r, job)
+            ai_score = int(score_details["final_score"])
+        except Exception:
+            ai_score = 0
+            
+        threshold = job.ai_score_threshold if (job.ai_score_threshold and job.ai_score_threshold > 0) else 70
+        strong_match = ai_score >= threshold
+        
+        strong_match_roles = []
+        if candidate.pref_role_type:
+            strong_match_roles = [role.strip() for role in candidate.pref_role_type.split(",") if role.strip()]
+            
+        response.append(
+            ResumeVersionResponse(
+                id=r.id,
+                file_name=r.file_name,
+                file_url=s3_service.get_presigned_url(r.file_url),
+                version_number=r.version_number,
+                is_primary=r.is_primary,
+                is_default=r.is_primary,
+                is_ai_optimized=r.is_ai_optimized,
+                created_at=r.created_at,
+                job_id=job.id,
+                job_title=job.title,
+                company_name=job.company.name if job.company else None,
+                ai_score=ai_score,
+                strong_match=strong_match,
+                strong_match_roles=strong_match_roles,
+                strong_match_role=candidate.pref_role_type
+            )
+        )
+
+    # Sort resumes in descending order of matching score (greater score at the top)
+    response.sort(key=lambda x: x.ai_score if x.ai_score is not None else -1, reverse=True)
+    return response
 
 
 @router.get("/recommended-jobs/resumes", response_model=List[ResumeVersionResponse])

@@ -514,6 +514,38 @@ class AdminJobReportResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ActiveTaxonomyRolesMetric(BaseModel):
+    count: int
+    label: str
+    description: str
+
+
+class AverageMatchScoreMetric(BaseModel):
+    score: float
+    label: str
+    description: str
+
+
+class AdminAIMatchInsightsResponse(BaseModel):
+    title: str = "AI match insights"
+    subtitle: str = "Overall status of taxonomy validation and matchmaking."
+    
+    # Flat formats
+    active_taxonomy_roles_count: int
+    active_taxonomy_roles_label: str
+    active_taxonomy_roles_description: str
+    
+    average_match_score: float
+    average_match_score_label: str
+    average_match_score_description: str
+    
+    # Nested formats
+    active_taxonomy_roles: ActiveTaxonomyRolesMetric
+    average_match_score_data: AverageMatchScoreMetric
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 
 
 

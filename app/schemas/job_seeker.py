@@ -211,12 +211,16 @@ class ResumeVersionResponse(BaseModel):
     file_url: Optional[str] = None
     version_number: int
     is_primary: bool
+    is_default: bool = False
     is_ai_optimized: bool = False
     created_at: datetime
     job_id: Optional[UUID] = None
     job_title: Optional[str] = None
     company_name: Optional[str] = None
     ai_score: Optional[int] = None
+    strong_match: bool = False
+    strong_match_roles: List[str] = []
+    strong_match_role: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
