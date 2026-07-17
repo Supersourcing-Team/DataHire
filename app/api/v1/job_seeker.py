@@ -3568,7 +3568,7 @@ def get_auto_apply_history(
     query = (
         db.query(JobApplication)
         .join(JobPosting, JobApplication.job_id == JobPosting.id)
-        .filter(JobApplication.candidate_id == candidate.id, JobPosting.is_active == True)
+        .filter(JobApplication.candidate_id == candidate.id, JobPosting.is_active == True, JobApplication.apply_mode == "auto-apply")
     )
     
     # Apply search filter
