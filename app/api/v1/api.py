@@ -95,6 +95,10 @@ async def api_info():
             "admin_candidate_analytics_by_domain": "/admin/dashboard/candidate_analytics/candidates_by_domain",
             "admin_candidate_experience_levels": "/admin/dashboard/candidate_analytics/experience_levels",
             "admin_candidate_skill_density": "/admin/dashboard/candidate_analytics/skill_density",
+            "admin_hiring_and_jobs": "/admin/dashboard/hiring_&_jobs",
+            "admin_company_jobs": "/admin/companies/{company_id}/jobs",
+            "admin_ai_match_engine": "/admin/dashboard/ai-match-engine",
+            "job_seeker_recommended_jobs_resumes": "/job-seeker/recommended-jobs/resumes",
             # Add more endpoints as they are created
         }
     }
