@@ -23,6 +23,7 @@ python-multipart==0.0.6
 google-generativeai>=0.5.2
 google-api-core>=2.19.0
 google-auth>=2.29.0
+numpy>=1.26.0
 PyPDF2==3.0.1  # Simple PDF processing
 xhtml2pdf==0.2.17
 
