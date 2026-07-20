@@ -14,7 +14,7 @@ import uuid
 
 router = APIRouter(prefix="/auth/linkedin", tags=["linkedin-auth"])
 
-@router.post("", response_model=LinkedInAuthResponse)
+@router.post("/", response_model=LinkedInAuthResponse)
 async def authenticate_linkedin(
     request: LinkedInAuthRequest,
     response: Response,
