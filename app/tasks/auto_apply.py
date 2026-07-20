@@ -27,6 +27,10 @@ def execute_candidate_auto_apply_task(candidate_id: str) -> bool:
             logger.error(f"Candidate {candidate_id} not found.")
             return False
 
+        if candidate.is_auto_apply_cancelled:
+            logger.info(f"Candidate {candidate_id} has cancelled auto-apply.")
+            return False
+
         # Verify candidate preferences
         has_preferences = bool(
             candidate.pref_role_type or 

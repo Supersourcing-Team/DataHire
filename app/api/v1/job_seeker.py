@@ -69,7 +69,9 @@ from app.schemas.job_seeker import (
     SendOTPRequest,
     SendOTPResponse,
     VerifyOTPRequest,
-    VerifyOTPResponse
+    VerifyOTPResponse,
+    AutoApplyStatusResponse,
+    AutoApplyCancelResponse
 )
 from app.models.meta import MetaWorkStatus, MetaVisaStatus
 from app.models.taxonomy import TaxonomyDomain
@@ -3480,6 +3482,11 @@ def execute_auto_apply(
     Sets application status to 'auto-apply'.
     """
     candidate = get_candidate(current_user, db)
+    if candidate.is_auto_apply_cancelled:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Auto-apply is currently cancelled for your account. Please enable auto-apply before executing."
+        )
     candidate = check_and_reset_candidate_credits(candidate, db)
     
     tier = candidate.plan_tier or "free"
@@ -3827,6 +3834,51 @@ def get_auto_apply_history(
     if not match_score or match_score.lower() == "all":
         return history_items
     return history_items[skip : skip + limit]
+
+
+@router.post("/auto-apply/cancel", response_model=AutoApplyCancelResponse)
+def cancel_auto_apply(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Cancel auto-apply for the authenticated candidate.
+    """
+    candidate = get_candidate(current_user, db)
+    candidate.is_auto_apply_cancelled = True
+    db.add(candidate)
+    db.commit()
+    db.refresh(candidate)
+    return AutoApplyCancelResponse(
+        message="Auto-apply cancelled successfully.",
+        is_cancelled=True
+    )
+
+
+@router.get("/auto-apply/status", response_model=AutoApplyStatusResponse)
+def get_auto_apply_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Get auto-apply cancellation status and daily credit metrics for the candidate.
+    """
+    candidate = get_candidate(current_user, db)
+    candidate = check_and_reset_candidate_credits(candidate, db)
+    
+    tier = candidate.plan_tier or "free"
+    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    daily_limit = limits["daily_apply_limit"]
+    remaining_daily = max(0, daily_limit - candidate.daily_apply_credits_used)
+    
+    return AutoApplyStatusResponse(
+        is_cancelled=candidate.is_auto_apply_cancelled,
+        daily_apply_credits_used=candidate.daily_apply_credits_used,
+        daily_apply_limit=daily_limit,
+        remaining_daily_credits=remaining_daily,
+        plan_tier=tier
+    )
+
 
 @router.get("/profile", response_model=CandidateProfileResponse)
 def get_candidate_profile(
