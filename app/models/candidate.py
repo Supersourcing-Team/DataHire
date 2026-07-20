@@ -33,6 +33,7 @@ class Candidate(Base):
     pref_role_type = Column(String(500), nullable=True)
     pref_locations = Column(String(500), nullable=True)
     pref_min_salary = Column(Integer, nullable=True)
+    is_auto_apply_cancelled = Column(Boolean, default=False, server_default="false", nullable=False)
 
     # Subscription and Credit System
     plan_tier = Column(String(20), default="free", nullable=False)  # free, pro, premium

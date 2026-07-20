@@ -26,6 +26,9 @@ def execute_auto_apply_for_all(db: Session) -> dict:
     }
     
     for candidate in candidates:
+        if candidate.is_auto_apply_cancelled:
+            continue
+
         # Check if candidate has preferences set
         has_preferences = bool(
             candidate.pref_role_type or 

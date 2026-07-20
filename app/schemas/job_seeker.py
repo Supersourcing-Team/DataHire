@@ -496,6 +496,21 @@ class PaginatedResumeVersionResponse(BaseModel):
     count: int
 
 
+class AutoApplyStatusResponse(BaseModel):
+    is_cancelled: bool
+    daily_apply_credits_used: int
+    daily_apply_limit: int
+    remaining_daily_credits: int
+    plan_tier: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AutoApplyCancelResponse(BaseModel):
+    message: str = "Auto-apply cancelled successfully."
+    is_cancelled: bool = True
+
+
 class PaginatedCoverLetterDetailResponse(BaseModel):
     cover_letters: List[CoverLetterDetailResponse]
     count: int
