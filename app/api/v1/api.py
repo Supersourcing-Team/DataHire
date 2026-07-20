@@ -56,9 +56,10 @@ api_router.include_router(job_seeker_router)
 from app.api.v1.admin import router as admin_router
 api_router.include_router(admin_router)
 
-# Include Notifications router
-from app.api.v1.notifications import router as notifications_router
+# Include Notifications router (supports both /notifications and /notification)
+from app.api.v1.notifications import router as notifications_router, singular_router as notification_singular_router
 api_router.include_router(notifications_router)
+api_router.include_router(notification_singular_router)
 
 # Include Billing router
 from app.api.v1.billing import router as billing_router
