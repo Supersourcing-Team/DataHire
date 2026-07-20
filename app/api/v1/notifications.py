@@ -16,9 +16,9 @@ from app.schemas.notification import (
     NotificationPreferenceUpdate
 )
 
-router = APIRouter(prefix="/notifications", tags=["notifications"])
+base_router = APIRouter()
 
-@router.get("", response_model=List[NotificationResponse])
+@base_router.get("", response_model=List[NotificationResponse])
 def get_notifications(
     is_read: Optional[bool] = None,
     limit: int = Query(default=20, le=100),
@@ -37,7 +37,7 @@ def get_notifications(
     return notifications
 
 
-@router.patch("/{notification_id}/read", response_model=NotificationResponse)
+@base_router.patch("/{notification_id}/read", response_model=NotificationResponse)
 def mark_notification_as_read(
     notification_id: UUID,
     db: Session = Depends(get_db),
@@ -66,7 +66,7 @@ def mark_notification_as_read(
     return notification
 
 
-@router.patch("/read-all", status_code=status.HTTP_200_OK)
+@base_router.patch("/read-all", status_code=status.HTTP_200_OK)
 def mark_all_notifications_as_read(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -88,7 +88,7 @@ def mark_all_notifications_as_read(
     return {"message": "All notifications marked as read"}
 
 
-@router.delete("/{notification_id}", status_code=status.HTTP_200_OK)
+@base_router.delete("/{notification_id}", status_code=status.HTTP_200_OK)
 def delete_notification(
     notification_id: UUID,
     db: Session = Depends(get_db),
@@ -113,7 +113,7 @@ def delete_notification(
     return {"message": "Notification deleted successfully"}
 
 
-@router.get("/preferences", response_model=List[NotificationPreferenceResponse])
+@base_router.get("/preferences", response_model=List[NotificationPreferenceResponse])
 def get_notification_preferences(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -127,7 +127,7 @@ def get_notification_preferences(
     return prefs
 
 
-@router.patch("/preferences", response_model=NotificationPreferenceResponse)
+@base_router.patch("/preferences", response_model=NotificationPreferenceResponse)
 def update_notification_preferences(
     pref_in: NotificationPreferenceUpdate,
     db: Session = Depends(get_db),
@@ -160,14 +160,14 @@ def update_notification_preferences(
     return pref
 
 
-@router.websocket("/ws")
+@base_router.websocket("/ws")
 async def websocket_notifications(
     websocket: WebSocket,
     token: Optional[str] = Query(default=None)
 ):
     """
     WebSocket endpoint for real-time notifications.
-    Expects token query parameter: `/api/v1/notifications/ws?token=<JWT_TOKEN>`
+    Expects token query parameter: `/api/v1/notifications/ws?token=<JWT_TOKEN>` or `/api/v1/notification/ws?token=<JWT_TOKEN>`
     """
     if not token:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -194,3 +194,10 @@ async def websocket_notifications(
         manager.disconnect(str(user_id), websocket)
     except Exception:
         manager.disconnect(str(user_id), websocket)
+
+
+router = APIRouter(prefix="/notifications", tags=["notifications"])
+router.include_router(base_router)
+
+singular_router = APIRouter(prefix="/notification", tags=["notifications"])
+singular_router.include_router(base_router)
