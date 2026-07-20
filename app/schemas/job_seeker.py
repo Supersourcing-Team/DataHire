@@ -145,6 +145,7 @@ class JobApplicationResponse(BaseModel):
 class JobApplicationSubmitRequest(BaseModel):
     resume_url: str
     resume_name: str
+    resume_id: Optional[UUID] = None
     cover_letter_url: Optional[str] = None
 
 
@@ -164,6 +165,13 @@ class OptimizeSectionResult(BaseModel):
     section_type: str
     original_content: str
     optimized_content: str
+    optimization_feedback: Optional[str] = None
+
+class SectionComparisonResult(BaseModel):
+    section_type: str
+    original_content: Optional[str] = None
+    optimized_content: Optional[str] = None
+    missing_keywords: List[str] = []
     optimization_feedback: Optional[str] = None
 
 class OptimizeResumeResponse(BaseModel):
@@ -229,13 +237,18 @@ class ResumeStructureResponse(BaseModel):
     id: UUID
     file_name: Optional[str] = None
     file_url: Optional[str] = None
+    original_file_url: Optional[str] = None
     version_number: int
     is_primary: bool
+    is_ai_optimized: bool = False
+    parent_resume_id: Optional[UUID] = None
     total_experience_years: int
     extracted_skills: List[str] = []
     taxonomy_domain_id: Optional[int] = None
     taxonomy_domain_name: Optional[str] = None
     sections: Dict[str, Optional[str]] = {}
+    sections_comparison: List[SectionComparisonResult] = []
+    original_structured_data: Optional[Dict[str, Any]] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

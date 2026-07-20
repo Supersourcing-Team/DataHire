@@ -370,7 +370,7 @@ def get_job_seeker_feed(
         
         # Calculate AI match score
         ai_score = 0
-        if primary_resume and primary_resume.overall_embedding is not None:
+        if primary_resume:
             try:
                 score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
                 ai_score = int(score_details["final_score"])
@@ -568,19 +568,27 @@ def apply_to_job(
     from app.services.s3_service import clean_s3_url
     payload_clean_url = clean_s3_url(payload.resume_url)
     
-    # Query all candidate resumes to match using cleaned S3 URLs in memory
+    # Query all candidate resumes to match using cleaned S3 URLs or resume_id
     all_resumes = db.query(Resume).filter(
         Resume.candidate_id == candidate.id,
         Resume.is_deleted == False
     ).all()
     
     resume = None
+    # 0. Check if resume_id was directly provided
+    if payload.resume_id:
+        for r in all_resumes:
+            if r.id == payload.resume_id:
+                resume = r
+                break
+
     # 1. Prioritize a resume matching the URL that is already linked to this job (e.g. optimized)
-    for r in all_resumes:
-        if clean_s3_url(r.file_url) == payload_clean_url and r.job_id == job.id:
-            resume = r
-            break
-            
+    if not resume:
+        for r in all_resumes:
+            if clean_s3_url(r.file_url) == payload_clean_url and r.job_id == job.id:
+                resume = r
+                break
+                
     # 2. Fall back to any resume matching the URL if no job-linked version exists
     if not resume:
         for r in all_resumes:
@@ -1656,13 +1664,50 @@ def format_resume_structure(resume: Resume, candidate: Candidate, user: User) ->
         if not structured_data["personalInfo"].get("portfolio"):
             structured_data["personalInfo"]["portfolio"] = candidate.portfolio_url
 
-    # Add metadata
+    # Add metadata & file comparison info
+    file_url = s3_service.get_presigned_url(resume.file_url) if resume.file_url else None
+    original_file_url = None
+    original_structured_data = None
+    
+    if resume.parent_resume_id:
+        from sqlalchemy.orm import object_session
+        db_session = object_session(resume)
+        if db_session:
+            parent_resume = db_session.query(Resume).filter(Resume.id == resume.parent_resume_id).first()
+            if parent_resume:
+                original_file_url = s3_service.get_presigned_url(parent_resume.file_url) if parent_resume.file_url else None
+                original_structured_data = parent_resume.structured_data
+
+    if not original_file_url:
+        original_file_url = file_url
+
+    sections_comparison = []
+    if resume.sections:
+        for sec in resume.sections:
+            meta = sec.optimization_metadata or {}
+            sections_comparison.append({
+                "section_type": sec.section_type,
+                "original_content": sec.original_content,
+                "optimized_content": sec.optimized_content,
+                "missing_keywords": meta.get("missing_keywords", []),
+                "optimization_feedback": meta.get("feedback", meta.get("optimization_feedback", ""))
+            })
+
+    structured_data["file_url"] = file_url
+    structured_data["original_file_url"] = original_file_url
+    structured_data["parent_resume_id"] = str(resume.parent_resume_id) if resume.parent_resume_id else None
+    structured_data["is_ai_optimized"] = resume.is_ai_optimized
+    structured_data["sections_comparison"] = sections_comparison
+    structured_data["original_structured_data"] = original_structured_data
+
     structured_data["meta"] = {
         "createdAt": resume.created_at.isoformat() if resume.created_at else None,
         "updatedAt": resume.updated_at.isoformat() if resume.updated_at else None,
         "version": resume.version_number,
         "is_ai_optimized": resume.is_ai_optimized,
-        "job_id": str(resume.job_id) if resume.job_id else None
+        "job_id": str(resume.job_id) if resume.job_id else None,
+        "file_url": file_url,
+        "original_file_url": original_file_url
     }
 
     return structured_data
@@ -1746,7 +1791,7 @@ def update_structured_data_with_optimized_sections(structured_data: Dict[str, An
 
 
 @router.post("/jobs/{job_id}/optimize-resume")
-def optimize_resume_for_job(
+async def optimize_resume_for_job(
     job_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
@@ -1809,7 +1854,6 @@ def optimize_resume_for_job(
     
     if existing_optimized_resume:
         resume_to_use = existing_optimized_resume
-        resume_to_use.file_url = primary_resume.file_url
         resume_to_use.total_experience_years = primary_resume.total_experience_years
         resume_to_use.taxonomy_domain_id = primary_resume.taxonomy_domain_id
         resume_to_use.extracted_skills = union_skills
@@ -1897,6 +1941,13 @@ def optimize_resume_for_job(
     from sqlalchemy.orm.attributes import flag_modified
     resume_to_use.structured_data = update_structured_data_with_optimized_sections(resume_to_use.structured_data, new_sections)
     flag_modified(resume_to_use, "structured_data")
+
+    # Generate and save rendered PDF for the optimized resume to S3
+    from app.services.resume_pdf_generator import generate_and_save_optimized_resume_pdf
+    pdf_s3_url = await generate_and_save_optimized_resume_pdf(db, resume_to_use, candidate)
+    if pdf_s3_url:
+        resume_to_use.file_url = pdf_s3_url
+        db.add(resume_to_use)
         
     # Increment usage
     candidate.resume_optimizations_used_this_month += 1
@@ -1908,7 +1959,7 @@ def optimize_resume_for_job(
 
 
 @router.post("/resume/optimize")
-def optimize_resume_general(
+async def optimize_resume_general(
     resume_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
@@ -2000,6 +2051,13 @@ def optimize_resume_general(
     new_resume.structured_data = update_structured_data_with_optimized_sections(new_resume.structured_data, new_sections)
     flag_modified(new_resume, "structured_data")
         
+    # Generate and save rendered PDF for the optimized resume to S3
+    from app.services.resume_pdf_generator import generate_and_save_optimized_resume_pdf
+    pdf_s3_url = await generate_and_save_optimized_resume_pdf(db, new_resume, candidate)
+    if pdf_s3_url:
+        new_resume.file_url = pdf_s3_url
+        db.add(new_resume)
+
     # Increment usage
     candidate.resume_optimizations_used_this_month += 1
     db.add(candidate)
@@ -2442,20 +2500,10 @@ def analyze_resume_fit_endpoint(
         db.add(resume)
         db.commit()
 
-    vec1 = np.array(job_desc_embedding)
-    vec2 = np.array(resume.overall_embedding)
-    
-    dot_product = np.dot(vec1, vec2)
-    norm_v1 = np.linalg.norm(vec1)
-    norm_v2 = np.linalg.norm(vec2)
-    
-    if norm_v1 == 0 or norm_v2 == 0:
-        similarity = 0.0
-    else:
-        similarity = float(dot_product / (norm_v1 * norm_v2))
-        
-    # Use direct similarity percentage without calibrating to 0
-    score = int(similarity * 100)
+    # Calculate match score using MatchingEngine for consistency across feed, recommendations, and analyze-fit
+    matching_service = MatchingEngine(db)
+    score_details = matching_service.score_resume_for_job(resume.id, job.id)
+    score = int(score_details["final_score"])
         
     # 4. Call the Gemini optimization/matching engine to analyze fit
     analysis = optimization_engine.analyze_resume_fit(resume_content, job_description, score)
@@ -2743,7 +2791,7 @@ def set_default_resume(
 
 
 @router.post("/resumes/{resume_id}/reoptimize")
-def reoptimize_resume(
+async def reoptimize_resume(
     resume_id: UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
@@ -2801,6 +2849,12 @@ def reoptimize_resume(
     from sqlalchemy.orm.attributes import flag_modified
     resume.structured_data = update_structured_data_with_optimized_sections(resume.structured_data, new_sections)
     flag_modified(resume, "structured_data")
+
+    # Generate and save rendered PDF for the optimized resume to S3
+    from app.services.resume_pdf_generator import generate_and_save_optimized_resume_pdf
+    pdf_s3_url = await generate_and_save_optimized_resume_pdf(db, resume, candidate)
+    if pdf_s3_url:
+        resume.file_url = pdf_s3_url
     
     candidate.resume_optimizations_used_this_month += 1
     db.add(candidate)
