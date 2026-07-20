@@ -13,7 +13,7 @@ import uuid
 
 router = APIRouter(prefix="/auth/google", tags=["google-auth"])
 
-@router.post("", response_model=GoogleAuthResponse)
+@router.post("/", response_model=GoogleAuthResponse)
 async def authenticate_google(
     request: GoogleAuthRequest,
     response: Response,
