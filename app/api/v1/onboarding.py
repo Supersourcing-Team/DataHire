@@ -43,10 +43,13 @@ async def candidate_step_1(
     candidate = get_candidate(current_user, db)
     
     from app.models.resume import Resume
+    from app.services.s3_service import clean_s3_url
+    clean_url = clean_s3_url(str(data.resume_url))
+    
     # Check if this resume was already parsed during the upload stage
     existing_resume = db.query(Resume).filter(
         Resume.candidate_id == candidate.id,
-        Resume.file_url == str(data.resume_url)
+        Resume.file_url == clean_url
     ).first()
     
     if existing_resume:
@@ -76,7 +79,7 @@ async def candidate_step_1(
             resume_parser_service.parse_and_save_resume,
             db,
             candidate,
-            str(data.resume_url),
+            clean_url,
             data.resume_name,
             True
         )

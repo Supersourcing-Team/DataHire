@@ -93,9 +93,11 @@ async def upload_file(
             skills = parse_result.get("skills", [])
             structured_data = parse_result.get("structured_data") or {}
             
+            from app.services.s3_service import clean_s3_url
+            
             new_resume = Resume(
                 candidate_id=current_user.candidate.id,
-                file_url=url,
+                file_url=clean_s3_url(url),
                 file_name=file.filename,
                 is_primary=is_primary,
                 is_ai_optimized=False,
