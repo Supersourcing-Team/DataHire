@@ -7,7 +7,7 @@ name = "datahire"
 version = "1.0.0"
 description = "Precision Hiring Intelligence Platform"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = {text = "Proprietary"}
 authors = [
     {name = "DataHire Team", email = "team@datahire.com"}
@@ -19,9 +19,8 @@ classifiers = [
     "License :: Other/Proprietary License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Framework :: FastAPI",
 ]
 
@@ -71,7 +70,7 @@ include = ["app*"]
 
 [tool.black]
 line-length = 88
-target-version = ['py39']
+target-version = ['py311']
 include = '\.pyi?$'
 extend-exclude = '''
 /(
@@ -94,7 +93,7 @@ line_length = 88
 known_first_party = ["app"]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
