@@ -85,7 +85,7 @@ from app.api.v1.jobs import (
     _format_salary_range,
     _build_sponsorship_label
 )
-
+import re
 
 router = APIRouter(prefix="/job-seeker", tags=["job-seeker"])
 s3_service = S3Service()
@@ -2621,71 +2621,133 @@ def get_resume_suggestions_endpoint(
     )
 
 
+@router.get("/resumes/{resume_id}/download-pdf")
+async def download_resume_pdf_by_id(
+    resume_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate)
+):
+    """
+    Download a PDF version of a specific optimized/saved resume by resume_id.
+    Generates styled PDF from structured data or streams S3 content.
+    """
+    candidate = get_candidate(current_user, db)
+    resume = db.query(Resume).filter(
+        Resume.id == resume_id,
+        Resume.candidate_id == candidate.id
+    ).first()
+    
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+        
+    return await generate_pdf_response_for_resume(db, resume, candidate)
+
+
 @router.post("/resumes/download-pdf")
 async def download_resume_pdf(
     request: Request,
+    db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate)
 ):
     """
     Generate and download a PDF version of the resume.
-    Accepts either:
-    1. A raw HTML body (Content-Type: text/html or text/plain)
-    2. A JSON body with {"html_content": "<html_string>"} (Content-Type: application/json)
+    Accepts:
+    1. Full structured resume JSON (e.g. {"personalInfo": {...}, "summary": {...}, "experience": [...], "skills": {...}})
+    2. A JSON body with {"structured_data": {...}} or {"resume_data": {...}}
+    3. A JSON body with {"resume_id": "<uuid>"} or query parameter `resume_id`
+    4. A JSON body with {"html_content": "<html_string>"} (fallback)
+    5. A raw HTML body (Content-Type: text/html or text/plain) (fallback)
+    6. Empty body -> Defaults to candidate's primary / latest optimized resume
     """
     import json
-    import re
     import logging
+    import io
+    from app.services.resume_pdf_generator import render_resume_to_html
     
     logger = logging.getLogger(__name__)
+    candidate = get_candidate(current_user, db)
+    
+    query_resume_id = request.query_params.get("resume_id")
+    resume_id = None
+    if query_resume_id:
+        try:
+            resume_id = UUID(query_resume_id)
+        except ValueError:
+            pass
+            
     content_type = request.headers.get("Content-Type", "")
     body_bytes = await request.body()
     
     html_content = ""
-    if "application/json" in content_type:
+    structured_data = None
+    
+    if body_bytes and "application/json" in content_type:
         try:
-            # Try parsing as standard JSON
             payload = json.loads(body_bytes.decode("utf-8"))
-            html_content = payload.get("html_content", "")
+            if isinstance(payload, dict):
+                if not resume_id and payload.get("resume_id"):
+                    try:
+                        resume_id = UUID(str(payload.get("resume_id")))
+                    except ValueError:
+                        pass
+                
+                # Check for explicit structured_data or resume_data fields
+                if "structured_data" in payload and isinstance(payload["structured_data"], dict):
+                    structured_data = payload["structured_data"]
+                elif "resume_data" in payload and isinstance(payload["resume_data"], dict):
+                    structured_data = payload["resume_data"]
+                elif any(k in payload for k in ["personalInfo", "personal_info", "summary", "experience", "skills", "education", "projects"]):
+                    # The payload itself is the complete structured resume JSON object
+                    structured_data = payload
+                    
+                html_content = payload.get("html_content", "")
         except Exception as json_err:
-            logger.warning("Standard JSON parsing failed, attempting lenient regex/cleaning fallback: %s", json_err)
-            body_str = body_bytes.decode("utf-8").strip()
-            
-            # Extract content between first double quote after "html_content" and the last double quote
-            key_index = body_str.find('"html_content"')
-            if key_index != -1:
-                colon_index = body_str.find(':', key_index)
-                if colon_index != -1:
-                    start_quote = body_str.find('"', colon_index)
-                    if start_quote != -1:
-                        end_quote = body_str.rfind('"')
-                        if end_quote > start_quote:
-                            html_content = body_str[start_quote + 1:end_quote]
-            
-            if not html_content:
-                cleaned_str = body_str
-                if cleaned_str.startswith("{"):
-                    cleaned_str = cleaned_str[1:].strip()
-                if cleaned_str.endswith("}"):
-                    cleaned_str = cleaned_str[:-1].strip()
-                if cleaned_str.startswith('"html_content"'):
-                    cleaned_str = cleaned_str[len('"html_content"'):].strip()
-                    if cleaned_str.startswith(":"):
-                        cleaned_str = cleaned_str[1:].strip()
-                if cleaned_str.startswith('"') and cleaned_str.endswith('"'):
-                    cleaned_str = cleaned_str[1:-1]
-                html_content = cleaned_str
-    else:
-        # Raw HTML body
+            logger.warning("JSON parsing error in download_resume_pdf: %s", json_err)
+    elif body_bytes and ("text/html" in content_type or "text/plain" in content_type):
         html_content = body_bytes.decode("utf-8")
+        
+    # Priority 1: If inline structured resume JSON was provided (e.g. from live editor), render it into PDF
+    if structured_data and isinstance(structured_data, dict):
+        candidate_name = candidate.full_name or "Candidate"
+        html_from_json = render_resume_to_html(structured_data, default_name=candidate_name)
+        pdf_bytes = pdf_service.convert_html_to_pdf(html_from_json)
+        
+        # Optionally update resume in DB if resume_id is also supplied
+        if resume_id:
+            resume = db.query(Resume).filter(
+                Resume.id == resume_id,
+                Resume.candidate_id == candidate.id
+            ).first()
+            if resume:
+                from sqlalchemy.orm.attributes import flag_modified
+                resume.structured_data = structured_data
+                flag_modified(resume, "structured_data")
+                db.add(resume)
+                db.commit()
 
-    if not html_content:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="HTML content is required."
+        safe_name = re.sub(r'[^a-zA-Z0-9_-]+', '_', candidate_name).strip('_')
+        safe_filename = f"resume_{safe_name}.pdf"
+        return StreamingResponse(
+            io.BytesIO(pdf_bytes),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_filename}"',
+                "Content-Length": str(len(pdf_bytes))
+            }
         )
 
-    try:
-        # Resolve escape sequences if they are represented as literal chars
+    # Priority 2: If resume_id is provided, render/download that resume
+    if resume_id:
+        resume = db.query(Resume).filter(
+            Resume.id == resume_id,
+            Resume.candidate_id == candidate.id
+        ).first()
+        if not resume:
+            raise HTTPException(status_code=404, detail="Resume not found.")
+        return await generate_pdf_response_for_resume(db, resume, candidate)
+        
+    # Priority 3: If custom HTML content was provided, render it directly
+    if html_content and html_content.strip():
         if "\\n" in html_content:
             html_content = html_content.replace("\\n", "\n")
         if "\\t" in html_content:
@@ -2696,8 +2758,6 @@ async def download_resume_pdf(
             html_content = html_content.replace("\\'", "'")
             
         pdf_bytes = pdf_service.convert_html_to_pdf(html_content)
-        
-        import io
         return StreamingResponse(
             io.BytesIO(pdf_bytes),
             media_type="application/pdf",
@@ -2706,12 +2766,55 @@ async def download_resume_pdf(
                 "Content-Length": str(len(pdf_bytes))
             }
         )
-    except Exception as e:
-        logger.error("Failed to generate PDF: %s", e)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate PDF: {str(e)}"
-        )
+        
+    # Priority 4: Fallback to primary resume or most recent active resume
+    primary_resume = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.is_deleted == False
+    ).order_by(Resume.is_primary.desc(), Resume.created_at.desc()).first()
+    
+    if primary_resume:
+        return await generate_pdf_response_for_resume(db, primary_resume, candidate)
+        
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="No resume found or HTML content provided."
+    )
+
+
+
+async def generate_pdf_response_for_resume(db: Session, resume: Resume, candidate: Candidate):
+    """
+    Helper to render structured resume data or download S3 file and return streaming PDF response.
+    """
+    import io
+    from app.services.resume_pdf_generator import render_resume_to_html
+    from app.services.pdf_service import pdf_service
+    
+    candidate_name = candidate.full_name or "Candidate"
+    
+    # 1. Render styled HTML from structured_data
+    if resume.structured_data:
+        html_content = render_resume_to_html(resume.structured_data, default_name=candidate_name)
+        pdf_bytes = pdf_service.convert_html_to_pdf(html_content)
+    # 2. Or fallback to downloading S3 file if file_url exists
+    elif resume.file_url:
+        from app.services.resume_parser import resume_parser_service
+        pdf_bytes = resume_parser_service.download_file(resume.file_url)
+    else:
+        raise HTTPException(status_code=400, detail="Resume contains no renderable content.")
+        
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]+', '_', candidate_name).strip('_')
+    safe_filename = f"resume_{safe_name}.pdf"
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_filename}"',
+            "Content-Length": str(len(pdf_bytes))
+        }
+    )
+
 
 
 @router.post("/resumes", response_model=ResumeVersionResponse)
