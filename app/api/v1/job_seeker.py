@@ -3220,6 +3220,9 @@ def update_preferences(
     candidate.pref_locations = payload.preferred_location
     candidate.pref_min_salary = payload.min_salary
     
+    # Reset cancelled status when preferences are updated or set
+    candidate.is_auto_apply_cancelled = False
+    
     db.add(candidate)
     db.commit()
     db.refresh(candidate)
@@ -3235,6 +3238,33 @@ def update_preferences(
         preferred_location=candidate.pref_locations,
         min_salary=candidate.pref_min_salary,
         preferences_exist=preferences_exist
+    )
+
+
+@router.delete("/preferences", response_model=CandidatePreferencesResponse)
+def reset_preferences(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Reset candidate preferences to default (empty) and reactivate auto-apply.
+    """
+    candidate = get_candidate(current_user, db)
+    
+    candidate.pref_role_type = None
+    candidate.pref_locations = None
+    candidate.pref_min_salary = None
+    candidate.is_auto_apply_cancelled = False
+
+    db.add(candidate)
+    db.commit()
+    db.refresh(candidate)
+    
+    return CandidatePreferencesResponse(
+        role_type=None,
+        preferred_location=None,
+        min_salary=None,
+        preferences_exist=False
     )
 
 
@@ -3855,6 +3885,25 @@ def cancel_auto_apply(
     )
 
 
+@router.post("/auto-apply/resume", response_model=AutoApplyCancelResponse)
+def resume_auto_apply(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Resume/reactivate auto-apply for the authenticated candidate.
+    """
+    candidate = get_candidate(current_user, db)
+    candidate.is_auto_apply_cancelled = False
+    db.add(candidate)
+    db.commit()
+    db.refresh(candidate)
+    return AutoApplyCancelResponse(
+        message="Auto-apply resumed successfully.",
+        is_cancelled=False
+    )
+
+
 @router.get("/auto-apply/status", response_model=AutoApplyStatusResponse)
 def get_auto_apply_status(
     db: Session = Depends(get_db),
@@ -3941,9 +3990,14 @@ def update_candidate_profile(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid taxonomy_domain_id: record does not exist")
 
     # Update candidate fields
-    for field, value in profile_data.model_dump(exclude_unset=True).items():
+    updated_fields = profile_data.model_dump(exclude_unset=True)
+    for field, value in updated_fields.items():
         setattr(candidate, field, value)
         
+    # Reactivate auto-apply if preferences were modified
+    if any(k in updated_fields for k in ["pref_role_type", "pref_locations", "pref_min_salary"]):
+        candidate.is_auto_apply_cancelled = False
+
     db.add(candidate)
     db.commit()
     db.refresh(candidate)
