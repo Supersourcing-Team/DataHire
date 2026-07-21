@@ -50,6 +50,11 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
+
+# Trust proxy headers (X-Forwarded-Proto, X-Forwarded-For) from reverse proxy
+app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
