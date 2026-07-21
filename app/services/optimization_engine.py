@@ -267,6 +267,7 @@ class GeminiOptimizationEngine:
             f"the candidate's resume: {', '.join(job_skills)}.\n"
             "   Only list skills that are NOT present in the resume content.\n"
             "2. 'ai_suggestions': Provide up to 4 actionable suggestions to improve the resume. "
+            "Keep suggestions simple and short, and understandable"
             "Only suggest improvements for areas that are not already optimized.\n"
             "   - If the summary section is brief or lacks impact, suggest 'Enhance summary' with high impact.\n"
             "   - If the experience section lacks metrics/quantification, suggest 'Add more impact metrics' with high impact.\n"
