@@ -16,9 +16,13 @@ from app.schemas.notification import (
     NotificationPreferenceUpdate
 )
 
-base_router = APIRouter()
+router = APIRouter(prefix="/notifications", tags=["notifications"])
+singular_router = APIRouter(prefix="/notification", tags=["notifications"])
 
-@base_router.get("/", response_model=List[NotificationResponse])
+@router.get("", response_model=List[NotificationResponse])
+@router.get("/", response_model=List[NotificationResponse])
+@singular_router.get("", response_model=List[NotificationResponse])
+@singular_router.get("/", response_model=List[NotificationResponse])
 def get_notifications(
     is_read: Optional[bool] = None,
     limit: int = Query(default=20, le=100),
@@ -37,7 +41,10 @@ def get_notifications(
     return notifications
 
 
-@base_router.patch("/{notification_id}/read", response_model=NotificationResponse)
+@router.patch("/{notification_id}/read", response_model=NotificationResponse)
+@router.patch("/{notification_id}/read/", response_model=NotificationResponse)
+@singular_router.patch("/{notification_id}/read", response_model=NotificationResponse)
+@singular_router.patch("/{notification_id}/read/", response_model=NotificationResponse)
 def mark_notification_as_read(
     notification_id: UUID,
     db: Session = Depends(get_db),
@@ -66,7 +73,10 @@ def mark_notification_as_read(
     return notification
 
 
-@base_router.patch("/read-all", status_code=status.HTTP_200_OK)
+@router.patch("/read-all", status_code=status.HTTP_200_OK)
+@router.patch("/read-all/", status_code=status.HTTP_200_OK)
+@singular_router.patch("/read-all", status_code=status.HTTP_200_OK)
+@singular_router.patch("/read-all/", status_code=status.HTTP_200_OK)
 def mark_all_notifications_as_read(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -88,7 +98,10 @@ def mark_all_notifications_as_read(
     return {"message": "All notifications marked as read"}
 
 
-@base_router.delete("/{notification_id}", status_code=status.HTTP_200_OK)
+@router.delete("/{notification_id}", status_code=status.HTTP_200_OK)
+@router.delete("/{notification_id}/", status_code=status.HTTP_200_OK)
+@singular_router.delete("/{notification_id}", status_code=status.HTTP_200_OK)
+@singular_router.delete("/{notification_id}/", status_code=status.HTTP_200_OK)
 def delete_notification(
     notification_id: UUID,
     db: Session = Depends(get_db),
@@ -113,7 +126,10 @@ def delete_notification(
     return {"message": "Notification deleted successfully"}
 
 
-@base_router.get("/preferences", response_model=List[NotificationPreferenceResponse])
+@router.get("/preferences", response_model=List[NotificationPreferenceResponse])
+@router.get("/preferences/", response_model=List[NotificationPreferenceResponse])
+@singular_router.get("/preferences", response_model=List[NotificationPreferenceResponse])
+@singular_router.get("/preferences/", response_model=List[NotificationPreferenceResponse])
 def get_notification_preferences(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
@@ -127,7 +143,10 @@ def get_notification_preferences(
     return prefs
 
 
-@base_router.patch("/preferences", response_model=NotificationPreferenceResponse)
+@router.patch("/preferences", response_model=NotificationPreferenceResponse)
+@router.patch("/preferences/", response_model=NotificationPreferenceResponse)
+@singular_router.patch("/preferences", response_model=NotificationPreferenceResponse)
+@singular_router.patch("/preferences/", response_model=NotificationPreferenceResponse)
 def update_notification_preferences(
     pref_in: NotificationPreferenceUpdate,
     db: Session = Depends(get_db),
@@ -160,7 +179,10 @@ def update_notification_preferences(
     return pref
 
 
-@base_router.websocket("/ws")
+@router.websocket("/ws")
+@router.websocket("/ws/")
+@singular_router.websocket("/ws")
+@singular_router.websocket("/ws/")
 async def websocket_notifications(
     websocket: WebSocket,
     token: Optional[str] = Query(default=None)
@@ -170,16 +192,19 @@ async def websocket_notifications(
     Expects token query parameter: `/api/v1/notifications/ws?token=<JWT_TOKEN>` or `/api/v1/notification/ws?token=<JWT_TOKEN>`
     """
     if not token:
+        await websocket.accept()
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
         
     payload = verify_token(token)
     if not payload:
+        await websocket.accept()
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
         
-    user_id = payload.get("sub")
+    user_id = payload.get("sub") or payload.get("id") or payload.get("user_id")
     if not user_id:
+        await websocket.accept()
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -187,17 +212,8 @@ async def websocket_notifications(
     try:
         # Keep connection open. WebSockets need an active listen loop.
         while True:
-            # We don't expect messages from the client in this design,
-            # but we listen to detect disconnection.
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(str(user_id), websocket)
     except Exception:
         manager.disconnect(str(user_id), websocket)
-
-
-router = APIRouter(prefix="/notifications", tags=["notifications"])
-router.include_router(base_router)
-
-singular_router = APIRouter(prefix="/notification", tags=["notifications"])
-singular_router.include_router(base_router)
