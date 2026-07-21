@@ -2,6 +2,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from typing import Dict, Any, List
 import numpy as np
+import re
+
 
 from app.models.job import JobPosting
 from app.models.resume import Resume
@@ -59,40 +61,78 @@ class MatchingEngine:
     def evaluate_skills_overlap(self, job: JobPosting, resume: Resume) -> Dict[str, Any]:
         """
         Calculates Hard Skills Overlap Score (0-100 scale).
-        Returns the score, matched skills, and missing critical skills.
+        Uses multi-tier matching (exact, normalized, token/word boundary matching,
+        and fallback text search) for maximum accuracy.
         """
-        # Normalize job skills and preserve original casing in a lookup dictionary
         job_skills_raw = job.extracted_skills or []
-        job_skills_lower = {}
-        for s in job_skills_raw:
-            if s and isinstance(s, str):
-                cleaned = s.strip()
-                if cleaned:
-                    job_skills_lower[cleaned.lower()] = cleaned
+        job_skills_cleaned = [s.strip() for s in job_skills_raw if s and isinstance(s, str) and s.strip()]
 
-        # Normalize resume skills
         resume_skills_raw = resume.extracted_skills or []
-        resume_skills_lower = set()
-        for s in resume_skills_raw:
-            if s and isinstance(s, str):
-                cleaned = s.strip()
-                if cleaned:
-                    resume_skills_lower.add(cleaned.lower())
+        resume_skills_cleaned = [s.strip() for s in resume_skills_raw if s and isinstance(s, str) and s.strip()]
 
-        if not job_skills_lower:
-            return {"score": 100.0, "matched": list(resume_skills_raw), "missing": []}
+        # Fallback text collection if resume.extracted_skills is empty
+        fallback_text = ""
+        if not resume_skills_cleaned:
+            parts = []
+            if resume.structured_data:
+                parts.append(str(resume.structured_data))
+            if hasattr(resume, "sections") and resume.sections:
+                for sec in resume.sections:
+                    content = getattr(sec, "optimized_content", None) or getattr(sec, "original_content", None)
+                    if content:
+                        parts.append(str(content))
+            fallback_text = " ".join(parts).lower()
 
-        matched_keys = set(job_skills_lower.keys()).intersection(resume_skills_lower)
-        missing_keys = set(job_skills_lower.keys()).difference(resume_skills_lower)
+        if not job_skills_cleaned:
+            return {"score": 100.0, "matched": list(resume_skills_cleaned), "missing": []}
 
-        # Map back to original casing from the job posting
-        matched_skills = [job_skills_lower[k] for k in matched_keys]
-        missing_skills = [job_skills_lower[k] for k in missing_keys]
+        matched_skills = []
+        missing_skills = []
 
-        score = (len(matched_skills) / len(job_skills_lower)) * 100
+        def normalize(text):
+            return re.sub(r'[^a-z0-9]+', ' ', text.lower()).strip()
+
+        resume_norm_list = [normalize(rs) for rs in resume_skills_cleaned]
+        resume_norm_set = set(resume_norm_list)
+
+        for js in job_skills_cleaned:
+            js_norm = normalize(js)
+            if not js_norm:
+                continue
+
+            is_matched = False
+
+            # Tier 1: Direct exact normalized match
+            if js_norm in resume_norm_set:
+                is_matched = True
+            # Tier 2: Substring & Word boundary match against resume explicit skills
+            else:
+                for r_raw, r_norm in zip(resume_skills_cleaned, resume_norm_list):
+                    # Check if job skill word is contained in resume skill (e.g. "sql" in "ms sql database" or "python" in "python 3")
+                    pattern = r'\b' + re.escape(js_norm) + r'\b'
+                    if re.search(pattern, r_norm):
+                        is_matched = True
+                        break
+                    pattern_reverse = r'\b' + re.escape(r_norm) + r'\b'
+                    if len(r_norm) > 2 and re.search(pattern_reverse, js_norm):
+                        is_matched = True
+                        break
+
+            # Tier 3: Fallback text search if resume skills were empty
+            if not is_matched and fallback_text:
+                pattern = r'\b' + re.escape(js_norm) + r'\b'
+                if re.search(pattern, fallback_text):
+                    is_matched = True
+
+            if is_matched:
+                matched_skills.append(js)
+            else:
+                missing_skills.append(js)
+
+        score = (len(matched_skills) / len(job_skills_cleaned)) * 100.0
 
         return {
-            "score": score,
+            "score": round(score, 2),
             "matched": matched_skills,
             "missing": missing_skills
         }
@@ -210,7 +250,7 @@ class MatchingEngine:
                 (logistics_score * self.WEIGHT_FILTERS)
             )
         else:
-            skills_score = 0.0
+            skills_score = skills_eval["score"]
             total_weight = self.WEIGHT_SEMANTIC + self.WEIGHT_EXPERIENCE + self.WEIGHT_FILTERS
             final_score = (
                 (semantic_score * (self.WEIGHT_SEMANTIC / total_weight)) +

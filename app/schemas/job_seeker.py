@@ -488,7 +488,12 @@ class JobApplicationStatsResponse(BaseModel):
 
 
 class ResumePDFRequest(BaseModel):
-    html_content: str
+    resume_id: Optional[UUID] = None
+    structured_data: Optional[Dict[str, Any]] = None
+    resume_data: Optional[Dict[str, Any]] = None
+    html_content: Optional[str] = None
+
+
 
 
 class PaginatedResumeVersionResponse(BaseModel):
