@@ -1913,13 +1913,14 @@ def update_applicant_status(
     db.commit()
 
     # Trigger application status change notifications (Email + In-App to Candidate)
-    from app.tasks.notifications import send_email_task, create_in_app_notification_task
+    from app.tasks.notifications import send_email_task, create_in_app_notification_task, get_candidate_action_url
     from app.core.config import settings
     status_label = _get_application_status_label(app.status)
     candidate_user_id = str(app.candidate.user_id)
     candidate_email = app.candidate.user.email
     candidate_name = app.candidate.full_name
     company_name = job.company.name if job.company else "the Employer"
+    cand_action_url = get_candidate_action_url(app.status)
     
     # Email
     email_data = {
@@ -1927,7 +1928,7 @@ def update_applicant_status(
         "job_title": job.title,
         "company_name": company_name,
         "status_label": status_label,
-        "application_url": f"{settings.FRONTEND_URL}/applications/{app.id}"
+        "application_url": f"{settings.FRONTEND_URL}{cand_action_url}"
     }
     send_email_task.delay(
         to_email=candidate_email,
@@ -1942,7 +1943,7 @@ def update_applicant_status(
         title="Application Status Updated",
         content=f"Your application status for '{job.title}' has been updated to '{status_label}'.",
         notification_type="application_status_change",
-        action_url=f"/applications/{app.id}"
+        action_url=cand_action_url
     )
 
     return JobApplicationStatusUpdateResponse(
@@ -2047,10 +2048,11 @@ def bulk_update_applicant_status(
     db.commit()
 
     # Trigger application status change notifications (Email + In-App to each Candidate)
-    from app.tasks.notifications import send_email_task, create_in_app_notification_task
+    from app.tasks.notifications import send_email_task, create_in_app_notification_task, get_candidate_action_url
     from app.core.config import settings
     status_label = _get_application_status_label(requested_status)
     company_name = job.company.name if job.company else "the Employer"
+    cand_action_url = get_candidate_action_url(requested_status)
     
     for app in apps:
         candidate_user_id = str(app.candidate.user_id)
@@ -2063,7 +2065,7 @@ def bulk_update_applicant_status(
             "job_title": job.title,
             "company_name": company_name,
             "status_label": status_label,
-            "application_url": f"{settings.FRONTEND_URL}/applications/{app.id}"
+            "application_url": f"{settings.FRONTEND_URL}{cand_action_url}"
         }
         send_email_task.delay(
             to_email=candidate_email,
@@ -2078,7 +2080,7 @@ def bulk_update_applicant_status(
             title="Application Status Updated",
             content=f"Your application status for '{job.title}' has been updated to '{status_label}'.",
             notification_type="application_status_change",
-            action_url=f"/applications/{app.id}"
+            action_url=cand_action_url
         )
 
     return BulkStatusUpdateResponse(
