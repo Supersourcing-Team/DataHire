@@ -95,6 +95,43 @@ def create_in_app_notification_task(user_id: str, title: str, content: str, noti
         db.close()
 
 
+def get_candidate_action_url(status: str) -> str:
+    status_lower = status.strip().lower()
+    mapping = {
+        "applied": "applied",
+        "under_review": "applied",
+        "shortlisted": "shortlisted",
+        "interviewing": "interview",
+        "interviewed": "interview",
+        "offered": "interview",
+        "onhold": "onhold",
+        "hired": "hired",
+        "rejected": "rejected"
+    }
+    tab = mapping.get(status_lower, "applied")
+    return f"/applications-candidate?tab={tab}"
+
+
+def get_employer_action_url(job_id: str, status: str) -> str:
+    status_lower = status.strip().lower()
+    mapping = {
+        "applied": "applied",
+        "under_review": "applied",
+        "shortlisted": "shortlisted",
+        "interviewing": "interview",
+        "interviewed": "interview",
+        "offered": "interview",
+        "onhold": "onhold",
+        "hired": "hired",
+        "rejected": "rejected"
+    }
+    tab = mapping.get(status_lower, "applied")
+    if tab == "applied":
+        return f"/hire-candidate?jobId={job_id}&tab=applied"
+    else:
+        return f"/hire-candidate?jobId={job_id}&tab={tab}&page=1"
+
+
 @celery_app.task(name="app.tasks.notifications.send_application_creation_notifications_task")
 def send_application_creation_notifications_task(application_id: str) -> bool:
     """
@@ -138,7 +175,7 @@ def send_application_creation_notifications_task(application_id: str) -> bool:
             title="Auto-Applied!",
             content=f"Successfully applied to {job.title}",
             notification_type="auto_apply_success",
-            action_url=f"/applications/{application_id}"
+            action_url=get_candidate_action_url(application.status)
         )
         
         # 3. AI Shortlisted Notification for Job Poster (Employer)
@@ -170,7 +207,7 @@ def send_application_creation_notifications_task(application_id: str) -> bool:
                         title="AI Shortlisted Candidate",
                         content=f"Candidate {candidate_name} has been AI shortlisted for your job '{job.title}'.",
                         notification_type="ai_shortlist",
-                        action_url=f"/job-posters/jobs/{job.id}/applicants/{candidate.id}"
+                        action_url=get_employer_action_url(str(job.id), "shortlisted")
                     )
         
         return True
@@ -326,13 +363,15 @@ def run_daily_notifications_job() -> bool:
             JobApplication.created_at >= yesterday
         ).all()
         
-        employer_app_counts = {}  # {employer_user_id: count}
+        # Group applications by employer and job
+        employer_job_app_counts = {}  # {(employer_user_id, job_id, job_title): count}
         for app in recent_apps:
             if app.job and app.job.company:
                 for emp in app.job.company.employers:
-                    employer_app_counts[emp.user_id] = employer_app_counts.get(emp.user_id, 0) + 1
+                    key = (emp.user_id, app.job_id, app.job.title)
+                    employer_job_app_counts[key] = employer_job_app_counts.get(key, 0) + 1
                     
-        for user_id, count in employer_app_counts.items():
+        for (user_id, job_id, job_title), count in employer_job_app_counts.items():
             user = db.query(User).filter(User.id == user_id).first()
             if user:
                 # Email
@@ -346,9 +385,9 @@ def run_daily_notifications_job() -> bool:
                 create_in_app_notification_task.delay(
                     user_id=str(user_id),
                     title="Daily Application Summary",
-                    content=f"You received {count} new candidate application(s) today for your active job postings.",
+                    content=f"You received {count} new candidate application(s) today for your job '{job_title}'.",
                     notification_type="employer_daily_summary",
-                    action_url="/job-posters/dashboard"
+                    action_url=get_employer_action_url(str(job_id), "applied")
                 )
 
         return True
