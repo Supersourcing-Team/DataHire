@@ -263,6 +263,11 @@ class ResumeUploadRequest(BaseModel):
     file_url: str
 
 
+class ResumeRenameRequest(BaseModel):
+    file_name: str = Field(..., min_length=1, max_length=255, description="The new filename for the resume")
+
+
+
 class CoverLetterDetailResponse(BaseModel):
     id: UUID
     job_id: Optional[UUID] = None
