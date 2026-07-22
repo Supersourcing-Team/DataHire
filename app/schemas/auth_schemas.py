@@ -63,6 +63,7 @@ class EmployerProfile(BaseModel):
     work_mobile_number: Optional[str] = None
     onboarding_step: int
     onboarding_completed: bool
+    plan_tier: Optional[str] = "free"
 
 class UserResponse(BaseModel):
     id: str
@@ -144,7 +145,8 @@ class UserResponse(BaseModel):
                     alternate_email=user.employer.company.alternate_email,
                     work_mobile_number=user.employer.company.work_mobile_number,
                     onboarding_step=user.employer.company.onboarding_step,
-                    onboarding_completed=user.employer.company.onboarding_completed
+                    onboarding_completed=user.employer.company.onboarding_completed,
+                    plan_tier=user.employer.company.plan_tier or "free"
                 )
             else:
                 employer_data = EmployerProfile(
@@ -152,10 +154,18 @@ class UserResponse(BaseModel):
                     contact_person=user.employer.contact_person,
                     phone=user.employer.phone,
                     onboarding_step=0,
-                    onboarding_completed=False
+                    onboarding_completed=False,
+                    plan_tier="free"
                 )
 
-        plan_tier = user.candidate.plan_tier if (user.role == "candidate" and user.candidate) else None
+        plan_tier = None
+        if user.role == "candidate" and user.candidate:
+            plan_tier = user.candidate.plan_tier
+        elif user.role == "employer" and user.employer:
+            if user.employer.company:
+                plan_tier = user.employer.company.plan_tier or "free"
+            else:
+                plan_tier = "free"
 
         return cls(
             id=str(user.id),
