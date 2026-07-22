@@ -54,6 +54,7 @@ from app.schemas.job_seeker import (
     PaginatedResumeVersionResponse,
     ResumeStructureResponse,
     ResumeUploadRequest,
+    ResumeRenameRequest,
     CoverLetterDetailResponse,
     PaginatedCoverLetterDetailResponse,
     CoverLetterCreateRequest,
@@ -2969,6 +2970,75 @@ async def reoptimize_resume(
     db.refresh(resume)
     
     return format_resume_structure(resume, candidate, current_user)
+
+
+@router.patch("/resumes/{resume_id}/rename", response_model=ResumeVersionResponse)
+def rename_resume(
+    resume_id: UUID,
+    payload: ResumeRenameRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """Rename a saved resume version."""
+    candidate = get_candidate(current_user, db)
+    resume = db.query(Resume).filter(
+        Resume.id == resume_id,
+        Resume.candidate_id == candidate.id,
+        Resume.is_deleted == False
+    ).first()
+    
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+        
+    resume.file_name = payload.file_name
+    db.add(resume)
+    db.commit()
+    db.refresh(resume)
+    
+    # Check match scores for return model if associated with a job
+    job_title = None
+    company_name = None
+    ai_score = None
+    strong_match = False
+    strong_match_roles = []
+    strong_match_role = None
+    
+    if resume.job_id:
+        job = db.query(JobPosting).filter(JobPosting.id == resume.job_id).first()
+        if job:
+            job_title = job.title
+            company_name = job.company.name if job.company else None
+            try:
+                matching_service = MatchingEngine(db)
+                score_details = matching_service.score_resume_for_job(resume.id, job.id)
+                ai_score = int(score_details["final_score"])
+            except Exception:
+                ai_score = None
+            
+            if ai_score is not None:
+                threshold = job.ai_score_threshold if (job.ai_score_threshold and job.ai_score_threshold > 0) else 70
+                strong_match = ai_score >= threshold
+            if candidate.pref_role_type:
+                strong_match_roles = [role.strip() for role in candidate.pref_role_type.split(",") if role.strip()]
+                strong_match_role = candidate.pref_role_type
+
+    return ResumeVersionResponse(
+        id=resume.id,
+        file_name=resume.file_name,
+        file_url=s3_service.get_presigned_url(resume.file_url),
+        version_number=resume.version_number,
+        is_primary=resume.is_primary,
+        is_default=resume.is_primary,
+        is_ai_optimized=resume.is_ai_optimized,
+        created_at=resume.created_at,
+        job_id=resume.job_id,
+        job_title=job_title,
+        company_name=company_name,
+        ai_score=ai_score,
+        strong_match=strong_match,
+        strong_match_roles=strong_match_roles,
+        strong_match_role=strong_match_role
+    )
 
 
 @router.delete("/resumes/{resume_id}")
