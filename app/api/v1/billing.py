@@ -406,6 +406,15 @@ async def stripe_webhook(
                 candidate.stripe_subscription_id = subscription_id
                 candidate.subscription_ends_at = ends_at
                 transaction.candidate_id = candidate.id
+                
+                # Trigger plan upgrade email notification
+                from app.tasks.notifications import send_email_task
+                send_email_task.delay(
+                    to_email=candidate.user.email,
+                    template_name_or_id="emails/plan_upgrade.html",
+                    template_data={"name": candidate.full_name, "plan_name": plan_tier.capitalize()},
+                    subject="Your Plan Has Been Upgraded!"
+                )
         elif role == "employer":
             company_id_str = metadata.get("company_id")
             company_id = uuid.UUID(company_id_str) if company_id_str else None
@@ -417,6 +426,16 @@ async def stripe_webhook(
                 company.subscription_ends_at = ends_at
                 company.subscription_duration_months = 1
                 transaction.company_id = company.id
+                
+                # Trigger plan upgrade email notification
+                from app.tasks.notifications import send_email_task
+                for emp in company.employers:
+                    send_email_task.delay(
+                        to_email=emp.user.email,
+                        template_name_or_id="emails/plan_upgrade.html",
+                        template_data={"name": emp.contact_person or emp.user.email, "plan_name": plan_tier.capitalize()},
+                        subject="Your Company Plan Has Been Upgraded!"
+                    )
                 
         db.commit()
 

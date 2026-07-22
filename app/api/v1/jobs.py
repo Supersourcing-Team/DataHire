@@ -1605,6 +1605,7 @@ def get_applicant_profile(
             detail="Application for this candidate on this job was not found."
         )
 
+    trigger_view_notification = False
     if not app.is_viewed:
         company = db.query(Company).filter(Company.id == company_id).first()
         if company:
@@ -1624,6 +1625,7 @@ def get_applicant_profile(
         app.is_viewed = True
         db.commit()
         db.refresh(app)
+        trigger_view_notification = True
 
     candidate = db.query(Candidate).options(
         joinedload(Candidate.user),
@@ -1634,6 +1636,18 @@ def get_applicant_profile(
         raise HTTPException(
             status_code=404,
             detail="Candidate not found."
+        )
+
+    if trigger_view_notification:
+        from app.tasks.notifications import create_in_app_notification_task
+        company = db.query(Company).filter(Company.id == company_id).first()
+        comp_name = company.name if company else "Employer"
+        create_in_app_notification_task.delay(
+            user_id=str(candidate.user_id),
+            title="Resume Viewed!",
+            content=f"Your profile has been viewed by '{comp_name}' for the job '{job.title}'.",
+            notification_type="resume_view",
+            action_url=f"/applications/{app.id}"
         )
 
     # Resolve the resume used (job-specific or primary)
@@ -1898,6 +1912,39 @@ def update_applicant_status(
 
     db.commit()
 
+    # Trigger application status change notifications (Email + In-App to Candidate)
+    from app.tasks.notifications import send_email_task, create_in_app_notification_task
+    from app.core.config import settings
+    status_label = _get_application_status_label(app.status)
+    candidate_user_id = str(app.candidate.user_id)
+    candidate_email = app.candidate.user.email
+    candidate_name = app.candidate.full_name
+    company_name = job.company.name if job.company else "the Employer"
+    
+    # Email
+    email_data = {
+        "name": candidate_name,
+        "job_title": job.title,
+        "company_name": company_name,
+        "status_label": status_label,
+        "application_url": f"{settings.FRONTEND_URL}/applications/{app.id}"
+    }
+    send_email_task.delay(
+        to_email=candidate_email,
+        template_name_or_id="emails/application_status_change.html",
+        template_data=email_data,
+        subject=f"Application Update: {job.title}"
+    )
+    
+    # In-App
+    create_in_app_notification_task.delay(
+        user_id=candidate_user_id,
+        title="Application Status Updated",
+        content=f"Your application status for '{job.title}' has been updated to '{status_label}'.",
+        notification_type="application_status_change",
+        action_url=f"/applications/{app.id}"
+    )
+
     return JobApplicationStatusUpdateResponse(
         application_id=app.id,
         candidate_id=app.candidate_id,
@@ -1998,6 +2045,41 @@ def bulk_update_applicant_status(
         )
 
     db.commit()
+
+    # Trigger application status change notifications (Email + In-App to each Candidate)
+    from app.tasks.notifications import send_email_task, create_in_app_notification_task
+    from app.core.config import settings
+    status_label = _get_application_status_label(requested_status)
+    company_name = job.company.name if job.company else "the Employer"
+    
+    for app in apps:
+        candidate_user_id = str(app.candidate.user_id)
+        candidate_email = app.candidate.user.email
+        candidate_name = app.candidate.full_name
+        
+        # Email
+        email_data = {
+            "name": candidate_name,
+            "job_title": job.title,
+            "company_name": company_name,
+            "status_label": status_label,
+            "application_url": f"{settings.FRONTEND_URL}/applications/{app.id}"
+        }
+        send_email_task.delay(
+            to_email=candidate_email,
+            template_name_or_id="emails/application_status_change.html",
+            template_data=email_data,
+            subject=f"Application Update: {job.title}"
+        )
+        
+        # In-App
+        create_in_app_notification_task.delay(
+            user_id=candidate_user_id,
+            title="Application Status Updated",
+            content=f"Your application status for '{job.title}' has been updated to '{status_label}'.",
+            notification_type="application_status_change",
+            action_url=f"/applications/{app.id}"
+        )
 
     return BulkStatusUpdateResponse(
         updated_count=len(updated_applicants),

@@ -221,6 +221,10 @@ class LinkedInOAuthService:
                 db.add(employer)
             
             db.commit()
+            
+            # Trigger welcome notification
+            from app.tasks.notifications import send_welcome_notification_task
+            send_welcome_notification_task.delay(str(user.id))
         
         # Generate final JWT tokens
         from app.core.security import create_access_token, create_refresh_token
