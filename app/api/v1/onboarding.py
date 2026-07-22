@@ -124,6 +124,10 @@ async def candidate_step_4(
     candidate.onboarding_step = 4
     candidate.onboarding_completed = True
     db.commit()
+    
+    from app.tasks.notifications import send_welcome_notification_task
+    send_welcome_notification_task.delay(str(current_user.id))
+    
     return {"message": "Candidate onboarding completed successfully"}
 
 
@@ -267,4 +271,8 @@ async def employer_step_4(
     company.onboarding_step = 4
     company.onboarding_completed = True
     db.commit()
+    
+    from app.tasks.notifications import send_welcome_notification_task
+    send_welcome_notification_task.delay(str(current_user.id))
+    
     return {"message": "Company onboarding completed successfully"}

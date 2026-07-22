@@ -153,3 +153,5 @@ workflows/*
 
 graphify-out/
 .agents/
+
+app/templates/previews

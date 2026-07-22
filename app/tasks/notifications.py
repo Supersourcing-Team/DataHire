@@ -123,7 +123,7 @@ def send_application_creation_notifications_task(application_id: str) -> bool:
             "name": candidate_name,
             "job_title": job.title,
             "company_name": job.company.name if job.company else "the Employer",
-            "application_url": f"http://localhost:3000/applications/{application_id}"
+            "application_url": f"{settings.FRONTEND_URL}/applications/{application_id}"
         }
         send_email_task.delay(
             to_email=candidate_email,
@@ -141,9 +141,220 @@ def send_application_creation_notifications_task(application_id: str) -> bool:
             action_url=f"/applications/{application_id}"
         )
         
+        # 3. AI Shortlisted Notification for Job Poster (Employer)
+        if application.status == "shortlisted":
+            if job.company:
+                for emp in job.company.employers:
+                    emp_user_id = str(emp.user_id)
+                    emp_email = emp.user.email
+                    
+                    # Email
+                    ai_email_data = {
+                        "employer_name": emp.contact_person or emp_email,
+                        "candidate_name": candidate_name,
+                        "job_title": job.title,
+                        "candidate_id": str(candidate.id),
+                        "job_id": str(job.id),
+                        "application_url": f"{settings.FRONTEND_URL}/job-posters/jobs/{job.id}/applicants/{candidate.id}"
+                    }
+                    send_email_task.delay(
+                        to_email=emp_email,
+                        template_name_or_id="emails/ai_shortlist.html",
+                        template_data=ai_email_data,
+                        subject=f"AI Shortlisted Candidate: {candidate_name}"
+                    )
+                    
+                    # In-App
+                    create_in_app_notification_task.delay(
+                        user_id=emp_user_id,
+                        title="AI Shortlisted Candidate",
+                        content=f"Candidate {candidate_name} has been AI shortlisted for your job '{job.title}'.",
+                        notification_type="ai_shortlist",
+                        action_url=f"/job-posters/jobs/{job.id}/applicants/{candidate.id}"
+                    )
+        
         return True
     except Exception as e:
         logger.error(f"Failed to process notifications for Application {application_id}: {str(e)}")
         return False
     finally:
         db.close()
+
+
+@celery_app.task(name="app.tasks.notifications.send_welcome_notification_task")
+def send_welcome_notification_task(user_id: str) -> bool:
+    """
+    Sends a welcome email (Email-only).
+    """
+    db = SessionLocal()
+    try:
+        from app.models.user import User, UserRole
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            logger.error(f"User {user_id} not found for welcome notification.")
+            return False
+            
+        full_name = user.email
+        if user.role == UserRole.CANDIDATE and user.candidate:
+            full_name = user.candidate.full_name or user.email
+        elif user.role == UserRole.EMPLOYER and user.employer:
+            full_name = user.employer.contact_person or user.email
+
+        # Send welcome email
+        email_data = {
+            "name": full_name,
+            "dashboard_url": f"{settings.FRONTEND_URL}/dashboard"
+        }
+        send_email_task.delay(
+            to_email=user.email,
+            template_name_or_id="emails/welcome.html",
+            template_data=email_data,
+            subject="Welcome to DataHire"
+        )
+        return True
+    except Exception as e:
+        logger.error(f"Failed to send welcome notification for user {user_id}: {str(e)}")
+        return False
+    finally:
+        db.close()
+
+
+@celery_app.task(name="app.tasks.notifications.run_daily_notifications_job")
+def run_daily_notifications_job() -> bool:
+    """
+    Runs once a day to check and trigger scheduled/cron-like notifications:
+    1. Token Expiry (Access/Refresh session expiring in < 7 days)
+    2. Saved Job Expiring (expires in < 3 days)
+    3. Job Expiry (expires in < 3 days)
+    4. Daily application summary for employers (Job Poster)
+    """
+    db = SessionLocal()
+    try:
+        from datetime import datetime, timezone, timedelta
+        from app.models.user import User, UserRole
+        from app.models.refresh_token import RefreshToken
+        from app.models.saved_job import SavedJob
+        from app.models.job import JobPosting, JobStatus
+        from app.models.application import JobApplication
+        from app.models.employer import Employer
+
+        now = datetime.now(timezone.utc)
+        three_days_from_now = now + timedelta(days=3)
+        seven_days_from_now = now + timedelta(days=7)
+
+        # 1. Token Expiry (Warn users whose refresh tokens will expire in less than 7 days)
+        expiring_tokens = db.query(RefreshToken).filter(
+            RefreshToken.expires_at > now,
+            RefreshToken.expires_at <= seven_days_from_now
+        ).all()
+        notified_users = set()
+        for token in expiring_tokens:
+            if token.user_id not in notified_users:
+                # Email
+                send_email_task.delay(
+                    to_email=token.user.email,
+                    template_name_or_id="emails/token_expiry.html",
+                    template_data={"name": token.user.email},
+                    subject="Login Session Expiring Soon"
+                )
+                # In-App
+                create_in_app_notification_task.delay(
+                    user_id=str(token.user_id),
+                    title="Session Expiring Soon",
+                    content="Your login session is scheduled to expire in less than 7 days. Please log in again to extend it.",
+                    notification_type="token_expiry",
+                    action_url="/dashboard"
+                )
+                notified_users.add(token.user_id)
+
+        # 2. Saved Job Expiring (expires in < 3 days)
+        expiring_saved_jobs = db.query(SavedJob).join(JobPosting).filter(
+            JobPosting.is_active == True,
+            JobPosting.status == JobStatus.PUBLISHED,
+            JobPosting.application_deadline > now,
+            JobPosting.application_deadline <= three_days_from_now
+        ).all()
+        for saved in expiring_saved_jobs:
+            candidate_user_id = saved.candidate.user_id
+            expiry_str = saved.job.application_deadline.strftime('%Y-%m-%d')
+            # Email
+            send_email_task.delay(
+                to_email=saved.candidate.user.email,
+                template_name_or_id="emails/saved_job_expiring.html",
+                template_data={"name": saved.candidate.full_name, "job_title": saved.job.title, "expiry_days": 3},
+                subject="Saved Job Expiring Soon"
+            )
+            # In-App
+            create_in_app_notification_task.delay(
+                user_id=str(candidate_user_id),
+                title="Saved Job Expiring",
+                content=f"Your saved job '{saved.job.title}' is expiring soon on {expiry_str}.",
+                notification_type="saved_job_expiring",
+                action_url=f"/jobs/{saved.job_id}"
+            )
+
+        # 3. Job Expiry (active job posting expiring in < 3 days)
+        expiring_jobs = db.query(JobPosting).filter(
+            JobPosting.is_active == True,
+            JobPosting.status == JobStatus.PUBLISHED,
+            JobPosting.application_deadline > now,
+            JobPosting.application_deadline <= three_days_from_now
+        ).all()
+        for job in expiring_jobs:
+            if job.company:
+                expiry_str = job.application_deadline.strftime('%Y-%m-%d')
+                for emp in job.company.employers:
+                    # Email
+                    send_email_task.delay(
+                        to_email=emp.user.email,
+                        template_name_or_id="emails/job_expiry.html",
+                        template_data={"job_title": job.title, "expiry_date": expiry_str},
+                        subject="Job Posting Expiring Soon"
+                    )
+                    # In-App
+                    create_in_app_notification_task.delay(
+                        user_id=str(emp.user_id),
+                        title="Job Posting Expiring Soon",
+                        content=f"Your job posting '{job.title}' is scheduled to expire on {expiry_str}.",
+                        notification_type="job_expiry",
+                        action_url=f"/job-posters/jobs/{job.id}"
+                    )
+
+        # 4. Daily application summary for employers (Total jobs applied for on a per day basis)
+        yesterday = now - timedelta(days=1)
+        recent_apps = db.query(JobApplication).filter(
+            JobApplication.created_at >= yesterday
+        ).all()
+        
+        employer_app_counts = {}  # {employer_user_id: count}
+        for app in recent_apps:
+            if app.job and app.job.company:
+                for emp in app.job.company.employers:
+                    employer_app_counts[emp.user_id] = employer_app_counts.get(emp.user_id, 0) + 1
+                    
+        for user_id, count in employer_app_counts.items():
+            user = db.query(User).filter(User.id == user_id).first()
+            if user:
+                # Email
+                send_email_task.delay(
+                    to_email=user.email,
+                    template_name_or_id="emails/employer_daily_summary.html",
+                    template_data={"total_app_count": count},
+                    subject="Daily Application Summary Report"
+                )
+                # In-App
+                create_in_app_notification_task.delay(
+                    user_id=str(user_id),
+                    title="Daily Application Summary",
+                    content=f"You received {count} new candidate application(s) today for your active job postings.",
+                    notification_type="employer_daily_summary",
+                    action_url="/job-posters/dashboard"
+                )
+
+        return True
+    except Exception as e:
+        logger.error(f"Failed to run daily notifications job: {str(e)}")
+        return False
+    finally:
+        db.close()
+

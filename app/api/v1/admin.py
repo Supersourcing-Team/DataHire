@@ -954,6 +954,16 @@ def suspend_company(
     )
     
     db.commit()
+
+    # Notify all employers associated with the company
+    from app.tasks.notifications import send_email_task
+    for emp in company.employers:
+        send_email_task.delay(
+            to_email=emp.user.email,
+            template_name_or_id="emails/account_suspended.html",
+            template_data={"reason": "Your associated organization has been suspended by DataHire Admins."},
+            subject="Your Organization Has Been Suspended"
+        )
     
     updated_company = (
         db.query(Company)
@@ -1311,6 +1321,15 @@ def suspend_user(
     
     db.commit()
     db.refresh(user)
+
+    # Trigger account suspended email notification (Email: Yes, In-App: No)
+    from app.tasks.notifications import send_email_task
+    send_email_task.delay(
+        to_email=user.email,
+        template_name_or_id="emails/account_suspended.html",
+        template_data={"reason": "Violation of DataHire platform policies."},
+        subject="Your DataHire Account Has Been Suspended"
+    )
 
     return AdminUserSuspensionResponse(
         message="User suspended successfully",
