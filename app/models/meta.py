@@ -144,6 +144,7 @@ class MetaSubscriptionPlan(Base):
     price = Column(DECIMAL(10, 2), nullable=False)
     currency_id = Column(Integer, ForeignKey("meta_currencies.id", ondelete="RESTRICT"), nullable=False)
     features = Column(JSONB, nullable=True)
+    role = Column(String(50), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

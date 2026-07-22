@@ -153,12 +153,14 @@ class MetaSubscriptionPlanCreate(MetaBase):
     price: float
     currency_id: int
     features: Optional[Dict[str, Any]] = None
+    role: Optional[str] = None
 
 class MetaSubscriptionPlanUpdate(BaseModel):
     name: Optional[str] = None
     price: Optional[float] = None
     currency_id: Optional[int] = None
     features: Optional[Dict[str, Any]] = None
+    role: Optional[str] = None
     is_active: Optional[bool] = None
 
 class MetaSubscriptionPlanResponse(MetaSubscriptionPlanCreate, MetaResponseBase):
