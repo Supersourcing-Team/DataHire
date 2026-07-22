@@ -299,8 +299,17 @@ def get_job_seeker_feed(
 ):
     candidate = get_candidate(current_user, db)
     
-    # 1. Start base query
-    query = db.query(JobPosting).filter(JobPosting.is_active == True, JobPosting.status == JobStatus.PUBLISHED)
+    # Subquery to identify jobs the candidate has already applied to
+    applied_job_ids = select(JobApplication.job_id).where(
+        JobApplication.candidate_id == candidate.id
+    )
+    
+    # 1. Start base query (excluding already applied jobs)
+    query = db.query(JobPosting).filter(
+        JobPosting.is_active == True,
+        JobPosting.status == JobStatus.PUBLISHED,
+        ~JobPosting.id.in_(applied_job_ids)
+    )
     
     # Apply search filter
     if search:
