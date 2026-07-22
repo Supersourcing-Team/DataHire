@@ -65,6 +65,11 @@ api_router.include_router(notification_singular_router)
 from app.api.v1.billing import router as billing_router
 api_router.include_router(billing_router)
 
+# Include Plans routers (Job Seeker & Job Poster)
+from app.api.v1.plans import job_seeker_plans_router, job_poster_plans_router
+api_router.include_router(job_seeker_plans_router)
+api_router.include_router(job_poster_plans_router)
+
 @api_router.get("/")
 async def api_info():
     """API information endpoint."""
@@ -79,6 +84,8 @@ async def api_info():
             "billing_checkout": "/billing/create-checkout-session",
             "billing_portal": "/billing/create-portal-session",
             "billing_status": "/billing/status",
+            "job_seeker_plans": "/job-seeker/plans",
+            "job_poster_plans": "/job-poster/plans",
             "admin_hiring_funnel": "/admin/dashboard/hiring-funnel",
             "admin_growth_analytics": "/admin/dashboard/growth-analytics",
             "admin_candidate_dashboard": "/admin/dashboard/candidates",
