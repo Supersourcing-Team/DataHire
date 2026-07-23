@@ -379,7 +379,7 @@ class CandidateProfileResponse(BaseModel):
 class CandidateProfileUpdate(BaseModel):
     full_name: str
     phone: str
-    current_address: str
+    current_address: Optional[str] = None
     profile_picture: Optional[str] = None
     visa_status_id: Optional[int] = None
     work_status_id: Optional[int] = None
@@ -409,10 +409,13 @@ class CandidateProfileUpdate(BaseModel):
 
     @field_validator("current_address")
     @classmethod
-    def validate_current_address(cls, v: str) -> str:
-        if not v or not v.strip():
-            raise ValueError("current_address is required and cannot be empty")
-        return v.strip()
+    def validate_current_address(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        v_stripped = v.strip()
+        if v_stripped == "":
+            return None
+        return v_stripped
 
     @field_validator("experience_years")
     @classmethod
