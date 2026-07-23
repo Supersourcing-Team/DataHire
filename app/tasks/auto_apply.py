@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timezone
+from sqlalchemy import or_
 from sqlalchemy.orm import joinedload
 from app.core.celery_app import celery_app
 from app.db.session import SessionLocal
@@ -194,17 +195,15 @@ def dispatch_auto_apply_all_task() -> dict:
     logger.info("Starting global auto-apply dispatcher task...")
     db = SessionLocal()
     try:
-        # Fetch candidates who have preferences configured
-        candidates = db.query(Candidate).all()
-        candidate_ids = []
-        for candidate in candidates:
-            has_preferences = bool(
-                candidate.pref_role_type or 
-                candidate.pref_locations or 
-                candidate.pref_min_salary is not None
+        # Fetch candidates who have preferences configured (filter at database level)
+        candidates = db.query(Candidate.id).filter(
+            or_(
+                Candidate.pref_role_type.isnot(None),
+                Candidate.pref_locations.isnot(None),
+                Candidate.pref_min_salary.isnot(None)
             )
-            if has_preferences:
-                candidate_ids.append(str(candidate.id))
+        ).all()
+        candidate_ids = [str(r[0]) for r in candidates]
 
         logger.info(f"Found {len(candidate_ids)} candidates eligible for auto-apply.")
 

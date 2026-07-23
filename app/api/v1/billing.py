@@ -1,6 +1,7 @@
 import datetime
 import stripe
 import os
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Header, Response
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -60,7 +61,8 @@ async def create_checkout_session(
         customer_id = candidate.stripe_customer_id
         if not customer_id:
             try:
-                customer = stripe.Customer.create(
+                customer = await asyncio.to_thread(
+                    stripe.Customer.create,
                     email=current_user.email,
                     name=candidate.full_name,
                     metadata={"candidate_id": str(candidate.id), "user_id": str(current_user.id)}
@@ -76,7 +78,8 @@ async def create_checkout_session(
         
         # Create Checkout Session
         try:
-            session = stripe.checkout.Session.create(
+            session = await asyncio.to_thread(
+                stripe.checkout.Session.create,
                 customer=customer_id,
                 line_items=[{
                     "price": price_id,
@@ -144,7 +147,8 @@ async def create_checkout_session(
         customer_id = company.stripe_customer_id
         if not customer_id:
             try:
-                customer = stripe.Customer.create(
+                customer = await asyncio.to_thread(
+                    stripe.Customer.create,
                     email=company.alternate_email or current_user.email,
                     name=company.name,
                     metadata={"company_id": str(company.id), "employer_user_id": str(current_user.id)}
@@ -160,7 +164,8 @@ async def create_checkout_session(
         
         # Create Checkout Session
         try:
-            session = stripe.checkout.Session.create(
+            session = await asyncio.to_thread(
+                stripe.checkout.Session.create,
                 customer=customer_id,
                 line_items=[{
                     "price": price_id,
@@ -238,7 +243,8 @@ async def create_portal_session(
         )
 
     try:
-        session = stripe.billing_portal.Session.create(
+        session = await asyncio.to_thread(
+            stripe.billing_portal.Session.create,
             customer=customer_id,
             return_url=f"{settings.FRONTEND_URL}/billing"
         )
@@ -510,7 +516,7 @@ async def list_invoices(
         return []
 
     try:
-        invoices = stripe.Invoice.list(customer=customer_id, limit=24)
+        invoices = await asyncio.to_thread(stripe.Invoice.list, customer=customer_id, limit=24)
         return [
             {
                 "id": inv.id,

@@ -3,9 +3,12 @@ Database configuration and setup for DataHire platform.
 """
 
 import os
+import logging
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # Create engine based on database URL
 engine = create_engine(
@@ -43,4 +46,4 @@ def init_db():
     
     # Create all tables
     Base.metadata.create_all(bind=engine)
-    print("✅ Database tables created successfully")
+    logger.info("Database tables created successfully")

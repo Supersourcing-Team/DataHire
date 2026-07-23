@@ -1,3 +1,5 @@
+import asyncio
+import re
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Any, Dict
 from uuid import UUID
@@ -1884,7 +1886,7 @@ async def optimize_resume_for_job(
                 db.delete(s)
                 
         for section in primary_resume.sections:
-            result = optimization_engine.optimize_section(job, section)
+            result = await asyncio.to_thread(optimization_engine.optimize_section, job, section)
             
             existing_sec = existing_sections_by_type.get(section.section_type)
             if existing_sec:
@@ -1933,7 +1935,7 @@ async def optimize_resume_for_job(
         # Optimize resume sections
         new_sections = []
         for section in primary_resume.sections:
-            result = optimization_engine.optimize_section(job, section)
+            result = await asyncio.to_thread(optimization_engine.optimize_section, job, section)
             
             new_section = ResumeSection(
                 resume_id=resume_to_use.id,
@@ -2043,7 +2045,7 @@ async def optimize_resume_general(
     # Optimize resume sections
     new_sections = []
     for section in primary_resume.sections:
-        result = optimization_engine.optimize_section_general(section)
+        result = await asyncio.to_thread(optimization_engine.optimize_section_general, section)
         
         # Save optimized content in a new section record linked to the new resume version
         new_section = ResumeSection(
@@ -2767,7 +2769,7 @@ async def download_resume_pdf(
         if "\\'" in html_content:
             html_content = html_content.replace("\\'", "'")
             
-        pdf_bytes = pdf_service.convert_html_to_pdf(html_content)
+        pdf_bytes = await asyncio.to_thread(pdf_service.convert_html_to_pdf, html_content)
         return StreamingResponse(
             io.BytesIO(pdf_bytes),
             media_type="application/pdf",
@@ -2806,11 +2808,11 @@ async def generate_pdf_response_for_resume(db: Session, resume: Resume, candidat
     # 1. Render styled HTML from structured_data
     if resume.structured_data:
         html_content = render_resume_to_html(resume.structured_data, default_name=candidate_name)
-        pdf_bytes = pdf_service.convert_html_to_pdf(html_content)
+        pdf_bytes = await asyncio.to_thread(pdf_service.convert_html_to_pdf, html_content)
     # 2. Or fallback to downloading S3 file if file_url exists
     elif resume.file_url:
         from app.services.resume_parser import resume_parser_service
-        pdf_bytes = resume_parser_service.download_file(resume.file_url)
+        pdf_bytes = await asyncio.to_thread(resume_parser_service.download_file, resume.file_url)
     else:
         raise HTTPException(status_code=400, detail="Resume contains no renderable content.")
         
@@ -2947,7 +2949,7 @@ async def reoptimize_resume(
     # Optimize existing sections
     new_sections = []
     for section in resume.sections:
-        result = optimization_engine.optimize_section(job, section)
+        result = await asyncio.to_thread(optimization_engine.optimize_section, job, section)
         
         section.optimized_content = result.get("optimized_content")
         section.optimization_metadata = {

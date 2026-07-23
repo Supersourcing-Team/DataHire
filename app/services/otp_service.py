@@ -1,10 +1,13 @@
 import random
 import string
+import logging
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.models.otp import OTPToken
 from app.services.email_service import EmailService
+
+logger = logging.getLogger(__name__)
 
 class OTPService:
     @staticmethod
@@ -115,9 +118,6 @@ class OTPService:
         Invalidates previous phone OTPs for this phone+purpose, generates a new one,
         saves it to the database, and logs it (mocking the SMS send).
         """
-        import logging
-        logger = logging.getLogger(__name__)
-
         # Invalidate old unused OTPs
         old_otps = db.query(OTPToken).filter(
             OTPToken.phone == phone,

@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 class EmbeddingService:
     """
     Singleton service for generating vector embeddings across the platform.
-    Using Gemini text-embedding-004 with 384 dimensions.
+    Using Gemini models/gemini-embedding-2 with 384 dimensions.
     """
     _instance = None
 

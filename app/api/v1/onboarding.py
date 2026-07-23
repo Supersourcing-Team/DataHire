@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Body
 from sqlalchemy.orm import Session
 import asyncio
+import logging
 from app.db.session import get_db
 from app.core.dependencies import get_current_active_user
 from app.models.user import User, UserRole
@@ -15,6 +16,8 @@ from app.schemas.employer_onboarding import (
     EmployerStep1Schema, EmployerStep2Schema,
     EmployerStep3Schema, EmployerStep4Schema
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 
@@ -266,7 +269,7 @@ async def employer_step_4(
                         company.logo_url = logo_url
             except Exception as e:
                 # Log the error but continue onboarding silently
-                print(f"Failed to fetch or upload logo for {domain}: {e}")
+                logger.error(f"Failed to fetch or upload logo for {domain}: {e}")
 
     company.onboarding_step = 4
     company.onboarding_completed = True

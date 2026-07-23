@@ -228,13 +228,17 @@ class PDFService:
             import traceback
             logger.error("Error generating PDF from HTML: %s", str(e), exc_info=True)
             try:
-                with open("pdf_crash_debug.txt", "w", encoding="utf-8") as debug_f:
+                import tempfile
+                import os
+                temp_path = os.path.join(tempfile.gettempdir(), "pdf_crash_debug.txt")
+                with open(temp_path, "w", encoding="utf-8") as debug_f:
                     debug_f.write("=== ERROR ===\n")
                     debug_f.write(str(e) + "\n\n")
                     debug_f.write("=== TRACEBACK ===\n")
                     traceback.print_exc(file=debug_f)
                     debug_f.write("\n=== CLEANED HTML ===\n")
                     debug_f.write(cleaned_html)
+                logger.error("Saved PDF crash debug info to %s", temp_path)
             except Exception as debug_err:
                 logger.error("Failed to write pdf_crash_debug.txt: %s", debug_err)
             raise e
