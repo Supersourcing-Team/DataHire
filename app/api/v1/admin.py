@@ -1683,19 +1683,27 @@ def get_job_candidates_status_count(
     )
 
     # Normalize requested statuses for case-insensitive matching
+    # Support both list of query parameters and comma-separated status strings
+    actual_statuses = []
+    for s in statuses:
+        if "," in s:
+            actual_statuses.extend([item.strip() for item in s.split(",") if item.strip()])
+        else:
+            actual_statuses.append(s)
+
     normalized_requested = {}
-    for original_status in statuses:
+    for original_status in actual_statuses:
         clean = original_status.lower().strip()
         normalized_requested[clean] = original_status
 
-    response_counts = {status: 0 for status in statuses}
+    response_counts = {status: 0 for status in actual_statuses}
 
     # Helper function to get normalized DB status variations
     def get_variations(db_status: str) -> List[str]:
         db_lower = (db_status or "").lower().strip()
         variations = [db_lower]
         if db_lower in ("under_review", "review", "in_review", "in review"):
-            variations.extend(["review", "in review", "in_review", "under_review"])
+            variations.extend(["review", "in review", "in_review", "under_review", "inreview"])
         elif db_lower in ("interviewing", "interviewed", "interview"):
             variations.extend(["interview", "interviewing", "interviewed"])
         elif db_lower in ("onhold", "on_hold"):
@@ -1741,7 +1749,7 @@ def get_job_candidates_pipeline(
 
     if status and status.lower().strip() != "all":
         status_clean = status.lower().strip()
-        if status_clean in ("under_review", "review", "in_review", "in review"):
+        if status_clean in ("under_review", "review", "in_review", "in review", "inreview"):
             query = query.filter(func.lower(JobApplication.status).in_(["under_review", "review", "in_review", "in review"]))
         elif status_clean in ("interviewing", "interviewed", "interview"):
             query = query.filter(func.lower(JobApplication.status).in_(["interviewing", "interviewed", "interview"]))
