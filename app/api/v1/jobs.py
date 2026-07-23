@@ -600,6 +600,7 @@ def publish_job_final(
             
         # Check company plan posting limit
         if db_job.status != JobStatus.PUBLISHED:
+            db_job.created_at = datetime.now(timezone.utc)
             company = db.query(Company).filter(Company.id == db_job.company_id).first()
             if company:
                 tier = company.plan_tier or "free"
