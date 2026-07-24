@@ -242,6 +242,9 @@ class EmployerJobListingItem(BaseModel):
     status: str
     status_label: str
     is_valid: bool = False
+    salary_min: Optional[int] = None
+    salary_max: Optional[int] = None
+    currency_id: Optional[int] = None
 
     model_config = ConfigDict(from_attributes=True)
 
