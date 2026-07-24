@@ -31,10 +31,18 @@ def execute_candidate_auto_apply_task(candidate_id: str) -> bool:
             logger.info(f"Candidate {candidate_id} has cancelled auto-apply.")
             return False
 
-        # Verify candidate preferences
+        # Verify candidate preferences (handling literal "None" strings)
+        pref_role_str = candidate.pref_role_type
+        if pref_role_str and pref_role_str.strip().lower() in ("none", "null", ""):
+            pref_role_str = None
+            
+        pref_loc_str = candidate.pref_locations
+        if pref_loc_str and pref_loc_str.strip().lower() in ("none", "null", ""):
+            pref_loc_str = None
+
         has_preferences = bool(
-            candidate.pref_role_type or 
-            candidate.pref_locations or 
+            pref_role_str or 
+            pref_loc_str or 
             candidate.pref_min_salary is not None
         )
         if not has_preferences:
@@ -90,8 +98,8 @@ def execute_candidate_auto_apply_task(candidate_id: str) -> bool:
         }
 
         # Filter jobs in-memory
-        pref_roles = [r.strip().lower() for r in candidate.pref_role_type.split(",") if r.strip()] if candidate.pref_role_type else []
-        pref_locs = [l.strip().lower() for l in candidate.pref_locations.split(",") if l.strip()] if candidate.pref_locations else []
+        pref_roles = [r.strip().lower() for r in pref_role_str.split(",") if r.strip()] if pref_role_str else []
+        pref_locs = [l.strip().lower() for l in pref_loc_str.split(",") if l.strip()] if pref_loc_str else []
 
         matching_service = MatchingEngine(db)
         scored_jobs = []
@@ -147,7 +155,7 @@ def execute_candidate_auto_apply_task(candidate_id: str) -> bool:
         scored_jobs.sort(key=lambda x: x[1], reverse=True)
         top_matches = scored_jobs[:max_to_apply]
 
-        apps_created = 0
+        created_app_ids = []
         for job, ai_score in top_matches:
             # Determine application status
             threshold = job.ai_score_threshold if (job.ai_score_threshold and job.ai_score_threshold > 0) else 70
@@ -166,15 +174,17 @@ def execute_candidate_auto_apply_task(candidate_id: str) -> bool:
 
             db.add(new_app)
             db.flush()  # Generate app ID
+            created_app_ids.append(str(new_app.id))
 
-            # Trigger decoupled notification
-            send_application_creation_notifications_task.delay(str(new_app.id))
-            apps_created += 1
-
-        if apps_created > 0:
+        if created_app_ids:
             db.add(candidate)
             db.commit()
-            logger.info(f"Successfully auto-applied to {apps_created} jobs for candidate {candidate.id}")
+            
+            # Trigger decoupled notifications AFTER the transaction has successfully committed
+            for app_id in created_app_ids:
+                send_application_creation_notifications_task.delay(app_id)
+                
+            logger.info(f"Successfully auto-applied to {len(created_app_ids)} jobs for candidate {candidate.id}")
             return True
 
         return False
@@ -198,9 +208,23 @@ def dispatch_auto_apply_all_task() -> dict:
         candidates = db.query(Candidate).all()
         candidate_ids = []
         for candidate in candidates:
+            # Exclude free plan candidates early (limit <= 0)
+            tier = candidate.plan_tier or "free"
+            limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+            if limits.get("daily_apply_limit", 0) <= 0:
+                continue
+
+            pref_role_str = candidate.pref_role_type
+            if pref_role_str and pref_role_str.strip().lower() in ("none", "null", ""):
+                pref_role_str = None
+                
+            pref_loc_str = candidate.pref_locations
+            if pref_loc_str and pref_loc_str.strip().lower() in ("none", "null", ""):
+                pref_loc_str = None
+
             has_preferences = bool(
-                candidate.pref_role_type or 
-                candidate.pref_locations or 
+                pref_role_str or 
+                pref_loc_str or 
                 candidate.pref_min_salary is not None
             )
             if has_preferences:
