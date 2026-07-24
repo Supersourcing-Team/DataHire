@@ -69,9 +69,9 @@ async def upload_file(
             
             # Create Resume in db
             from app.models.resume import Resume, ResumeSection, SectionType
-            from app.api.v1.job_seeker import PLAN_LIMITS
+            from app.services.plans_service import PLAN_LIMITS
             tier = current_user.candidate.plan_tier or "free"
-            limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+            limits = PLAN_LIMITS.get_limits(tier, db)
             
             existing_resumes = db.query(Resume).filter(
                 Resume.candidate_id == current_user.candidate.id,
