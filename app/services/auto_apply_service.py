@@ -15,7 +15,8 @@ def execute_auto_apply_for_all(db: Session) -> dict:
     Returns summary statistics of the execution.
     """
     # Import these from job_seeker api to avoid circular dependencies and code duplication
-    from app.api.v1.job_seeker import PLAN_LIMITS, check_and_reset_candidate_credits
+    from app.services.plans_service import PLAN_LIMITS
+    from app.api.v1.job_seeker import check_and_reset_candidate_credits
     
     candidates = db.query(Candidate).all()
     stats = {
@@ -29,10 +30,24 @@ def execute_auto_apply_for_all(db: Session) -> dict:
         if candidate.is_auto_apply_cancelled:
             continue
 
-        # Check if candidate has preferences set
+        # Skip free plan candidates immediately to avoid processing them
+        tier = candidate.plan_tier or "free"
+        limits = PLAN_LIMITS.get_limits(tier, db)
+        if limits.get("daily_apply_limit", 0) <= 0:
+            continue
+
+        # Check if candidate has preferences set (handling literal "None" strings)
+        pref_role_str = candidate.pref_role_type
+        if pref_role_str and pref_role_str.strip().lower() in ("none", "null", ""):
+            pref_role_str = None
+            
+        pref_loc_str = candidate.pref_locations
+        if pref_loc_str and pref_loc_str.strip().lower() in ("none", "null", ""):
+            pref_loc_str = None
+
         has_preferences = bool(
-            candidate.pref_role_type or 
-            candidate.pref_locations or 
+            pref_role_str or 
+            pref_loc_str or 
             candidate.pref_min_salary is not None
         )
         if not has_preferences:
@@ -45,7 +60,7 @@ def execute_auto_apply_for_all(db: Session) -> dict:
             check_and_reset_candidate_credits(candidate, db)
             
             tier = candidate.plan_tier or "free"
-            limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+            limits = PLAN_LIMITS.get_limits(tier, db)
             
             # Check remaining daily and monthly credits
             remaining_daily = limits["daily_apply_limit"] - candidate.daily_apply_credits_used
@@ -93,8 +108,8 @@ def execute_auto_apply_for_all(db: Session) -> dict:
             matching_service = MatchingEngine(db)
             scored_jobs = []
             
-            pref_roles = [r.strip().lower() for r in candidate.pref_role_type.split(",") if r.strip()] if candidate.pref_role_type else []
-            pref_locs = [l.strip().lower() for l in candidate.pref_locations.split(",") if l.strip()] if candidate.pref_locations else []
+            pref_roles = [r.strip().lower() for r in pref_role_str.split(",") if r.strip()] if pref_role_str else []
+            pref_locs = [l.strip().lower() for l in pref_loc_str.split(",") if l.strip()] if pref_loc_str else []
             
             for job in jobs:
                 # Check role type match
