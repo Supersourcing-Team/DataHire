@@ -36,32 +36,18 @@ router = APIRouter(prefix="/job-posters", tags=["job-posters"])
 job_flow_router = APIRouter(tags=["job-posters"])
 s3_service = S3Service()
 
-POSTER_PLAN_LIMITS = {
-    "free": {
-        "name": "Free",
-        "job_postings_limit": 3,
-        "is_lifetime_cap": True,
-        "resume_access_limit": 5,
-    },
-    "startup": {
-        "name": "Startup",
-        "job_postings_limit": 5,
-        "is_lifetime_cap": False,
-        "resume_access_limit": 20,
-    },
-    "msme": {
-        "name": "MSME",
-        "job_postings_limit": 15,
-        "is_lifetime_cap": False,
-        "resume_access_limit": 50,
-    },
-    "enterprise": {
-        "name": "Enterprise",
-        "job_postings_limit": 50,
-        "is_lifetime_cap": False,
-        "resume_access_limit": 100,
-    }
-}
+# Plan Limits configuration loaded dynamically from plans_service
+from app.services.plans_service import POSTER_PLAN_LIMITS
+from app.schemas.meta import MetaSubscriptionPlanResponse
+from app.models.meta import MetaSubscriptionPlan
+
+@router.get("/plans", response_model=List[MetaSubscriptionPlanResponse])
+def get_employer_plans(db: Session = Depends(get_db)):
+    """Retrieve all active plans configured for Job Posters (employers)."""
+    return db.query(MetaSubscriptionPlan).filter(
+        MetaSubscriptionPlan.is_active == True,
+        MetaSubscriptionPlan.role == "employer"
+    ).order_by(MetaSubscriptionPlan.id).all()
 
 
 def _format_posted_ago(created_at: datetime) -> str:
@@ -341,34 +327,6 @@ def get_dashboard_jobs(
     return response
 
 
-
-
-# @router.post("/", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
-# def create_job(
-#     job_in: JobCreate,
-#     db: Session = Depends(get_db),
-#     current_user: User = Depends(require_employer),
-# ):
-#     # 1. Resolve company_id from current_user.employer.company_id
-#     if not current_user.employer or not current_user.employer.company_id:
-#         raise HTTPException(
-#             status_code=status.HTTP_400_BAD_REQUEST,
-#             detail="Employer must create or join a company before posting a job."
-#         )
-    
-#     # 2. Create the JobPosting object
-#     db_job = JobPosting(
-#         **job_in.model_dump(),
-#         company_id=current_user.employer.company_id
-#     )
-    
-#     db.add(db_job)
-#     db.commit()
-#     db.refresh(db_job)
-    
-#     return db_job
-
-
 @job_flow_router.post("/create-a-job/", response_model=JobResponse, status_code=status.HTTP_201_CREATED)
 def create_a_job(
     job_in: JobCreateBasic,
@@ -604,7 +562,7 @@ def publish_job_final(
             company = db.query(Company).filter(Company.id == db_job.company_id).first()
             if company:
                 tier = company.plan_tier or "free"
-                limits = POSTER_PLAN_LIMITS.get(tier, POSTER_PLAN_LIMITS["free"])
+                limits = POSTER_PLAN_LIMITS.get_limits(tier, db)
                 if limits["is_lifetime_cap"]:
                     # Count total published/closed jobs created for the company (excluding drafts)
                     published_jobs = db.query(JobPosting).filter(
@@ -1611,7 +1569,7 @@ def get_applicant_profile(
         company = db.query(Company).filter(Company.id == company_id).first()
         if company:
             tier = company.plan_tier or "free"
-            limits = POSTER_PLAN_LIMITS.get(tier, POSTER_PLAN_LIMITS["free"])
+            limits = POSTER_PLAN_LIMITS.get_limits(tier, db)
             
             viewed_count = db.query(JobApplication).filter(
                 JobApplication.job_id == job_id,

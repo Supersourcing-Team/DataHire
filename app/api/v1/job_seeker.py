@@ -92,44 +92,18 @@ router = APIRouter(prefix="/job-seeker", tags=["job-seeker"])
 s3_service = S3Service()
 
 # Plan Limits configuration
-PLAN_LIMITS = {
-    "free": {
-        "name": "Free",
-        "daily_apply_limit": 0,
-        "monthly_ai_credits": 150,
-        "monthly_resume_optimization_limit": 4,
-        "monthly_cover_letter_limit": 0, # Manual upload only
-        "missing_skills_analysis_enabled": False,
-        "saved_resumes_limit": 7,
-    },
-    "silver": {
-        "name": "Silver",
-        "daily_apply_limit": 3,
-        "monthly_ai_credits": 800,
-        "monthly_resume_optimization_limit": 15,
-        "monthly_cover_letter_limit": 100,
-        "missing_skills_analysis_enabled": True,
-        "saved_resumes_limit": 30,
-    },
-    "gold": {
-        "name": "Gold",
-        "daily_apply_limit": 5,
-        "monthly_ai_credits": 1200,
-        "monthly_resume_optimization_limit": 22,
-        "monthly_cover_letter_limit": 500,
-        "missing_skills_analysis_enabled": True,
-        "saved_resumes_limit": 50,
-    },
-    "platinum": {
-        "name": "Platinum",
-        "daily_apply_limit": 9999,
-        "monthly_ai_credits": 99999,
-        "monthly_resume_optimization_limit": 50,
-        "monthly_cover_letter_limit": 1000,
-        "missing_skills_analysis_enabled": True,
-        "saved_resumes_limit": 100,
-    }
-}
+# Plan Limits configuration loaded dynamically from plans_service
+from app.services.plans_service import PLAN_LIMITS
+from app.schemas.meta import MetaSubscriptionPlanResponse
+from app.models.meta import MetaSubscriptionPlan
+
+@router.get("/plans", response_model=List[MetaSubscriptionPlanResponse])
+def get_candidate_plans(db: Session = Depends(get_db)):
+    """Retrieve all active plans configured for Job Seekers (candidates)."""
+    return db.query(MetaSubscriptionPlan).filter(
+        MetaSubscriptionPlan.is_active == True,
+        MetaSubscriptionPlan.role == "candidate"
+    ).order_by(MetaSubscriptionPlan.id).all()
 
 def get_candidate(current_user: User, db: Session) -> Candidate:
     candidate = db.query(Candidate).filter(Candidate.user_id == current_user.id).first()
@@ -174,7 +148,7 @@ def get_dashboard_credits(
     candidate = check_and_reset_candidate_credits(candidate, db)
     
     tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    limits = PLAN_LIMITS.get_limits(tier, db)
     
     now = datetime.now(timezone.utc)
     next_day = datetime.combine(now.date() + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
@@ -214,7 +188,7 @@ def get_dashboard_credits_score(
     candidate = check_and_reset_candidate_credits(candidate, db)
     
     tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    limits = PLAN_LIMITS.get_limits(tier, db)
     
     # Calculate next monthly reset date
     now = datetime.now(timezone.utc)
@@ -492,7 +466,7 @@ def get_job_seeker_job_details(
             
             # Dynamic missing skills check based on plan permissions
             plan_tier = candidate.plan_tier or "free"
-            limits = PLAN_LIMITS.get(plan_tier, PLAN_LIMITS["free"])
+            limits = PLAN_LIMITS.get_limits(plan_tier, db)
             
             missing_skills = []
             if limits["missing_skills_analysis_enabled"]:
@@ -611,7 +585,7 @@ def apply_to_job(
     if not resume:
         # Check saved resumes limit
         tier = candidate.plan_tier or "free"
-        limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+        limits = PLAN_LIMITS.get_limits(tier, db)
         existing_resumes_count = db.query(Resume).filter(
             Resume.candidate_id == candidate.id,
             Resume.is_deleted == False
@@ -667,7 +641,7 @@ def apply_to_job(
         # If it was soft-deleted, check limit and restore
         if resume.is_deleted:
             tier = candidate.plan_tier or "free"
-            limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+            limits = PLAN_LIMITS.get_limits(tier, db)
             existing_resumes_count = db.query(Resume).filter(
                 Resume.candidate_id == candidate.id,
                 Resume.is_deleted == False
@@ -1816,7 +1790,7 @@ async def optimize_resume_for_job(
         raise HTTPException(status_code=404, detail="Job posting not found.")
         
     tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    limits = PLAN_LIMITS.get_limits(tier, db)
     
     # Enforce limit for Free Plan resume optimization limit
     if limits["monthly_resume_optimization_limit"] < 9999:
@@ -1983,7 +1957,7 @@ async def optimize_resume_general(
     candidate = check_and_reset_candidate_credits(candidate, db)
     
     tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    limits = PLAN_LIMITS.get_limits(tier, db)
     
     # Enforce limit for Free Plan resume optimization limit
     if limits["monthly_resume_optimization_limit"] < 9999:
@@ -2115,7 +2089,7 @@ def optimize_resume_section(
         
     # 3. Check credits (Section-wise optimization costs 2 AI credits)
     tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    limits = PLAN_LIMITS.get_limits(tier, db)
     
     credit_manager.check_and_deduct_credits(
         candidate=candidate,
@@ -2184,7 +2158,7 @@ def generate_cover_letter_for_job(
         raise HTTPException(status_code=404, detail="Job posting not found.")
         
     tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    limits = PLAN_LIMITS.get_limits(tier, db)
     
     # Enforce limit for Free Plan cover letter limit
     if limits["monthly_cover_letter_limit"] < 9999:
@@ -2328,7 +2302,7 @@ def analyze_fit_for_job(
     
     # Dynamic missing skills check based on plan permissions
     plan_tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get(plan_tier, PLAN_LIMITS["free"])
+    limits = PLAN_LIMITS.get_limits(plan_tier, db)
     
     missing_skills = []
     if limits["missing_skills_analysis_enabled"]:
@@ -2926,7 +2900,7 @@ async def reoptimize_resume(
         raise HTTPException(status_code=404, detail="Target job not found.")
         
     tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    limits = PLAN_LIMITS.get_limits(tier, db)
     
     # Enforce limit for Free Plan resume optimization limit
     if limits["monthly_resume_optimization_limit"] < 9999:
@@ -3302,7 +3276,7 @@ def reoptimize_cover_letter(
         raise HTTPException(status_code=404, detail="Target job not found.")
         
     tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    limits = PLAN_LIMITS.get_limits(tier, db)
     
     # Enforce limit for Free Plan cover letter limit
     if limits["monthly_cover_letter_limit"] < 9999:
@@ -3514,7 +3488,7 @@ def get_auto_apply_jobs(
     candidate = check_and_reset_candidate_credits(candidate, db)
     
     tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    limits = PLAN_LIMITS.get_limits(tier, db)
     if limits["daily_apply_limit"] == 0:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
@@ -3702,7 +3676,7 @@ def execute_auto_apply(
     candidate = check_and_reset_candidate_credits(candidate, db)
     
     tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    limits = PLAN_LIMITS.get_limits(tier, db)
     if limits["daily_apply_limit"] == 0:
         raise HTTPException(
             status_code=status.HTTP_402_PAYMENT_REQUIRED,
@@ -4098,7 +4072,7 @@ def get_auto_apply_status(
     candidate = check_and_reset_candidate_credits(candidate, db)
     
     tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+    limits = PLAN_LIMITS.get_limits(tier, db)
     daily_limit = limits["daily_apply_limit"]
     remaining_daily = max(0, daily_limit - candidate.daily_apply_credits_used)
     

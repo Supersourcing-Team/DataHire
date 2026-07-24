@@ -15,7 +15,8 @@ def execute_auto_apply_for_all(db: Session) -> dict:
     Returns summary statistics of the execution.
     """
     # Import these from job_seeker api to avoid circular dependencies and code duplication
-    from app.api.v1.job_seeker import PLAN_LIMITS, check_and_reset_candidate_credits
+    from app.services.plans_service import PLAN_LIMITS
+    from app.api.v1.job_seeker import check_and_reset_candidate_credits
     
     candidates = db.query(Candidate).all()
     stats = {
@@ -31,7 +32,7 @@ def execute_auto_apply_for_all(db: Session) -> dict:
 
         # Skip free plan candidates immediately to avoid processing them
         tier = candidate.plan_tier or "free"
-        limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+        limits = PLAN_LIMITS.get_limits(tier, db)
         if limits.get("daily_apply_limit", 0) <= 0:
             continue
 
@@ -59,7 +60,7 @@ def execute_auto_apply_for_all(db: Session) -> dict:
             check_and_reset_candidate_credits(candidate, db)
             
             tier = candidate.plan_tier or "free"
-            limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+            limits = PLAN_LIMITS.get_limits(tier, db)
             
             # Check remaining daily and monthly credits
             remaining_daily = limits["daily_apply_limit"] - candidate.daily_apply_credits_used

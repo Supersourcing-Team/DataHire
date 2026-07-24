@@ -62,9 +62,9 @@ async def candidate_step_1(
         if existing_resume.taxonomy_domain_id:
             candidate.taxonomy_domain_id = existing_resume.taxonomy_domain_id
     else:
-        from app.api.v1.job_seeker import PLAN_LIMITS
+        from app.services.plans_service import PLAN_LIMITS
         tier = candidate.plan_tier or "free"
-        limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+        limits = PLAN_LIMITS.get_limits(tier, db)
         existing_resumes_count = db.query(Resume).filter(
             Resume.candidate_id == candidate.id,
             Resume.is_deleted == False

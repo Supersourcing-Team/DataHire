@@ -8,7 +8,8 @@ from app.models.job import JobPosting
 from app.models.application import JobApplication
 from app.models.resume import Resume
 from app.services.matching_engine import MatchingEngine
-from app.api.v1.job_seeker import PLAN_LIMITS, check_and_reset_candidate_credits
+from app.services.plans_service import PLAN_LIMITS
+from app.api.v1.job_seeker import check_and_reset_candidate_credits
 from app.tasks.notifications import send_application_creation_notifications_task
 
 logger = logging.getLogger(__name__)
@@ -53,7 +54,7 @@ def execute_candidate_auto_apply_task(candidate_id: str) -> bool:
         check_and_reset_candidate_credits(candidate, db)
 
         tier = candidate.plan_tier or "free"
-        limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+        limits = PLAN_LIMITS.get_limits(tier, db)
 
         # Check remaining daily and monthly credits
         remaining_daily = limits["daily_apply_limit"] - candidate.daily_apply_credits_used
@@ -210,7 +211,7 @@ def dispatch_auto_apply_all_task() -> dict:
         for candidate in candidates:
             # Exclude free plan candidates early (limit <= 0)
             tier = candidate.plan_tier or "free"
-            limits = PLAN_LIMITS.get(tier, PLAN_LIMITS["free"])
+            limits = PLAN_LIMITS.get_limits(tier, db)
             if limits.get("daily_apply_limit", 0) <= 0:
                 continue
 
