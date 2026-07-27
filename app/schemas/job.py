@@ -132,7 +132,7 @@ class JobResponse(BaseModel):
     @classmethod
     def convert_monthly_to_yearly(cls, v):
         if v is not None:
-            return v * 12
+            return v 
         return v
 
 
