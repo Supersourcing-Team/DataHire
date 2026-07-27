@@ -970,7 +970,10 @@ def get_employer_jobs(
                 deadline_label=deadline_str,
                 status=job.status,
                 status_label=_build_status_label(job.status, job.application_deadline),
-                is_valid=job.is_valid
+                is_valid=job.is_valid,
+                salary_min=job.salary_min,
+                salary_max=job.salary_max,
+                currency_id=job.currency_id
             )
         )
 
