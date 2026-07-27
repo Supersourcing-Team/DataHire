@@ -112,6 +112,17 @@ def _build_company_initials(name: str) -> str:
     return "".join(word[0] for word in words[:2]).upper()
 
 
+def _get_job_profile_picture(job: JobPosting) -> Optional[str]:
+    if job.company:
+        if job.company.logo_url:
+            return s3_service.get_presigned_url(job.company.logo_url)
+        if job.company.employers:
+            for emp in job.company.employers:
+                if emp.user and emp.user.profile_picture:
+                    return s3_service.get_presigned_url(emp.user.profile_picture)
+    return None
+
+
 def _build_company_location_label(comp: Company) -> str:
     parts = [
         comp.city.name if comp.city else None,
@@ -1040,7 +1051,7 @@ def get_company_jobs(
     jobs = (
         db.query(JobPosting)
         .options(
-            joinedload(JobPosting.company),
+            joinedload(JobPosting.company).joinedload(Company.employers).joinedload(Employer.user),
             joinedload(JobPosting.employment_type),
             joinedload(JobPosting.work_mode),
             joinedload(JobPosting.city),
@@ -1087,7 +1098,8 @@ def get_company_jobs(
                 status=job.status,
                 is_active=job.is_active,
                 created_at=job.created_at,
-                updated_at=job.updated_at
+                updated_at=job.updated_at,
+                profile_picture=_get_job_profile_picture(job)
             )
         )
     return response
@@ -1138,7 +1150,7 @@ def get_all_jobs(
 
     jobs = (
         query.options(
-            joinedload(JobPosting.company),
+            joinedload(JobPosting.company).joinedload(Company.employers).joinedload(Employer.user),
             joinedload(JobPosting.employment_type),
             joinedload(JobPosting.work_mode),
             joinedload(JobPosting.city),
@@ -1183,7 +1195,8 @@ def get_all_jobs(
                 status=job.status,
                 is_active=job.is_active,
                 created_at=job.created_at,
-                updated_at=job.updated_at
+                updated_at=job.updated_at,
+                profile_picture=_get_job_profile_picture(job)
             )
         )
     return response
@@ -1220,7 +1233,7 @@ def get_job_details(
     job = (
         db.query(JobPosting)
         .options(
-            joinedload(JobPosting.company),
+            joinedload(JobPosting.company).joinedload(Company.employers).joinedload(Employer.user),
             joinedload(JobPosting.employment_type),
             joinedload(JobPosting.work_mode),
             joinedload(JobPosting.city),
@@ -1269,6 +1282,7 @@ def get_job_details(
         is_active=job.is_active,
         created_at=job.created_at,
         updated_at=job.updated_at,
+        profile_picture=_get_job_profile_picture(job),
         
         # Detail fields
         job_overview=job.job_overview,
@@ -1818,7 +1832,7 @@ def close_job(
     updated_job = (
         db.query(JobPosting)
         .options(
-            joinedload(JobPosting.company),
+            joinedload(JobPosting.company).joinedload(Company.employers).joinedload(Employer.user),
             joinedload(JobPosting.employment_type),
             joinedload(JobPosting.work_mode),
             joinedload(JobPosting.city),
@@ -1859,7 +1873,8 @@ def close_job(
         status=updated_job.status,
         is_active=updated_job.is_active,
         created_at=updated_job.created_at,
-        updated_at=updated_job.updated_at
+        updated_at=updated_job.updated_at,
+        profile_picture=_get_job_profile_picture(updated_job)
     )
 
 
