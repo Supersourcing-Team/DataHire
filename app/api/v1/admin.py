@@ -1119,7 +1119,6 @@ def get_all_jobs(
     query = db.query(JobPosting)
 
     if search:
-        from app.models.company import Company
         from app.models.meta import MetaCity, MetaState, MetaCountry
 
         query = (
