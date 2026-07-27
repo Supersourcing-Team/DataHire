@@ -100,8 +100,8 @@ def _format_salary_range(
         currency_prefix = f"{currency_prefix}"
 
     # Convert monthly to yearly
-    sal_min_yr = salary_min * 12 if salary_min is not None else None
-    sal_max_yr = salary_max * 12 if salary_max is not None else None
+    sal_min_yr = salary_min  if salary_min is not None else None
+    sal_max_yr = salary_max  if salary_max is not None else None
 
     if sal_min_yr is not None and sal_max_yr is not None:
         return f"{currency_prefix}{sal_min_yr} - {currency_prefix}{sal_max_yr}/year"
@@ -1290,8 +1290,8 @@ def get_employer_job_detail(
         deadline_label=deadline_str,
         status=job.is_valid,
         status_label=_build_status_label(job.status, job.application_deadline),
-        salary_min=job.salary_min * 12 if job.salary_min is not None else None,
-        salary_max=job.salary_max * 12 if job.salary_max is not None else None,
+        salary_min=job.salary_min if job.salary_min is not None else None,
+        salary_max=job.salary_max if job.salary_max is not None else None,
         salary_range_label=_format_salary_range(job.salary_min, job.salary_max, job.currency.symbol if job.currency else None, job.currency.code if job.currency else None),
         is_valid=job.is_valid,
         experience=_format_experience_label(job.min_experience_years, job.max_experience_years),
