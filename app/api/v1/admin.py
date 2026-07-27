@@ -183,6 +183,12 @@ def _build_growth_buckets(period: str) -> tuple:
 
 
 def _format_company_response(comp: Company) -> AdminCompanyResponse:
+    employer_email = None
+    if comp.employers:
+        primary_employer = comp.employers[0]
+        if primary_employer.user:
+            employer_email = primary_employer.user.email
+
     return AdminCompanyResponse(
         id=comp.id,
         name=comp.name,
@@ -193,6 +199,7 @@ def _format_company_response(comp: Company) -> AdminCompanyResponse:
         zipcode=comp.zipcode,
         office_landline_number=comp.office_landline_number,
         alternate_email=comp.alternate_email,
+        employer_email=employer_email,
         work_mobile_number=comp.work_mobile_number,
         onboarding_step=comp.onboarding_step,
         onboarding_completed=comp.onboarding_completed,
@@ -889,7 +896,8 @@ def get_all_companies(
             joinedload(Company.country),
             joinedload(Company.state),
             joinedload(Company.city),
-            joinedload(Company.organization_type)
+            joinedload(Company.organization_type),
+            joinedload(Company.employers).joinedload(Employer.user)
         )
         .offset(skip)
         .limit(limit)
@@ -984,7 +992,8 @@ def suspend_company(
             joinedload(Company.country),
             joinedload(Company.state),
             joinedload(Company.city),
-            joinedload(Company.organization_type)
+            joinedload(Company.organization_type),
+            joinedload(Company.employers).joinedload(Employer.user)
         )
         .filter(Company.id == company_id)
         .first()
@@ -1023,7 +1032,8 @@ def revoke_company(
             joinedload(Company.country),
             joinedload(Company.state),
             joinedload(Company.city),
-            joinedload(Company.organization_type)
+            joinedload(Company.organization_type),
+            joinedload(Company.employers).joinedload(Employer.user)
         )
         .filter(Company.id == company_id)
         .first()
