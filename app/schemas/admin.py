@@ -242,6 +242,7 @@ class AdminJobResponse(BaseModel):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    profile_picture: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
