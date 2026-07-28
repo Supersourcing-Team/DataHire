@@ -27,10 +27,10 @@ celery_app.conf.update(
     task_track_started=True,
     task_time_limit=3600,  # 1 hour max execution time per task
     beat_schedule={
-        # Temporarily scheduled to run at 11:30 IST (06:00 UTC) for testing.
+        # Temporarily scheduled to run every minute for immediate testing.
         "dispatch-auto-apply-every-day": {
             "task": "app.tasks.auto_apply.dispatch_auto_apply_all_task",
-            "schedule": crontab(hour=6, minute=0),
+            "schedule": crontab(minute="*"),
         },
         # Run daily system notifications job at 1:00 AM UTC
         "run-daily-notifications-every-day": {
