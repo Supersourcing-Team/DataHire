@@ -297,6 +297,7 @@ class CoverLetterUpdateRequest(BaseModel):
 
 
 class SavedJobsStatusResponse(BaseModel):
+    all_count: int
     high_match_count: int
     visa_sponsored_count: int
     closing_soon_count: int
