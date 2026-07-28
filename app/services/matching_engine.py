@@ -189,14 +189,14 @@ class MatchingEngine:
             locations = [l.strip().lower() for l in pref_loc_str.split(",") if l.strip()]
             if locations:
                 match = False
+                city_name = job.city.name.lower() if job.city and job.city.name else ""
+                state_name = job.state.name.lower() if job.state and job.state.name else ""
+                country_name = job.country.name.lower() if job.country and job.country.name else ""
+                
                 # Check remote
                 if "remote" in locations and job.work_mode and job.work_mode.name.lower() == "remote":
                     match = True
                 else:
-                    city_name = job.city.name.lower() if job.city and job.city.name else ""
-                    state_name = job.state.name.lower() if job.state and job.state.name else ""
-                    country_name = job.country.name.lower() if job.country and job.country.name else ""
-                    
                     match = any(
                         loc in city_name or loc in state_name or loc in country_name
                         for loc in locations if loc != "remote"
