@@ -548,6 +548,11 @@ class AdminAIMatchInsightsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AdminUpdatePlanRequest(BaseModel):
+    email: str
+    plan_tier: str
+
+
 
 
 
