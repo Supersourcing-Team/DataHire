@@ -1442,15 +1442,15 @@ def get_skill_categories_analytics(
     # Initialize counts for each bundle
     bundle_counts = {bundle: 0 for bundle in SKILL_BUNDLES.keys()}
 
-    # Query all active job postings with extracted_skills
+    # Query all active job postings
     active_jobs = (
-        db.query(JobPosting.extracted_skills)
+        db.query(JobPosting)
         .filter(JobPosting.is_active == True)
         .all()
     )
 
     for job in active_jobs:
-        skills = job.extracted_skills
+        skills = job.resolved_skills
         if not skills or not isinstance(skills, list):
             continue
 

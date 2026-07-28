@@ -121,7 +121,8 @@ class GeminiOptimizationEngine:
         Sends the specific ResumeSection and Job requirements to Gemini 1.5 Flash to get an optimized version.
         Returns a dictionary with the optimized text, missing keywords, and feedback.
         """
-        job_skills_str = ", ".join(job.extracted_skills) if job.extracted_skills else "None specified"
+        job_skills = job.resolved_skills
+        job_skills_str = ", ".join(job_skills) if job_skills else "None specified"
         
         system_instruction = self._get_system_instruction_for_section(section.section_type)
         
