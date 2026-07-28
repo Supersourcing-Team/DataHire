@@ -298,13 +298,14 @@ def get_job_seeker_feed(
 
     # Apply work type filter
     if work_type and work_type.lower() != "all":
-        query = query.filter(JobPosting.work_mode.has(name=work_type.upper()))
+        from app.models.meta import MetaWorkMode
+        query = query.filter(JobPosting.work_mode.has(func.lower(MetaWorkMode.name) == work_type.lower()))
         
     # Apply job type filter
     if job_type and job_type.lower() != "all":
-        norm_jt = job_type.replace("-", "_").upper()
-
-        query = query.filter(JobPosting.employment_type.has(name=norm_jt))
+        from app.models.meta import MetaEmploymentType
+        norm_jt = job_type.replace("-", "_").lower()
+        query = query.filter(JobPosting.employment_type.has(func.lower(MetaEmploymentType.name) == norm_jt))
     # Apply location country filter
     if location and location.lower() != "all":
         if location.lower() in ("u.s.", "us", "united states"):
@@ -1165,12 +1166,14 @@ def get_submitted_applications(
 
     # Filter by work type (Remote, Hybrid, Onsite)
     if work_type and work_type.lower() != "all":
-        query = query.filter(JobPosting.work_mode.has(name=work_type.upper()))
+        from app.models.meta import MetaWorkMode
+        query = query.filter(JobPosting.work_mode.has(func.lower(MetaWorkMode.name) == work_type.lower()))
 
     # Filter by job type (Full-Time, Internship, Contract)
     if job_type and job_type.lower() != "all":
-        norm_jt = job_type.replace("-", "_").replace(" ", "_").upper()
-        query = query.filter(JobPosting.employment_type.has(name=norm_jt))
+        from app.models.meta import MetaEmploymentType
+        norm_jt = job_type.replace("-", "_").replace(" ", "_").lower()
+        query = query.filter(JobPosting.employment_type.has(func.lower(MetaEmploymentType.name) == norm_jt))
 
     # Filter by location (country)
     if location and location.lower() != "all":
@@ -3947,12 +3950,14 @@ def get_auto_apply_history(
         
     # Apply work type filter
     if work_type and work_type.lower() != "all":
-        query = query.filter(JobPosting.work_mode.has(name=work_type.upper()))
+        from app.models.meta import MetaWorkMode
+        query = query.filter(JobPosting.work_mode.has(func.lower(MetaWorkMode.name) == work_type.lower()))
         
     # Apply job type filter
     if job_type and job_type.lower() != "all":
-        norm_jt = job_type.replace("-", "_").upper()
-        query = query.filter(JobPosting.employment_type.has(name=norm_jt))
+        from app.models.meta import MetaEmploymentType
+        norm_jt = job_type.replace("-", "_").lower()
+        query = query.filter(JobPosting.employment_type.has(func.lower(MetaEmploymentType.name) == norm_jt))
         
     # Apply location country filter
     if location and location.lower() != "all":
