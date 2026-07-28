@@ -1672,20 +1672,9 @@ def get_applicant_profile(
             return "active"
         return "pending"
 
-    # 2. Inreview for Next Stage
-    inreview_completed = ["under_review", "shortlisted", "interviewing", "interviewed", "offered", "hired"]
-    inreview_active = ["applied"]
-    timeline.append(
-        TimelineEvent(
-            title="Inreview for Next Stage",
-            status=get_stage_status(inreview_completed, inreview_active),
-            updated_at=app.updated_at if app_status in inreview_completed else None
-        )
-    )
-
-    # 3. Candidate Shortlisted!
+    # 2. Candidate Shortlisted!
     shortlist_completed = ["shortlisted", "interviewing", "interviewed", "offered", "hired"]
-    shortlist_active = ["under_review"]
+    shortlist_active = ["applied", "under_review"]
     timeline.append(
         TimelineEvent(
             title="Candidate Shortlisted!",
@@ -1694,7 +1683,7 @@ def get_applicant_profile(
         )
     )
 
-    # 4. Interviewed
+    # 3. Interviewed
     interview_completed = ["interviewed", "offered", "hired"]
     interview_active = ["interviewing"]
     timeline.append(
@@ -1705,7 +1694,7 @@ def get_applicant_profile(
         )
     )
 
-    # 5. Application successful (Candidate Selected!)
+    # 4. Application successful (Candidate Selected!)
     success_completed = ["offered", "hired"]
     success_active = ["interviewed"]
     timeline.append(
