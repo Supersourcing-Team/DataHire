@@ -1850,7 +1850,7 @@ async def optimize_resume_for_job(
     )
             
     # Union of skills so the matching engine score goes up for the target job as intended
-    union_skills = list(set(primary_resume.extracted_skills or []) | set(job.extracted_skills or []))
+    union_skills = list(set(primary_resume.extracted_skills or []) | set(job.resolved_skills))
     
     if existing_optimized_resume:
         resume_to_use = existing_optimized_resume
@@ -2577,7 +2577,7 @@ def get_resume_suggestions_endpoint(
     if not job_description.strip() and job.job_overview:
         job_description = job.job_overview
         
-    job_skills = job.extracted_skills or []
+    job_skills = job.resolved_skills
     
     analysis = optimization_engine.get_resume_suggestions(resume_content, job_description, job_skills)
     
@@ -2946,7 +2946,7 @@ async def reoptimize_resume(
         new_sections.append(section)
         
     # Re-union skills just in case job skills updated
-    resume.extracted_skills = list(set(resume.extracted_skills or []) | set(job.extracted_skills or []))
+    resume.extracted_skills = list(set(resume.extracted_skills or []) | set(job.resolved_skills))
     
     # Update structured_data using the optimized sections
     from sqlalchemy.orm.attributes import flag_modified

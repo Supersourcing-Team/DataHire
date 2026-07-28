@@ -119,6 +119,15 @@ class JobPosting(Base):
         return [vs.id for vs in self.visa_statuses] if self.visa_statuses else []
 
     @property
+    def resolved_skills(self) -> list:
+        skills = self.extracted_skills
+        if not skills and self.taxonomy_job_role:
+            skills = self.taxonomy_job_role.required_skills
+        if not skills and self.requirements:
+            skills = self.requirements
+        return skills or []
+
+    @property
     def is_valid(self) -> bool:
         return bool(
             self.title and

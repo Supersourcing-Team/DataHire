@@ -67,7 +67,7 @@ class MatchingEngine:
         Uses multi-tier matching (exact, normalized, token/word boundary matching,
         and fallback text search) for maximum accuracy.
         """
-        job_skills_raw = job.extracted_skills or []
+        job_skills_raw = job.resolved_skills
         job_skills_cleaned = [s.strip() for s in job_skills_raw if s and isinstance(s, str) and s.strip()]
 
         resume_skills_raw = resume.extracted_skills or []
@@ -259,7 +259,7 @@ class MatchingEngine:
         # Weighted Final Score
         # If the job posting has no extracted skills, exclude skills score and redistribute its weight (0.30)
         # proportionally among Semantic (40%), Experience (20%), and Logistics (10%).
-        has_job_skills = bool(job.extracted_skills)
+        has_job_skills = bool(job.resolved_skills)
         if has_job_skills:
             final_score = (
                 (semantic_score * self.WEIGHT_SEMANTIC) +
