@@ -1499,9 +1499,20 @@ def get_job_seeker_application_details(
         )
     )
 
-    # 4. Application successful (Candidate Selected!)
+    # 4. Interviewed
+    interview_completed = ["interviewed", "offered", "hired"]
+    interview_active = ["interviewing"]
+    timeline.append(
+        TimelineEvent(
+            title="Interviewed",
+            status=get_stage_status(interview_completed, interview_active),
+            updated_at=app.updated_at if app_status in interview_completed else None
+        )
+    )
+
+    # 5. Application successful (Candidate Selected!)
     success_completed = ["offered", "hired"]
-    success_active = ["interviewing", "interviewed"]
+    success_active = ["interviewed"]
     timeline.append(
         TimelineEvent(
             title="Application successful",
