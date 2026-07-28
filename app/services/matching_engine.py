@@ -3,6 +3,9 @@ from sqlalchemy import select
 from typing import Dict, Any, List
 import numpy as np
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 from app.models.job import JobPosting
@@ -164,17 +167,26 @@ class MatchingEngine:
 
         score_components = []
 
+        pref_role_str = candidate.pref_role_type
+        if pref_role_str and pref_role_str.strip().lower() in ("none", "null", ""):
+            pref_role_str = None
+            
+        pref_loc_str = candidate.pref_locations
+        if pref_loc_str and pref_loc_str.strip().lower() in ("none", "null", ""):
+            pref_loc_str = None
+
         # 1. Role Type Match
-        if candidate.pref_role_type:
-            roles = [r.strip().lower() for r in candidate.pref_role_type.split(",") if r.strip()]
+        if pref_role_str:
+            roles = [r.strip().lower() for r in pref_role_str.split(",") if r.strip()]
             if roles:
                 job_title_lower = job.title.lower() if job.title else ""
                 match = any(role in job_title_lower for role in roles)
                 score_components.append(100.0 if match else 0.0)
+                logger.debug(f"Logistics - Role Match check for candidate {candidate.id} against job {job.id} ({job.title}): preferred roles={roles}, job title={job_title_lower}, match={match}")
 
         # 2. Location Match
-        if candidate.pref_locations:
-            locations = [l.strip().lower() for l in candidate.pref_locations.split(",") if l.strip()]
+        if pref_loc_str:
+            locations = [l.strip().lower() for l in pref_loc_str.split(",") if l.strip()]
             if locations:
                 match = False
                 # Check remote
@@ -190,23 +202,29 @@ class MatchingEngine:
                         for loc in locations if loc != "remote"
                     )
                 score_components.append(100.0 if match else 0.0)
+                logger.debug(f"Logistics - Location Match check for candidate {candidate.id} against job {job.id} ({job.title}): preferred locations={locations}, job location={city_name}/{state_name}, match={match}")
 
         # 3. Salary Match
         if candidate.pref_min_salary is not None:
             if job.salary_max is not None:
                 match = (job.salary_max >= candidate.pref_min_salary)
                 score_components.append(100.0 if match else 0.0)
+                logger.debug(f"Logistics - Salary Match check (max) for candidate {candidate.id} against job {job.id}: pref_min={candidate.pref_min_salary}, job_max={job.salary_max}, match={match}")
             elif job.salary_min is not None:
                 match = (job.salary_min >= candidate.pref_min_salary)
                 score_components.append(100.0 if match else 0.0)
+                logger.debug(f"Logistics - Salary Match check (min) for candidate {candidate.id} against job {job.id}: pref_min={candidate.pref_min_salary}, job_min={job.salary_min}, match={match}")
             else:
                 # Job has no salary specified
                 score_components.append(100.0)
+                logger.debug(f"Logistics - Salary Match check for candidate {candidate.id} against job {job.id}: job has no salary specified (default to 100).")
 
         if not score_components:
             return 100.0
 
-        return sum(score_components) / len(score_components)
+        final_logistics = sum(score_components) / len(score_components)
+        logger.debug(f"Candidate {candidate.id} against job {job.id}: Final logistics score component = {final_logistics}")
+        return final_logistics
 
     def score_resume_for_job(self, resume_id: str, job_id: str) -> Dict[str, Any]:
         """
@@ -258,6 +276,8 @@ class MatchingEngine:
                 (logistics_score * (self.WEIGHT_FILTERS / total_weight))
             )
         
+        logger.info(f"Resume {resume.id} matched with Job {job.id} ({job.title}) - Final Score: {round(final_score, 2)} (Semantic: {round(semantic_score, 2)}, Skills: {round(skills_score, 2)}, Experience: {round(experience_score, 2)}, Logistics: {round(logistics_score, 2)})")
+
         return {
             "resume_id": str(resume.id),
             "job_id": str(job.id),
