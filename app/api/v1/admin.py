@@ -55,7 +55,8 @@ from app.schemas.admin import (
     AdminCandidateStateResponse,
     AdminJobCandidateResponse,
     AdminJobReportResponse,
-    AdminAIMatchInsightsResponse
+    AdminAIMatchInsightsResponse,
+    AdminUpdatePlanRequest
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -1924,6 +1925,71 @@ def get_job_reports(
             )
         )
     return response
+
+
+@router.post("/users/update-plan")
+def update_user_plan(
+    payload: AdminUpdatePlanRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Update a user's plan tier (Admin only)."""
+    user = db.query(User).filter(func.lower(User.email) == func.lower(payload.email.strip())).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"User with email '{payload.email}' not found."
+        )
+    
+    tier_lower = payload.plan_tier.lower()
+    
+    if user.role == "candidate":
+        candidate = user.candidate
+        if not candidate:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Candidate profile not found for this user."
+            )
+        valid_tiers = ["free", "pro", "premium", "silver", "gold", "platinum"]
+        if tier_lower not in valid_tiers:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid plan tier for candidate. Valid tiers: {valid_tiers}"
+            )
+        candidate.plan_tier = tier_lower
+        db.add(candidate)
+        db.commit()
+        return {"message": f"Candidate plan updated to {tier_lower} successfully."}
+        
+    elif user.role == "employer":
+        employer = user.employer
+        if not employer:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Employer profile not found for this user."
+            )
+        if not employer.company:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Employer is not associated with any company yet."
+            )
+        company = employer.company
+        valid_tiers = ["free", "startup", "msme", "enterprise"]
+        if tier_lower not in valid_tiers:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid plan tier for company. Valid tiers: {valid_tiers}"
+            )
+        company.plan_tier = tier_lower
+        db.add(company)
+        db.commit()
+        return {"message": f"Company '{company.name}' plan updated to {tier_lower} successfully."}
+        
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Plan updates are only supported for candidates or employers."
+        )
 
 
 
