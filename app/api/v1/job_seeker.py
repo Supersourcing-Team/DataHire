@@ -1,6 +1,8 @@
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Any, Dict
 from uuid import UUID
+import logging
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
 from fastapi.responses import StreamingResponse
@@ -3372,12 +3374,22 @@ def update_preferences(
 ):
     candidate = get_candidate(current_user, db)
     
+    # Reset cancelled status only if preferences are modified to new values or set for the first time
+    has_changed = (
+        payload.role_type != candidate.pref_role_type or
+        payload.preferred_location != candidate.pref_locations or
+        payload.min_salary != candidate.pref_min_salary
+    )
+    
     candidate.pref_role_type = payload.role_type
     candidate.pref_locations = payload.preferred_location
     candidate.pref_min_salary = payload.min_salary
     
-    # Reset cancelled status when preferences are updated or set
-    candidate.is_auto_apply_cancelled = False
+    if has_changed:
+        logger.info(f"Candidate {candidate.id} updated preferences to new values. Reactivating auto-apply.")
+        candidate.is_auto_apply_cancelled = False
+    else:
+        logger.info(f"Candidate {candidate.id} updated preferences, but no values changed. Leaving auto-apply status as is.")
     
     db.add(candidate)
     db.commit()
@@ -3557,19 +3569,31 @@ def get_auto_apply_jobs(
         query = query.filter(JobPosting.id.not_in(skipped_ids))
         
     jobs = query.all()
+    logger.info(f"Retrieved {len(jobs)} active jobs eligible for auto-apply checks for candidate {candidate.id}")
     
     # Filter and score
     matching_service = MatchingEngine(db)
     scored_jobs = []
     
-    pref_roles = [r.strip().lower() for r in candidate.pref_role_type.split(",") if r.strip()] if candidate.pref_role_type else []
-    pref_locs = [l.strip().lower() for l in candidate.pref_locations.split(",") if l.strip()] if candidate.pref_locations else []
+    pref_role_str = candidate.pref_role_type
+    if pref_role_str and pref_role_str.strip().lower() in ("none", "null", ""):
+        pref_role_str = None
+        
+    pref_loc_str = candidate.pref_locations
+    if pref_loc_str and pref_loc_str.strip().lower() in ("none", "null", ""):
+        pref_loc_str = None
+
+    pref_roles = [r.strip().lower() for r in pref_role_str.split(",") if r.strip()] if pref_role_str else []
+    pref_locs = [l.strip().lower() for l in pref_loc_str.split(",") if l.strip()] if pref_loc_str else []
+    
+    logger.info(f"Filtering jobs using cleaned preferences - roles: {pref_roles}, locations: {pref_locs}, min_salary: {candidate.pref_min_salary}")
     
     for job in jobs:
         # Check role type match
         if pref_roles:
             job_title = job.title.lower() if job.title else ""
             if not any(role in job_title for role in pref_roles):
+                logger.debug(f"Skipping job {job.id} ({job.title}): title does not match preferred roles.")
                 continue
                 
         # Check location match
@@ -3584,13 +3608,16 @@ def get_auto_apply_jobs(
                 if any(loc in city_name or loc in state_name or loc in country_name for loc in pref_locs if loc != "remote"):
                     match_loc = True
             if not match_loc:
+                logger.debug(f"Skipping job {job.id} ({job.title}): work mode/location does not match preferences.")
                 continue
                 
         # Check salary match
         if candidate.pref_min_salary is not None:
             if job.salary_max is not None and job.salary_max < candidate.pref_min_salary:
+                logger.debug(f"Skipping job {job.id} ({job.title}): salary max {job.salary_max} < min salary preference {candidate.pref_min_salary}.")
                 continue
             if job.salary_max is None and job.salary_min is not None and job.salary_min < candidate.pref_min_salary:
+                logger.debug(f"Skipping job {job.id} ({job.title}): salary min {job.salary_min} < min salary preference {candidate.pref_min_salary}.")
                 continue
                 
         # Calculate AI score
@@ -3599,12 +3626,17 @@ def get_auto_apply_jobs(
             try:
                 score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
                 ai_score = int(score_details["final_score"])
-            except Exception:
+                logger.debug(f"Scored job {job.id} ({job.title}) - AI Score: {ai_score}")
+            except Exception as e:
+                logger.warning(f"Error scoring resume {primary_resume.id} for job {job.id}: {str(e)}")
                 ai_score = 0
+        else:
+            logger.warning(f"Primary resume {primary_resume.id} is missing overall_embedding. Scoring as 0.")
                 
         scored_jobs.append((job, ai_score))
         
     scored_jobs.sort(key=lambda x: x[1], reverse=True)
+    logger.info(f"Total scored jobs: {len(scored_jobs)}. Selecting top {limit} jobs.")
     top_jobs = scored_jobs[:limit]
     
     feed_items = []
@@ -3738,18 +3770,30 @@ def execute_auto_apply(
         query = query.filter(JobPosting.id.not_in(skipped_ids))
         
     jobs = query.all()
+    logger.info(f"Executing manual auto-apply for candidate {candidate.id}. Total active eligible jobs: {len(jobs)}")
     
     matching_service = MatchingEngine(db)
     scored_jobs = []
     
-    pref_roles = [r.strip().lower() for r in candidate.pref_role_type.split(",") if r.strip()] if candidate.pref_role_type else []
-    pref_locs = [l.strip().lower() for l in candidate.pref_locations.split(",") if l.strip()] if candidate.pref_locations else []
+    pref_role_str = candidate.pref_role_type
+    if pref_role_str and pref_role_str.strip().lower() in ("none", "null", ""):
+        pref_role_str = None
+        
+    pref_loc_str = candidate.pref_locations
+    if pref_loc_str and pref_loc_str.strip().lower() in ("none", "null", ""):
+        pref_loc_str = None
+
+    pref_roles = [r.strip().lower() for r in pref_role_str.split(",") if r.strip()] if pref_role_str else []
+    pref_locs = [l.strip().lower() for l in pref_loc_str.split(",") if l.strip()] if pref_loc_str else []
+    
+    logger.info(f"Filtering jobs using cleaned preferences - roles: {pref_roles}, locations: {pref_locs}, min_salary: {candidate.pref_min_salary}")
     
     for job in jobs:
         # Check role type match
         if pref_roles:
             job_title = job.title.lower() if job.title else ""
             if not any(role in job_title for role in pref_roles):
+                logger.debug(f"Skipping job {job.id} ({job.title}): title does not match preferred roles.")
                 continue
                 
         # Check location match
@@ -3764,13 +3808,16 @@ def execute_auto_apply(
                 if any(loc in city_name or loc in state_name or loc in country_name for loc in pref_locs if loc != "remote"):
                     match_loc = True
             if not match_loc:
+                logger.debug(f"Skipping job {job.id} ({job.title}): work mode/location does not match preferences.")
                 continue
                 
         # Check salary match
         if candidate.pref_min_salary is not None:
             if job.salary_max is not None and job.salary_max < candidate.pref_min_salary:
+                logger.debug(f"Skipping job {job.id} ({job.title}): salary max {job.salary_max} < min salary preference {candidate.pref_min_salary}.")
                 continue
             if job.salary_max is None and job.salary_min is not None and job.salary_min < candidate.pref_min_salary:
+                logger.debug(f"Skipping job {job.id} ({job.title}): salary min {job.salary_min} < min salary preference {candidate.pref_min_salary}.")
                 continue
                 
         # Calculate AI score
@@ -3779,8 +3826,12 @@ def execute_auto_apply(
             try:
                 score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
                 ai_score = int(score_details["final_score"])
-            except Exception:
+                logger.debug(f"Scored job {job.id} ({job.title}) - AI Score: {ai_score}")
+            except Exception as e:
+                logger.warning(f"Error scoring resume {primary_resume.id} for job {job.id}: {str(e)}")
                 ai_score = 0
+        else:
+            logger.warning(f"Primary resume {primary_resume.id} is missing overall_embedding. Scoring as 0.")
                 
         scored_jobs.append((job, ai_score))
         
@@ -3789,6 +3840,8 @@ def execute_auto_apply(
     remaining_daily = limits["daily_apply_limit"] - candidate.daily_apply_credits_used
     remaining_monthly = (limits["monthly_ai_credits"] - candidate.monthly_ai_credits_used) // 2
     max_to_apply = min(limit, remaining_daily, remaining_monthly)
+    
+    logger.info(f"Total scored jobs: {len(scored_jobs)}. Daily remaining: {remaining_daily}, Monthly remaining application equivalent: {remaining_monthly}. Will apply to top {max_to_apply} jobs.")
     
     top_matches = scored_jobs[:max_to_apply]
     
@@ -4145,14 +4198,26 @@ def update_candidate_profile(
         if not domain:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid taxonomy_domain_id: record does not exist")
 
-    # Update candidate fields
+    # Reactivate auto-apply only if preferences were actually modified to different values
+    pref_modified = False
     updated_fields = profile_data.model_dump(exclude_unset=True)
+    
+    if "pref_role_type" in updated_fields and updated_fields["pref_role_type"] != candidate.pref_role_type:
+        pref_modified = True
+    if "pref_locations" in updated_fields and updated_fields["pref_locations"] != candidate.pref_locations:
+        pref_modified = True
+    if "pref_min_salary" in updated_fields and updated_fields["pref_min_salary"] != candidate.pref_min_salary:
+        pref_modified = True
+        
+    # Update candidate fields
     for field, value in updated_fields.items():
         setattr(candidate, field, value)
         
-    # Reactivate auto-apply if preferences were modified
-    if any(k in updated_fields for k in ["pref_role_type", "pref_locations", "pref_min_salary"]):
+    if pref_modified:
+        logger.info(f"Candidate {candidate.id} updated preferences to new values in profile update. Reactivating auto-apply.")
         candidate.is_auto_apply_cancelled = False
+    else:
+        logger.info(f"Candidate {candidate.id} updated profile, but preferences did not change. Leaving auto-apply status as is.")
 
     db.add(candidate)
     db.commit()

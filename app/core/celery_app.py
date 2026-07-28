@@ -1,5 +1,6 @@
 import os
 from celery import Celery
+from celery.schedules import crontab
 from app.core.config import settings
 
 # Determine the broker/backend URL, fallback to localhost redis if not provided
@@ -25,6 +26,18 @@ celery_app.conf.update(
     enable_utc=True,
     task_track_started=True,
     task_time_limit=3600,  # 1 hour max execution time per task
+    beat_schedule={
+        # Temporarily scheduled to run at 11:30 IST (06:00 UTC) for testing.
+        "dispatch-auto-apply-every-day": {
+            "task": "app.tasks.auto_apply.dispatch_auto_apply_all_task",
+            "schedule": crontab(hour=6, minute=0),
+        },
+        # Run daily system notifications job at 1:00 AM UTC
+        "run-daily-notifications-every-day": {
+            "task": "app.tasks.notifications.run_daily_notifications_job",
+            "schedule": crontab(hour=1, minute=0),
+        }
+    }
 )
 
 if __name__ == "__main__":
