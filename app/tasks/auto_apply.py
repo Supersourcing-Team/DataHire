@@ -113,6 +113,7 @@ def execute_candidate_auto_apply_task(candidate_id: str) -> bool:
             if pref_roles:
                 job_title = job.title.lower() if job.title else ""
                 if not any(role in job_title for role in pref_roles):
+                    logger.debug(f"Candidate {candidate_id} task: skipping job {job.id} ({job.title}) - role mismatch.")
                     continue
 
             # Location check
@@ -127,13 +128,16 @@ def execute_candidate_auto_apply_task(candidate_id: str) -> bool:
                     if any(loc in city_name or loc in state_name or loc in country_name for loc in pref_locs if loc != "remote"):
                         match_loc = True
                 if not match_loc:
+                    logger.debug(f"Candidate {candidate_id} task: skipping job {job.id} ({job.title}) - location mismatch.")
                     continue
 
             # Salary check
             if candidate.pref_min_salary is not None:
                 if job.salary_max is not None and job.salary_max < candidate.pref_min_salary:
+                    logger.debug(f"Candidate {candidate_id} task: skipping job {job.id} ({job.title}) - max salary {job.salary_max} < pref {candidate.pref_min_salary}.")
                     continue
                 if job.salary_max is None and job.salary_min is not None and job.salary_min < candidate.pref_min_salary:
+                    logger.debug(f"Candidate {candidate_id} task: skipping job {job.id} ({job.title}) - min salary {job.salary_min} < pref {candidate.pref_min_salary}.")
                     continue
 
             # Calculate score (using preloaded objects to avoid DB queries inside the loop!)
@@ -142,9 +146,12 @@ def execute_candidate_auto_apply_task(candidate_id: str) -> bool:
                 try:
                     score_details = matching_service.score_resume_object_for_job_object(primary_resume, job)
                     ai_score = int(score_details["final_score"])
+                    logger.debug(f"Candidate {candidate_id} task: scored job {job.id} ({job.title}) - AI Score: {ai_score}")
                 except Exception as ex:
                     logger.warning(f"Error scoring resume {primary_resume.id} for job {job.id}: {ex}")
                     ai_score = 0
+            else:
+                logger.warning(f"Primary resume {primary_resume.id} for candidate {candidate_id} is missing overall_embedding. Scoring as 0.")
 
             scored_jobs.append((job, ai_score))
 
@@ -205,14 +212,43 @@ def dispatch_auto_apply_all_task() -> dict:
     logger.info("Starting global auto-apply dispatcher task...")
     db = SessionLocal()
     try:
-        # Fetch candidates who have preferences configured
+        # Preload all active candidate subscription plans from the DB to avoid N+1 query problem
+        from app.models.meta import MetaSubscriptionPlan
+        plans = db.query(MetaSubscriptionPlan).filter(
+            MetaSubscriptionPlan.role == "candidate",
+            MetaSubscriptionPlan.is_active == True
+        ).all()
+        plans_cache = {p.name.lower(): p.features for p in plans if p.features}
+        logger.info(f"Preloaded {len(plans_cache)} candidate subscription plan configs from database.")
+
+        # Fetch candidates
         candidates = db.query(Candidate).all()
+        logger.info(f"Fetched {len(candidates)} total candidates to evaluate for auto-apply eligibility.")
+        
         candidate_ids = []
         for candidate in candidates:
-            # Exclude free plan candidates early (limit <= 0)
-            tier = candidate.plan_tier or "free"
-            limits = PLAN_LIMITS.get_limits(tier, db)
+            # Determine limits in-memory using preloaded plans
+            tier_lower = (candidate.plan_tier or "free").lower()
+            db_name = "sliver" if tier_lower == "silver" else tier_lower
+            
+            # Get default limits
+            limits = PLAN_LIMITS.get(db_name, PLAN_LIMITS["free"]).copy()
+            
+            # Overlay DB features if available
+            db_features = plans_cache.get(db_name)
+            if db_features:
+                for key in limits:
+                    if key in db_features:
+                        val = db_features[key]
+                        if isinstance(limits[key], bool):
+                            limits[key] = bool(val)
+                        elif isinstance(limits[key], int):
+                            limits[key] = int(val)
+                        else:
+                            limits[key] = val
+                            
             if limits.get("daily_apply_limit", 0) <= 0:
+                logger.debug(f"Candidate {candidate.id} excluded: daily apply limit is 0 for tier {candidate.plan_tier}.")
                 continue
 
             pref_role_str = candidate.pref_role_type
@@ -228,13 +264,22 @@ def dispatch_auto_apply_all_task() -> dict:
                 pref_loc_str or 
                 candidate.pref_min_salary is not None
             )
-            if has_preferences:
-                candidate_ids.append(str(candidate.id))
+            if not has_preferences:
+                logger.debug(f"Candidate {candidate.id} excluded: no preferences set (role: {candidate.pref_role_type}, location: {candidate.pref_locations}, salary: {candidate.pref_min_salary}).")
+                continue
 
-        logger.info(f"Found {len(candidate_ids)} candidates eligible for auto-apply.")
+            # If candidate auto-apply is cancelled, we skip them from dispatching to avoid unnecessary celery tasks
+            if candidate.is_auto_apply_cancelled:
+                logger.debug(f"Candidate {candidate.id} excluded: auto-apply is cancelled.")
+                continue
+
+            candidate_ids.append(str(candidate.id))
+
+        logger.info(f"Found {len(candidate_ids)} candidates eligible for auto-apply. Spawning tasks.")
 
         # Spawn a Celery task for each candidate
         for c_id in candidate_ids:
+            logger.info(f"Dispatching auto-apply task for Candidate {c_id}")
             execute_candidate_auto_apply_task.delay(c_id)
 
         return {
