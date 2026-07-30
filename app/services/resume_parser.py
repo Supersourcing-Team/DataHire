@@ -59,6 +59,34 @@ class ResumeParserService:
             logger.error(f"Failed to extract text from PDF: {e}")
             raise RuntimeError(f"Failed to extract text from PDF: {e}")
 
+    def extract_text_from_docx(self, docx_bytes: bytes) -> str:
+        """
+        Extracts plain text from DOCX file bytes using zipfile and xml.etree.ElementTree.
+        """
+        import zipfile
+        import xml.etree.ElementTree as ET
+        try:
+            docx_file = io.BytesIO(docx_bytes)
+            with zipfile.ZipFile(docx_file) as zf:
+                xml_content = zf.read('word/document.xml')
+                root = ET.fromstring(xml_content)
+                
+                # Namespace for WordprocessingML
+                ns = '{http://schemas.openxmlformats.org/wordprocessingml/2006/main}'
+                p_tag = f'{ns}p'
+                t_tag = f'{ns}t'
+                
+                paragraphs = []
+                for paragraph in root.iter(p_tag):
+                    texts = [node.text for node in paragraph.iter(t_tag) if node.text]
+                    if texts:
+                        paragraphs.append("".join(texts))
+                
+                return "\n".join(paragraphs)
+        except Exception as e:
+            logger.error(f"Failed to extract text from DOCX: {e}")
+            raise RuntimeError(f"Failed to extract text from DOCX: {e}")
+
     def parse_resume_text(self, text: str, active_domains: List[str]) -> Dict[str, Any]:
         """
         Sends the extracted resume text to Gemini to parse into structured JSON.
@@ -258,12 +286,23 @@ class ResumeParserService:
         logger.info(f"Parsing resume for candidate {candidate.id} from {file_url}")
         
         # 1. Download file
-        pdf_bytes = self.download_file(file_url)
+        file_bytes = self.download_file(file_url)
         
         # 2. Extract text
-        text = self.extract_text_from_pdf(pdf_bytes)
-        if not text or not text.strip():
-            raise ValueError("The PDF file contains no readable text.")
+        is_docx = False
+        if file_name and file_name.lower().endswith('.docx'):
+            is_docx = True
+        elif file_url and (file_url.lower().endswith('.docx') or '.docx?' in file_url.lower()):
+            is_docx = True
+
+        if is_docx:
+            text = self.extract_text_from_docx(file_bytes)
+            if not text or not text.strip():
+                raise ValueError("The DOCX file contains no readable text.")
+        else:
+            text = self.extract_text_from_pdf(file_bytes)
+            if not text or not text.strip():
+                raise ValueError("The PDF file contains no readable text.")
             
         # 3. Get active taxonomy domains
         domains = db.query(TaxonomyDomain).filter(TaxonomyDomain.is_active == True).all()
