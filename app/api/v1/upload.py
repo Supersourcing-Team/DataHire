@@ -43,13 +43,24 @@ async def upload_file(
             if not current_user.candidate:
                 raise HTTPException(status_code=400, detail="User is not a candidate and cannot upload a resume.")
             
+            filename = file.filename or ""
+            ext = filename.split(".")[-1].lower() if "." in filename else ""
+            if ext not in ("pdf", "docx"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid file format. Only PDF and DOCX files are supported for resumes."
+                )
+            
             # Read bytes directly from UploadFile
             await file.seek(0)
             file_bytes = await file.read()
             
             # Extract text (run in threadpool)
             from app.services.resume_parser import resume_parser_service
-            text = await asyncio.to_thread(resume_parser_service.extract_text_from_pdf, file_bytes)
+            if ext == "docx":
+                text = await asyncio.to_thread(resume_parser_service.extract_text_from_docx, file_bytes)
+            else:
+                text = await asyncio.to_thread(resume_parser_service.extract_text_from_pdf, file_bytes)
             
             # Get active taxonomy domains
             from app.models.taxonomy import TaxonomyDomain
