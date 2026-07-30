@@ -529,6 +529,11 @@ class PaginatedCoverLetterDetailResponse(BaseModel):
     count: int
 
 
+class JobResumeOptimizeRequest(BaseModel):
+    keywords: Optional[List[str]] = None
+
+
+
 
 
 
