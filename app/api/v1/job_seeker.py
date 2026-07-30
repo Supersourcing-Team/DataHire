@@ -74,7 +74,8 @@ from app.schemas.job_seeker import (
     VerifyOTPRequest,
     VerifyOTPResponse,
     AutoApplyStatusResponse,
-    AutoApplyCancelResponse
+    AutoApplyCancelResponse,
+    JobResumeOptimizeRequest
 )
 from app.models.meta import MetaWorkStatus, MetaVisaStatus
 from app.models.taxonomy import TaxonomyDomain
@@ -467,13 +468,8 @@ def get_job_seeker_job_details(
             sem_pct = int(breakdown.get("semantic", 0))
             log_pct = int(breakdown.get("logistics", 0))
             
-            # Dynamic missing skills check based on plan permissions
-            plan_tier = candidate.plan_tier or "free"
-            limits = PLAN_LIMITS.get_limits(plan_tier, db)
-            
-            missing_skills = []
-            if limits["missing_skills_analysis_enabled"]:
-                missing_skills = insights.get("missing_skills", [])
+            # Dynamic missing skills check: always enabled per developer review
+            missing_skills = insights.get("missing_skills", [])
                 
             match_overview = AIMatchOverview(
                 experience_match_percent=exp_pct,
@@ -1793,6 +1789,7 @@ def update_structured_data_with_optimized_sections(structured_data: Dict[str, An
 @router.post("/jobs/{job_id}/optimize-resume")
 async def optimize_resume_for_job(
     job_id: UUID,
+    payload: Optional[JobResumeOptimizeRequest] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_candidate),
 ):
@@ -1849,8 +1846,10 @@ async def optimize_resume_for_job(
         db=db
     )
             
-    # Union of skills so the matching engine score goes up for the target job as intended
-    union_skills = list(set(primary_resume.extracted_skills or []) | set(job.resolved_skills))
+    # Union of skills: filter by payload approved keywords if provided, else use job.resolved_skills
+    approved_keywords = payload.keywords if (payload and payload.keywords is not None) else None
+    target_skills = approved_keywords if approved_keywords is not None else job.resolved_skills
+    union_skills = list(set(primary_resume.extracted_skills or []) | set(target_skills))
     
     if existing_optimized_resume:
         resume_to_use = existing_optimized_resume
@@ -1872,7 +1871,7 @@ async def optimize_resume_for_job(
                 db.delete(s)
                 
         for section in primary_resume.sections:
-            result = optimization_engine.optimize_section(job, section)
+            result = optimization_engine.optimize_section(job, section, keywords=target_skills)
             
             existing_sec = existing_sections_by_type.get(section.section_type)
             if existing_sec:
@@ -1921,7 +1920,7 @@ async def optimize_resume_for_job(
         # Optimize resume sections
         new_sections = []
         for section in primary_resume.sections:
-            result = optimization_engine.optimize_section(job, section)
+            result = optimization_engine.optimize_section(job, section, keywords=target_skills)
             
             new_section = ResumeSection(
                 resume_id=resume_to_use.id,
@@ -1955,7 +1954,18 @@ async def optimize_resume_for_job(
     db.commit()
     db.refresh(resume_to_use)
     
-    return format_resume_structure(resume_to_use, candidate, current_user)
+    # Calculate new score
+    matching_service = MatchingEngine(db)
+    new_ai_score = 0
+    try:
+        score_details = matching_service.score_resume_for_job(resume_to_use.id, job.id)
+        new_ai_score = int(score_details["final_score"])
+    except Exception:
+        pass
+
+    res = format_resume_structure(resume_to_use, candidate, current_user)
+    res["ai_score"] = new_ai_score
+    return res
 
 
 @router.post("/resume/optimize")
@@ -2314,13 +2324,8 @@ def analyze_fit_for_job(
     breakdown = score_details["breakdown"]
     insights = score_details["insights"]
     
-    # Dynamic missing skills check based on plan permissions
-    plan_tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get_limits(plan_tier, db)
-    
-    missing_skills = []
-    if limits["missing_skills_analysis_enabled"]:
-        missing_skills = insights.get("missing_skills", [])
+    # Dynamic missing skills check: always enabled per developer review
+    missing_skills = insights.get("missing_skills", [])
         
     return FitAnalysisResponse(
         final_score=int(score_details["final_score"]),

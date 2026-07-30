@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import google.generativeai as genai
 
 from app.models.job import JobPosting
@@ -116,12 +116,12 @@ class GeminiOptimizationEngine:
                 "optimization_feedback": "Failed to connect to the Gemini Optimization AI."
             }
 
-    def optimize_section(self, job: JobPosting, section: ResumeSection) -> Dict[str, Any]:
+    def optimize_section(self, job: JobPosting, section: ResumeSection, keywords: Optional[List[str]] = None) -> Dict[str, Any]:
         """
         Sends the specific ResumeSection and Job requirements to Gemini 1.5 Flash to get an optimized version.
         Returns a dictionary with the optimized text, missing keywords, and feedback.
         """
-        job_skills = job.resolved_skills
+        job_skills = keywords if keywords is not None else job.resolved_skills
         job_skills_str = ", ".join(job_skills) if job_skills else "None specified"
         
         system_instruction = self._get_system_instruction_for_section(section.section_type)
