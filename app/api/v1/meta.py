@@ -83,6 +83,14 @@ def register_crud_routes(
             raise HTTPException(status_code=404, detail="Item not found")
             
         db_item.is_active = False
+        
+        # Cascade soft deletes for countries and states
+        if db_model == MetaCountry:
+            db.query(MetaState).filter(MetaState.country_id == item_id).update({MetaState.is_active: False}, synchronize_session=False)
+            db.query(MetaCity).filter(MetaCity.country_id == item_id).update({MetaCity.is_active: False}, synchronize_session=False)
+        elif db_model == MetaState:
+            db.query(MetaCity).filter(MetaCity.state_id == item_id).update({MetaCity.is_active: False}, synchronize_session=False)
+            
         db.commit()
         return None
 
