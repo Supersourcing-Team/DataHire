@@ -463,5 +463,42 @@ class ResumeParserService:
         
         return new_resume
 
+    def extract_skills_from_jd(self, jd_text: str) -> List[str]:
+        """
+        Uses Gemini to extract a list of skills required for the job based on the job description.
+        """
+        if not jd_text or not jd_text.strip():
+            return []
+        try:
+            genai.configure(api_key=settings.GEMINI_API_KEY)
+            model = genai.GenerativeModel('gemini-3.1-flash-lite')
+            
+            prompt = f"""
+            You are an expert AI Job Description Parser. Your task is to analyze the following job description and extract a flat list of technical and soft skills required for the role.
+            
+            Return ONLY a JSON array of strings (e.g. ["Python", "Machine Learning", "Communication"]). No markdown formatting, no code blocks, no other text.
+            
+            Job Description:
+            {jd_text}
+            """
+            
+            response = model.generate_content(prompt)
+            resp_text = response.text.strip()
+            if resp_text.startswith("```"):
+                lines = resp_text.splitlines()
+                if lines[0].startswith("```"):
+                    lines = lines[1:]
+                if lines and lines[-1].startswith("```"):
+                    lines = lines[:-1]
+                resp_text = "\n".join(lines).strip()
+                
+            skills = json.loads(resp_text)
+            if isinstance(skills, list):
+                return [str(s).strip() for s in skills if s]
+            return []
+        except Exception as e:
+            logger.error(f"Failed to extract skills from job description: {e}")
+            return []
+
 # Singleton instance
 resume_parser_service = ResumeParserService()

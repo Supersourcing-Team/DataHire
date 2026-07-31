@@ -41,8 +41,10 @@ def _get_text_to_embed(target) -> str:
     return " ".join(parts)
 
 def generate_target_embedding(mapper: Mapper, connection: Connection, target: Base):
+    from app.models.job import JobPosting
+    
     # Auto-generate description for JobPosting if empty
-    if hasattr(target, "job_overview") and hasattr(target, "description") and not getattr(target, "description"):
+    if isinstance(target, JobPosting) and not getattr(target, "description"):
         sections = []
         job_overview = getattr(target, "job_overview")
         about_role = getattr(target, "about_role")
@@ -65,6 +67,35 @@ def generate_target_embedding(mapper: Mapper, connection: Connection, target: Ba
             target.description = "\n\n".join(sections)
         else:
             target.description = getattr(target, "title", "")
+
+    # Extract skills for JobPosting if text fields modified or empty
+    if isinstance(target, JobPosting):
+        from sqlalchemy.orm import attributes
+        desc_changed = attributes.get_history(target, 'description').has_changes()
+        overview_changed = attributes.get_history(target, 'job_overview').has_changes()
+        req_changed = attributes.get_history(target, 'requirements').has_changes()
+        title_changed = attributes.get_history(target, 'title').has_changes()
+        
+        if desc_changed or overview_changed or req_changed or title_changed or not target.extracted_skills:
+            text_parts = []
+            if target.title:
+                text_parts.append(f"Title: {target.title}")
+            if target.job_overview:
+                text_parts.append(f"Job Overview:\n{target.job_overview}")
+            if target.description:
+                text_parts.append(f"Description:\n{target.description}")
+            if target.requirements:
+                if isinstance(target.requirements, list):
+                    text_parts.append("Requirements:\n" + "\n".join(target.requirements))
+                else:
+                    text_parts.append(f"Requirements:\n{target.requirements}")
+            
+            combined_text = "\n\n".join(text_parts)
+            if combined_text.strip():
+                from app.services.resume_parser import resume_parser_service
+                skills = resume_parser_service.extract_skills_from_jd(combined_text)
+                if skills:
+                    target.extracted_skills = skills
 
     text = _get_text_to_embed(target)
     if not text:
