@@ -44,9 +44,12 @@ def validate_metadata_value(v: Any) -> Optional[Dict[str, Any]]:
     raise ValueError("Metadata must be a valid JSON object or string representation of a JSON object")
 
 # 1. Domains
-class TaxonomyDomainCreate(TaxonomyBase):
+class TaxonomyDomainBase(TaxonomyBase):
     name: str
     slug: str
+    metadata_: Optional[Dict[str, Any]] = Field(default=None, serialization_alias="metadata")
+
+class TaxonomyDomainCreate(TaxonomyDomainBase):
     metadata_: Optional[Dict[str, Any]] = Field(default=None, validation_alias="metadata")
 
     @field_validator("slug")
@@ -77,11 +80,12 @@ class TaxonomyDomainUpdate(BaseModel):
     def validate_metadata(cls, v: Any) -> Optional[Dict[str, Any]]:
         return validate_metadata_value(v)
 
-class TaxonomyDomainResponse(TaxonomyDomainCreate, TaxonomyResponseBase):
+class TaxonomyDomainResponse(TaxonomyDomainBase, TaxonomyResponseBase):
     pass
 
+
 # 2. Job Roles
-class TaxonomyJobRoleCreate(TaxonomyBase):
+class TaxonomyJobRoleBase(TaxonomyBase):
     domain_id: int
     parent_role_id: Optional[int] = None
     name: str
@@ -91,6 +95,9 @@ class TaxonomyJobRoleCreate(TaxonomyBase):
     required_skills: Optional[List[str]] = None
     optional_skills: Optional[List[str]] = None
     weights: Optional[Dict[str, float]] = None
+    metadata_: Optional[Dict[str, Any]] = Field(default=None, serialization_alias="metadata")
+
+class TaxonomyJobRoleCreate(TaxonomyJobRoleBase):
     metadata_: Optional[Dict[str, Any]] = Field(default=None, validation_alias="metadata")
     is_verified: bool = False
 
@@ -130,11 +137,12 @@ class TaxonomyJobRoleUpdate(BaseModel):
     def validate_metadata(cls, v: Any) -> Optional[Dict[str, Any]]:
         return validate_metadata_value(v)
 
-class TaxonomyJobRoleResponse(TaxonomyJobRoleCreate, TaxonomyResponseBase):
+class TaxonomyJobRoleResponse(TaxonomyJobRoleBase, TaxonomyResponseBase):
     pass
 
+
 # 3. Skills
-class TaxonomySkillCreate(TaxonomyBase):
+class TaxonomySkillBase(TaxonomyBase):
     domain_id: int
     parent_skill_id: Optional[int] = None
     name: str
@@ -143,6 +151,9 @@ class TaxonomySkillCreate(TaxonomyBase):
     description: Optional[str] = None
     aliases: Optional[List[str]] = None
     related_skills: Optional[List[str]] = None
+    metadata_: Optional[Dict[str, Any]] = Field(default=None, serialization_alias="metadata")
+
+class TaxonomySkillCreate(TaxonomySkillBase):
     metadata_: Optional[Dict[str, Any]] = Field(default=None, validation_alias="metadata")
     is_verified: bool = False
 
@@ -181,5 +192,5 @@ class TaxonomySkillUpdate(BaseModel):
     def validate_metadata(cls, v: Any) -> Optional[Dict[str, Any]]:
         return validate_metadata_value(v)
 
-class TaxonomySkillResponse(TaxonomySkillCreate, TaxonomyResponseBase):
+class TaxonomySkillResponse(TaxonomySkillBase, TaxonomyResponseBase):
     pass
