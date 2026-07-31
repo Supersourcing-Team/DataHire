@@ -31,18 +31,22 @@ class GeminiOptimizationEngine:
             return base_instruction + (
                 "TASK: This is the SKILLS section. Do NOT write paragraphs or bullet points. "
                 "Only extract, format, and return a clean comma-separated or newline-separated list of skills. "
-                "Compare the candidate's existing skills with the job requirements and suggest missing technical keywords."
+                "Compare the candidate's existing skills with the job requirements and suggest missing technical keywords. "
+                "Most importantly, you MUST append the missing keywords from the job requirements (the 'Required Skills' list) "
+                "to the 'optimized_content' list of skills so that the optimized version actually contains them."
             )
         elif section_type == SectionType.EXPERIENCE:
             return base_instruction + (
                 "TASK: This is the EXPERIENCE section. Rewrite the bullet points to use strong action verbs "
                 "and quantify achievements where possible. Ensure the tone is highly professional. "
-                "If the candidate's experience falls short of the job's minimum requirement, note it in the feedback."
+                "If the candidate's experience falls short of the job's minimum requirement, note it in the feedback. "
+                "Weave in the missing keywords/skills from the job requirements naturally where they fit the candidate's "
+                "responsibilities so that they are present in the experience content."
             )
         elif section_type == SectionType.SUMMARY:
             return base_instruction + (
                 "TASK: This is the SUMMARY section. Write a compelling, concise 3-4 line professional summary "
-                "that weaves in the core requirements of the job description to hook the recruiter immediately."
+                "that weaves in the core requirements of the job description and missing keywords/skills to hook the recruiter immediately."
             )
         else:
             return base_instruction + (

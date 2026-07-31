@@ -73,18 +73,16 @@ class MatchingEngine:
         resume_skills_raw = resume.extracted_skills or []
         resume_skills_cleaned = [s.strip() for s in resume_skills_raw if s and isinstance(s, str) and s.strip()]
 
-        # Fallback text collection if resume.extracted_skills is empty
-        fallback_text = ""
-        if not resume_skills_cleaned:
-            parts = []
-            if resume.structured_data:
-                parts.append(str(resume.structured_data))
-            if hasattr(resume, "sections") and resume.sections:
-                for sec in resume.sections:
-                    content = getattr(sec, "optimized_content", None) or getattr(sec, "original_content", None)
-                    if content:
-                        parts.append(str(content))
-            fallback_text = " ".join(parts).lower()
+        # Always collect fallback text from resume sections and structured data
+        parts = []
+        if resume.structured_data:
+            parts.append(str(resume.structured_data))
+        if hasattr(resume, "sections") and resume.sections:
+            for sec in resume.sections:
+                content = getattr(sec, "optimized_content", None) or getattr(sec, "original_content", None)
+                if content:
+                    parts.append(str(content))
+        fallback_text = " ".join(parts).lower()
 
         if not job_skills_cleaned:
             return {"score": 100.0, "matched": list(resume_skills_cleaned), "missing": []}
@@ -120,12 +118,36 @@ class MatchingEngine:
                     if len(r_norm) > 2 and re.search(pattern_reverse, js_norm):
                         is_matched = True
                         break
+                    # Singular/Plural soft match (e.g. pipeline vs pipelines)
+                    if js_norm.rstrip('s') == r_norm.rstrip('s'):
+                        is_matched = True
+                        break
+                    # Role inflection soft match (e.g. engineer vs engineering)
+                    if 'engineer' in js_norm and 'engineer' in r_norm:
+                        is_matched = True
+                        break
 
-            # Tier 3: Fallback text search if resume skills were empty
+            # Tier 3: Fallback text search
             if not is_matched and fallback_text:
                 pattern = r'\b' + re.escape(js_norm) + r'\b'
                 if re.search(pattern, fallback_text):
                     is_matched = True
+                else:
+                    # Suffix check in fallback text (e.g. singular/plural)
+                    if js_norm.endswith('s') and len(js_norm) > 3:
+                        pattern_sing = r'\b' + re.escape(js_norm[:-1]) + r'\b'
+                        if re.search(pattern_sing, fallback_text):
+                            is_matched = True
+                    else:
+                        pattern_plur = r'\b' + re.escape(js_norm + 's') + r'\b'
+                        if re.search(pattern_plur, fallback_text):
+                            is_matched = True
+                    
+                    # Role inflection fallback check
+                    if not is_matched and 'engineering' in js_norm:
+                        pattern_eng = r'\b' + re.escape(js_norm.replace('engineering', 'engineer')) + r'\b'
+                        if re.search(pattern_eng, fallback_text):
+                            is_matched = True
 
             if is_matched:
                 matched_skills.append(js)
