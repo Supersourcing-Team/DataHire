@@ -846,6 +846,7 @@ def get_saved_jobs_status(
     
     matching_service = MatchingEngine(db)
     
+    all_count = 0
     high_match_count = 0
     visa_sponsored_count = 0
     closing_soon_count = 0
@@ -857,6 +858,8 @@ def get_saved_jobs_status(
         job = record.job
         if not job or not job.is_active:
             continue
+            
+        all_count += 1
             
         # Calculate AI match score using the central MatchingEngine with pre-loaded objects
         ai_score = 0
@@ -894,7 +897,10 @@ def get_saved_jobs_status(
     
     if status is not None:
         normalized_status = status.lower().replace("_", " ").strip()
-        if normalized_status in ("highmatch", "high match", "high_match"):
+        if normalized_status in ("all", "0", "all(0)", "all_jobs"):
+            resp_status = status
+            resp_count = all_count
+        elif normalized_status in ("highmatch", "high match", "high_match"):
             resp_status = status
             resp_count = high_match_count
         elif normalized_status in ("visa sponsored", "visa_sponsored"):
@@ -911,11 +917,12 @@ def get_saved_jobs_status(
                 status_code=400,
                 detail=(
                     f"Invalid status '{status}'. Supported statuses are: "
-                    "'high_match', 'visa_sponsored', 'closing_soon', 'needs_resume_update'."
+                    "'all', '0', 'high_match', 'visa_sponsored', 'closing_soon', 'needs_resume_update'."
                 )
             )
 
     return SavedJobsStatusResponse(
+        all_count=all_count,
         high_match_count=high_match_count,
         visa_sponsored_count=visa_sponsored_count,
         closing_soon_count=closing_soon_count,
@@ -994,7 +1001,9 @@ def get_saved_jobs_pipeline(
     
     if status is not None:
         normalized_status = status.lower().replace("_", " ").strip()
-        if normalized_status in ("highmatch", "high match", "high_match"):
+        if normalized_status in ("all", "0", "all(0)", "all_jobs"):
+            has_active_filter = False
+        elif normalized_status in ("highmatch", "high match", "high_match"):
             filter_high_match = True
             has_active_filter = True
         elif normalized_status in ("visa sponsored", "visa_sponsored"):
@@ -1011,7 +1020,7 @@ def get_saved_jobs_pipeline(
                 status_code=400,
                 detail=(
                     f"Invalid status '{status}'. Supported statuses are: "
-                    "'high_match', 'visa_sponsored', 'closing_soon', 'needs_resume_update'."
+                    "'all', '0', 'high_match', 'visa_sponsored', 'closing_soon', 'needs_resume_update'."
                 )
             )
 
