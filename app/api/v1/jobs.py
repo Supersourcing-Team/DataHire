@@ -1601,7 +1601,7 @@ def get_applicant_profile(
         )
 
     if trigger_view_notification:
-        from app.tasks.notifications import create_in_app_notification_task
+        from app.tasks.notifications import create_in_app_notification_task, get_candidate_action_url
         company = db.query(Company).filter(Company.id == company_id).first()
         comp_name = company.name if company else "Employer"
         create_in_app_notification_task.delay(
@@ -1609,7 +1609,7 @@ def get_applicant_profile(
             title="Resume Viewed!",
             content=f"Your profile has been viewed by '{comp_name}' for the job '{job.title}'.",
             notification_type="resume_view",
-            action_url=f"/applications/{app.id}"
+            action_url=get_candidate_action_url(app.status)
         )
 
     # Resolve the resume used (job-specific or primary)
