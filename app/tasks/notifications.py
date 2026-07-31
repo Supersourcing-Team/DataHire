@@ -160,7 +160,7 @@ def send_application_creation_notifications_task(application_id: str) -> bool:
             "name": candidate_name,
             "job_title": job.title,
             "company_name": job.company.name if job.company else "the Employer",
-            "application_url": f"{settings.FRONTEND_URL}/applications/{application_id}"
+            "application_url": f"{settings.FRONTEND_URL}{get_candidate_action_url(application.status)}"
         }
         send_email_task.delay(
             to_email=candidate_email,
