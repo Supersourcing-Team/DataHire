@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import List, Optional, Dict
 from uuid import UUID
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+from app.schemas.job import convert_text_to_bullets
 
 class AdminCandidateResponse(BaseModel):
     id: UUID
@@ -328,7 +329,7 @@ class AdminJobAnalyticsByDomainDataPoint(BaseModel):
 
 class AdminJobDetailResponse(AdminJobResponse):
     job_overview: Optional[str] = None
-    about_role: Optional[str] = None
+    about_role: Optional[List[str]] = None
     requirements: Optional[List[str]] = None
     responsibilities: Optional[List[str]] = None
     benefits: Optional[List[str]] = None
@@ -345,6 +346,17 @@ class AdminJobDetailResponse(AdminJobResponse):
     security_clearance_required: bool
     date_posted: Optional[datetime] = None
     deadline: Optional[datetime] = None
+
+    @field_validator("about_role", mode="before")
+    @classmethod
+    def validate_about_role(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            return convert_text_to_bullets(v)
+        return v
 class AdminJobAnalyticsByDomainResponse(BaseModel):
     title: str
     description: str

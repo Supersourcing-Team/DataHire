@@ -14,6 +14,31 @@ from app.schemas.meta import (
     MetaCurrencyResponse,
     MetaVisaStatusResponse
 )
+import re
+
+def convert_text_to_bullets(text: Optional[str]) -> List[str]:
+    if not text:
+        return []
+    if isinstance(text, list):
+        return text
+    lines = text.split("\n")
+    bullets = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        # Strip common bullet points and numbered list markers
+        for bullet_char in ["-", "*", "•", "o ", "▪", "▫", "■", "□"]:
+            if line.startswith(bullet_char):
+                line = line[len(bullet_char):].strip()
+                break
+        else:
+            match = re.match(r"^\d+\.\s+", line)
+            if match:
+                line = line[match.end():].strip()
+        if line:
+            bullets.append(line)
+    return bullets or [text.strip()]
 
 
 class JobDashboardCardResponse(BaseModel):
@@ -70,12 +95,23 @@ class JobCreate(BaseModel):
 
     # New job flow fields
     job_overview: Optional[str] = None
-    about_role: Optional[str] = None
+    about_role: Optional[List[str]] = None
     requirements: Optional[List[str]] = None
     responsibilities: Optional[List[str]] = None
     benefits: Optional[List[str]] = None
     include_cover_letter: Optional[bool] = False
     cover_letter_required: Optional[bool] = False
+
+    @field_validator("about_role", mode="before")
+    @classmethod
+    def validate_about_role(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            return convert_text_to_bullets(v)
+        return v
 
 
 class JobResponse(BaseModel):
@@ -118,7 +154,7 @@ class JobResponse(BaseModel):
     security_clearance_required: Optional[bool] = None
     # New job flow fields
     job_overview: Optional[str] = None
-    about_role: Optional[str] = None
+    about_role: Optional[List[str]] = None
     requirements: Optional[List[str]] = None
     responsibilities: Optional[List[str]] = None
     benefits: Optional[List[str]] = None
@@ -133,6 +169,17 @@ class JobResponse(BaseModel):
     def convert_monthly_to_yearly(cls, v):
         if v is not None:
             return v 
+        return v
+
+    @field_validator("about_role", mode="before")
+    @classmethod
+    def validate_about_role(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            return convert_text_to_bullets(v)
         return v
 
 
@@ -155,10 +202,21 @@ class JobCreateBasic(BaseModel):
 
 class JobAboutUpdate(BaseModel):
     job_overview: Optional[str] = None
-    about_role: Optional[str] = None
+    about_role: Optional[List[str]] = None
     requirements: Optional[List[str]] = None
     responsibilities: Optional[List[str]] = None
     benefits: Optional[List[str]] = None
+
+    @field_validator("about_role", mode="before")
+    @classmethod
+    def validate_about_role(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            return convert_text_to_bullets(v)
+        return v
 
 
 class JobWorkAuthorizationUpdate(BaseModel):
@@ -312,13 +370,24 @@ class EmployerJobDetailResponse(BaseModel):
     Employment_Type: Optional[str] = Field(default=None, alias="Employment Type")
     pipeline_summary: PipelineStageSummary
     job_overview: Optional[str] = None
-    about_role: Optional[str] = None
+    about_role: Optional[List[str]] = None
     requirements: Optional[List[str]] = None
     responsibilities: Optional[List[str]] = None
     benefits: Optional[List[str]] = None
     company_details: EmployerCompanyDetails
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
+
+    @field_validator("about_role", mode="before")
+    @classmethod
+    def validate_about_role(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            return convert_text_to_bullets(v)
+        return v
 
 
 class JobPosterApplicantListItem(BaseModel):
@@ -408,7 +477,7 @@ class JobSaveDraft(BaseModel):
 
     # Job flow fields
     job_overview: Optional[str] = None
-    about_role: Optional[str] = None
+    about_role: Optional[List[str]] = None
     requirements: Optional[List[str]] = None
     responsibilities: Optional[List[str]] = None
     benefits: Optional[List[str]] = None
@@ -424,6 +493,17 @@ class JobSaveDraft(BaseModel):
     cover_letter_required: Optional[bool] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("about_role", mode="before")
+    @classmethod
+    def validate_about_role(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            return convert_text_to_bullets(v)
+        return v
 
 
 class BulkStatusUpdateRequest(BaseModel):
