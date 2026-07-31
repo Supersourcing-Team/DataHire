@@ -443,19 +443,25 @@ def get_job_seeker_job_details(
     is_applied = app_record is not None
     app_status = app_record.status if app_record else None
     
-    # Get primary resume and match overview
-    primary_resume = db.query(Resume).filter(
+    # Resolve which resume to use: prioritize optimized resume for this job, fall back to primary resume
+    resume_to_use = db.query(Resume).filter(
         Resume.candidate_id == candidate.id,
-        Resume.is_primary == True
+        Resume.job_id == job.id,
+        Resume.is_deleted == False
     ).first()
+    if not resume_to_use:
+        resume_to_use = db.query(Resume).filter(
+            Resume.candidate_id == candidate.id,
+            Resume.is_primary == True
+        ).first()
     
     ai_score = 0
     match_overview = None
     
-    if primary_resume:
+    if resume_to_use:
         matching_service = MatchingEngine(db)
         try:
-            score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
+            score_details = matching_service.score_resume_for_job(resume_to_use.id, job.id)
             ai_score = int(score_details["final_score"])
             
             # Map breakdown percentages
@@ -477,7 +483,8 @@ def get_job_seeker_job_details(
                 industry_fit_percent=log_pct,
                 resume_alignment_percent=sem_pct,
                 matching_skills=insights.get("matched_skills", []),
-                resume_gaps=missing_skills
+                resume_gaps=missing_skills,
+                resume_id=resume_to_use.id
             )
         except Exception:
             pass
@@ -1941,6 +1948,19 @@ async def optimize_resume_for_job(
     resume_to_use.structured_data = update_structured_data_with_optimized_sections(resume_to_use.structured_data, new_sections)
     flag_modified(resume_to_use, "structured_data")
 
+    # Recalculate and save overall_embedding for the optimized resume using the new optimized sections
+    parts = []
+    if resume_to_use.extracted_skills:
+        parts.append(" ".join(resume_to_use.extracted_skills))
+    for sec in new_sections:
+        content = sec.optimized_content or sec.original_content
+        if content:
+            parts.append(content)
+    resume_text = " ".join(parts)
+    if resume_text.strip():
+        resume_to_use.overall_embedding = embedding_service.get_embedding(resume_text)
+        db.add(resume_to_use)
+
     # Generate and save rendered PDF for the optimized resume to S3
     from app.services.resume_pdf_generator import generate_and_save_optimized_resume_pdf
     pdf_s3_url = await generate_and_save_optimized_resume_pdf(db, resume_to_use, candidate)
@@ -1964,6 +1984,47 @@ async def optimize_resume_for_job(
         pass
 
     res = format_resume_structure(resume_to_use, candidate, current_user)
+    res["ai_score"] = new_ai_score
+    return res
+
+
+@router.get("/jobs/{job_id}/optimized-resume")
+def get_optimized_resume_for_job(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Retrieve the candidate's existing optimized resume for a specific job posting
+    without re-triggering the AI optimization engine.
+    """
+    candidate = get_candidate(current_user, db)
+    job = db.query(JobPosting).filter(JobPosting.id == job_id, JobPosting.is_active == True).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job posting not found.")
+        
+    optimized_resume = db.query(Resume).filter(
+        Resume.candidate_id == candidate.id,
+        Resume.job_id == job.id,
+        Resume.is_deleted == False
+    ).first()
+    
+    if not optimized_resume:
+        raise HTTPException(
+            status_code=404,
+            detail="No optimized resume found for this job. You must optimize the resume first."
+        )
+        
+    # Calculate fit score
+    matching_service = MatchingEngine(db)
+    new_ai_score = 0
+    try:
+        score_details = matching_service.score_resume_for_job(optimized_resume.id, job.id)
+        new_ai_score = int(score_details["final_score"])
+    except Exception:
+        pass
+        
+    res = format_resume_structure(optimized_resume, candidate, current_user)
     res["ai_score"] = new_ai_score
     return res
 
@@ -2313,16 +2374,24 @@ def analyze_fit_for_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job posting not found.")
         
-    primary_resume = db.query(Resume).filter(
+    # Resolve which resume to use: prioritize optimized resume for this job, fall back to primary resume
+    resume_to_use = db.query(Resume).filter(
         Resume.candidate_id == candidate.id,
-        Resume.is_primary == True
+        Resume.job_id == job.id,
+        Resume.is_deleted == False
     ).first()
-    if not primary_resume:
+    if not resume_to_use:
+        resume_to_use = db.query(Resume).filter(
+            Resume.candidate_id == candidate.id,
+            Resume.is_primary == True
+        ).first()
+        
+    if not resume_to_use:
         raise HTTPException(status_code=400, detail="You do not have a primary resume uploaded.")
         
     # Score resume
     matching_service = MatchingEngine(db)
-    score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
+    score_details = matching_service.score_resume_for_job(resume_to_use.id, job.id)
     
     breakdown = score_details["breakdown"]
     insights = score_details["insights"]
@@ -2337,7 +2406,8 @@ def analyze_fit_for_job(
         industry_fit_percent=int(breakdown.get("logistics", 0)),
         resume_alignment_percent=int(breakdown.get("semantic", 0)),
         matching_skills=insights.get("matched_skills", []),
-        missing_keywords=missing_skills
+        missing_keywords=missing_skills,
+        resume_id=resume_to_use.id
     )
 # --- SAVED RESUMES MANAGEMENT ---
 
