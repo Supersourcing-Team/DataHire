@@ -117,7 +117,7 @@ async def verify_login_otp(
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Inactive user"
+            detail="Your account has been deactivated. Please contact support."
         )
         
     # If this was their first time verifying (i.e. right after registration), mark as verified
