@@ -33,7 +33,7 @@ class JobPosting(Base):
     
     # Job Description Sections (Step 2)
     job_overview = Column(Text, nullable=True)
-    about_role = Column(Text, nullable=True)
+    about_role = Column(JSONB, nullable=True) # Array of bullet points representing about the role
     requirements = Column(JSONB, nullable=True) # Array of requirements
     responsibilities = Column(JSONB, nullable=True) # Array of responsibilities
     benefits = Column(JSONB, nullable=True) # Array of benefits

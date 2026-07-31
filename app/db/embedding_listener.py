@@ -7,7 +7,7 @@ from app.db.base_class import Base
 def _get_text_to_embed(target) -> str:
     parts = []
     # Common text fields to embed
-    for field in ["name", "title", "description", "original_content", "job_overview", "about_role"]:
+    for field in ["name", "title", "description", "original_content", "job_overview"]:
         if hasattr(target, field) and getattr(target, field):
             parts.append(str(getattr(target, field)))
             
@@ -32,11 +32,13 @@ def _get_text_to_embed(target) -> str:
                     parts.append(str(content))
             
     # Check job sections list fields
-    for field in ["requirements", "responsibilities", "benefits"]:
+    for field in ["requirements", "responsibilities", "benefits", "about_role"]:
         if hasattr(target, field) and getattr(target, field):
             items = getattr(target, field)
             if isinstance(items, list):
                 parts.append(" ".join(str(i) for i in items))
+            elif isinstance(items, str):
+                parts.append(items)
             
     return " ".join(parts)
 
@@ -55,7 +57,10 @@ def generate_target_embedding(mapper: Mapper, connection: Connection, target: Ba
         if job_overview:
             sections.append(f"Job Overview:\n{job_overview}")
         if about_role:
-            sections.append(f"About the Role:\n{about_role}")
+            if isinstance(about_role, list):
+                sections.append("About the Role:\n" + "\n".join(f"- {r}" for r in about_role))
+            else:
+                sections.append(f"About the Role:\n{about_role}")
         if requirements and isinstance(requirements, list):
             sections.append("Requirements:\n" + "\n".join(f"- {r}" for r in requirements))
         if responsibilities and isinstance(responsibilities, list):
