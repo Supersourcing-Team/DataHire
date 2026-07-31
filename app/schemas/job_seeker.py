@@ -67,6 +67,7 @@ class AIMatchOverview(BaseModel):
     resume_alignment_percent: int
     matching_skills: List[str]
     resume_gaps: List[str]
+    resume_id: Optional[UUID] = None
 
 class JobSeekerDetailResponse(BaseModel):
     id: UUID
@@ -191,6 +192,7 @@ class FitAnalysisResponse(BaseModel):
     resume_alignment_percent: int
     matching_skills: List[str]
     missing_keywords: List[str]
+    resume_id: Optional[UUID] = None
 
 class ResumeAnalyzeFitRequest(BaseModel):
     job_id: UUID = Field(..., alias="job_id")
