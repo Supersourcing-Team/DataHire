@@ -2286,7 +2286,10 @@ def generate_cover_letter_for_job(
     company_name = job.company.name if job.company else "Target Company"
     company_desc = job.company.description if (job.company and job.company.description) else "A leading innovator in the industry."
     job_overview = job.job_overview or job.description or ""
-    about_role = job.about_role or ""
+    if isinstance(job.about_role, list):
+        about_role = "\n".join(f"- {r}" for r in job.about_role)
+    else:
+        about_role = job.about_role or ""
     requirements_str = "\n".join(f"- {r}" for r in job.requirements) if (job.requirements and isinstance(job.requirements, list)) else ""
     responsibilities_str = "\n".join(f"- {r}" for r in job.responsibilities) if (job.responsibilities and isinstance(job.responsibilities, list)) else ""
     work_mode_str = job.work_mode.name if job.work_mode else "Not specified"

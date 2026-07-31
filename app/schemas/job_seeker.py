@@ -3,7 +3,7 @@ from typing import List, Optional, Union, Dict, Any, Literal
 from uuid import UUID
 import re
 from pydantic import BaseModel, ConfigDict, field_validator, Field
-from app.schemas.job import JobDashboardCardResponse
+from app.schemas.job import JobDashboardCardResponse, convert_text_to_bullets
 
 class CandidateCreditsResponse(BaseModel):
     plan_tier: str
@@ -82,7 +82,7 @@ class JobSeekerDetailResponse(BaseModel):
     company_rating: Optional[float] = None
     job_title: str
     job_overview: Optional[str] = None
-    about_role: Optional[str] = None
+    about_role: Optional[List[str]] = None
     requirements: Optional[List[str]] = None
     responsibilities: Optional[List[str]] = None
     benefits: Optional[List[str]] = None
@@ -107,6 +107,17 @@ class JobSeekerDetailResponse(BaseModel):
     ai_match_overview: Optional[AIMatchOverview] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("about_role", mode="before")
+    @classmethod
+    def validate_about_role(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            return convert_text_to_bullets(v)
+        return v
 
 class SavedJobResponse(BaseModel):
     id: UUID
