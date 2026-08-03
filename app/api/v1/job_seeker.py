@@ -290,38 +290,85 @@ def get_job_seeker_feed(
     
     # Apply search filter
     if search:
-        query = query.join(Company).filter(
+        query = query.filter(
             or_(
                 JobPosting.title.ilike(f"%{search}%"),
-                Company.name.ilike(f"%{search}%")
+                JobPosting.company.has(Company.name.ilike(f"%{search}%"))
             )
         )
 
     # Apply work type filter
     if work_type and work_type.lower() != "all":
         from app.models.meta import MetaWorkMode
-        query = query.filter(JobPosting.work_mode.has(func.lower(MetaWorkMode.name) == work_type.lower()))
+        # Normalize work_type by removing dashes/underscores
+        norm_wt = work_type.replace("-", "").replace("_", "").lower()
+        query = query.filter(
+            JobPosting.work_mode.has(
+                func.replace(func.replace(func.lower(MetaWorkMode.name), "-", ""), "_", "") == norm_wt
+            )
+        )
         
     # Apply job type filter
     if job_type and job_type.lower() != "all":
         from app.models.meta import MetaEmploymentType
-        norm_jt = job_type.replace("-", "_").lower()
+        # Normalize job_type
+        norm_jt = job_type.replace("-", " ").replace("_", " ").lower()
+        # Handle custom mappings for typos/variations in database
+        if "contract" in norm_jt:
+            norm_jt = "contact"
+        elif "freelance" in norm_jt:
+            norm_jt = "freelencer"
+        elif "fulltime" in norm_jt:
+            norm_jt = "full time"
+        elif "parttime" in norm_jt:
+            norm_jt = "part time"
+            
         query = query.filter(JobPosting.employment_type.has(func.lower(MetaEmploymentType.name) == norm_jt))
+
     # Apply location country filter
     if location and location.lower() != "all":
-        if location.lower() in ("u.s.", "us", "united states"):
-            query = query.join(JobPosting.country).filter(JobPosting.country.has(iso_code="US"))
-        elif location.lower() in ("india", "in"):
-            query = query.join(JobPosting.country).filter(JobPosting.country.has(iso_code="IN"))
+        from app.models.meta import MetaCountry
+        loc_lower = location.lower()
+        if loc_lower in ("u.s.", "us", "united states"):
+            query = query.filter(JobPosting.country.has(func.lower(MetaCountry.iso_code) == "us"))
+        elif loc_lower in ("india", "in"):
+            query = query.filter(JobPosting.country.has(func.lower(MetaCountry.iso_code) == "in"))
+        else:
+            query = query.filter(
+                JobPosting.country.has(
+                    or_(
+                        func.lower(MetaCountry.name) == loc_lower,
+                        func.lower(MetaCountry.iso_code) == loc_lower
+                    )
+                )
+            )
             
     # Apply visa sponsorship filter
     if visa_sponsorship and visa_sponsorship.lower() != "all":
+        from app.models.meta import MetaVisaStatus
         if visa_sponsorship.lower() == "h1b sponsorship":
-            query = query.filter(JobPosting.visa_status.has(name="H-1B Visa"))
+            query = query.filter(
+                or_(
+                    JobPosting.visa_status.has(name="H-1B Visa"),
+                    JobPosting.visa_statuses.any(name="H-1B Visa")
+                )
+            )
         elif visa_sponsorship.lower() == "sponsorship available":
-            query = query.filter(or_(JobPosting.requires_visa_sponsorship.isnot(None), JobPosting.must_be_authorized_to_work == False))
+            sponsorship_visa_names = ["Student Visa (F-1 OPT/CPT)", "L-1 Visa", "O-1 Visa", "TN Visa", "H-1B Visa", "Need Sponsorship", "Other Work Visa"]
+            query = query.filter(
+                or_(
+                    and_(JobPosting.requires_visa_sponsorship.isnot(None), ~JobPosting.requires_visa_sponsorship.in_([1, 2])),
+                    JobPosting.must_be_authorized_to_work == False,
+                    JobPosting.visa_statuses.any(MetaVisaStatus.name.in_(sponsorship_visa_names))
+                )
+            )
         elif visa_sponsorship.lower() == "no sponsorship":
-            query = query.filter(JobPosting.requires_visa_sponsorship.is_(None))
+            query = query.filter(
+                or_(
+                    JobPosting.requires_visa_sponsorship.is_(None),
+                    JobPosting.requires_visa_sponsorship.in_([1, 2])
+                )
+            )
             
     # Apply salary filters
     if salary_min is not None:
