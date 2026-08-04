@@ -313,5 +313,175 @@ class GeminiOptimizationEngine:
                 "ai_suggestions": []
             }
 
+    def analyze_resume_general_fit(self, resume_content: str, target_role: str) -> Dict[str, Any]:
+        """
+        Compares candidate's resume content against typical requirements for a target role.
+        Returns gaps and strengths using Gemini.
+        """
+        system_instruction = (
+            "You are an expert AI Career Coach and Resume Evaluator.\n"
+            "Your goal is to compare a candidate's resume content against the typical expectations for a target role "
+            "and provide a structured JSON output.\n"
+            "You MUST output raw JSON matching exactly this schema:\n"
+            "{\n"
+            "  \"gaps\": [\"string\"],\n"
+            "  \"strengths\": [\"string\"]\n"
+            "}\n"
+            "Rules for evaluation:\n"
+            "1. Under 'gaps', list up to 6 actionable bullet points describing missing skills, experience, or certifications based on the comparison, formatted as concise professional bullet points.\n"
+            "2. Under 'strengths', list up to 6 key areas of strong alignment or matching qualifications.\n"
+        )
+
+        user_prompt = f"""
+        {system_instruction}
+
+        --- TARGET ROLE ---
+        {target_role}
+
+        --- CANDIDATE RESUME CONTENT ---
+        {resume_content}
+
+        Provide the JSON output now:
+        """
+
+        try:
+            response = self.model.generate_content(
+                user_prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0.3
+                )
+            )
+            parsed_result = json.loads(response.text)
+            return {
+                "target_role": target_role,
+                "gaps": parsed_result.get("gaps", []),
+                "strengths": parsed_result.get("strengths", [])
+            }
+        except Exception as e:
+            logger.error(f"Gemini General Resume Fit Analysis Failed: {e}")
+            return {
+                "error": str(e),
+                "target_role": target_role,
+                "gaps": [],
+                "strengths": []
+            }
+
+    def get_general_resume_suggestions(self, resume_content: str, target_role: str) -> Dict[str, Any]:
+        """
+        Dynamically analyzes the current resume content against the typical expectations for a target role
+        to return missing/recommended keywords.
+        """
+        system_instruction = (
+            "You are an expert ATS (Applicant Tracking System) and Resume Consultant.\n"
+            "Your task is to analyze the candidate's current resume content against the typical expectations for the target role "
+            "and suggest relevant skills, technologies, or keywords that are missing or should be highlighted.\n"
+            "You MUST output raw JSON matching exactly this schema:\n"
+            "{\n"
+            "  \"suggested_keywords\": [\"string\"]\n"
+            "}\n"
+            "Rules:\n"
+            "1. 'suggested_keywords': Identify which core professional or technical skills typical of the target role are missing from or could be strengthened in the candidate's resume.\n"
+            "   Only suggest keywords that are NOT prominently present in the resume content, or would add value."
+        )
+
+        user_prompt = f"""
+        {system_instruction}
+
+        --- TARGET ROLE ---
+        {target_role}
+
+        --- CANDIDATE RESUME CONTENT ---
+        {resume_content}
+
+        Provide the JSON output now:
+        """
+
+        try:
+            response = self.model.generate_content(
+                user_prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0.2
+                )
+            )
+            parsed_result = json.loads(response.text)
+            return {
+                "suggested_keywords": parsed_result.get("suggested_keywords", [])
+            }
+        except Exception as e:
+            logger.error(f"Failed to generate general resume suggestions: {e}")
+            return {
+                "suggested_keywords": []
+            }
+
+    def _get_general_system_instruction_for_section_with_keywords(self, section_type: SectionType, target_role: str, keywords: List[str]) -> str:
+        base_instruction = (
+            "You are an expert AI Resume Optimizer. Your goal is to review a candidate's resume section "
+            f"and provide a generally polished, professional, and optimized version of it tailored for a '{target_role}' role.\n"
+            "You MUST output raw JSON matching exactly this schema:\n"
+            "{{ \"optimized_content\": \"string\", \"optimization_feedback\": \"string\" }}\n"
+            f"You MUST weave in these keywords naturally if possible: {', '.join(keywords)}.\n"
+        )
+        if section_type == SectionType.SKILLS:
+            return base_instruction + (
+                "TASK: This is the SKILLS section. Do NOT write paragraphs or bullet points. "
+                "Only return a clean comma-separated or newline-separated list of skills, appending/including the target keywords."
+            )
+        elif section_type == SectionType.EXPERIENCE:
+            return base_instruction + (
+                "TASK: This is the EXPERIENCE section. Rewrite the bullet points to use strong action verbs "
+                "and quantify achievements where possible. Weave in the target keywords naturally."
+            )
+        elif section_type == SectionType.SUMMARY:
+            return base_instruction + (
+                "TASK: This is the SUMMARY section. Write a compelling, concise 3-4 line professional summary "
+                "weaving in the target keywords and target role to hook recruiters."
+            )
+        else:
+            return base_instruction + (
+                "TASK: Optimize the provided content for professionalism, clarity, and impact."
+            )
+
+    def optimize_section_general_with_keywords(self, section: ResumeSection, target_role: str, keywords: List[str]) -> Dict[str, Any]:
+        """
+        Sends the specific ResumeSection to Gemini to get a generally optimized version tailored to a target role and keywords.
+        """
+        try:
+            s_type = SectionType(section.section_type)
+        except ValueError:
+            s_type = SectionType.OTHER
+
+        system_instruction = self._get_general_system_instruction_for_section_with_keywords(s_type, target_role, keywords)
+
+        user_prompt = f"""
+        {system_instruction}
+
+        --- ORIGINAL CONTENT ---
+        {section.original_content}
+
+        Provide the JSON output now:
+        """
+
+        try:
+            response = self.model.generate_content(
+                user_prompt,
+                generation_config=genai.GenerationConfig(
+                    response_mime_type="application/json",
+                    temperature=0.3
+                )
+            )
+            parsed_result = json.loads(response.text)
+            return {
+                "optimized_content": parsed_result.get("optimized_content", section.original_content),
+                "optimization_feedback": parsed_result.get("optimization_feedback", "")
+            }
+        except Exception as e:
+            logger.error(f"Gemini General Optimization With Keywords Failed: {e}")
+            return {
+                "optimized_content": section.original_content,
+                "optimization_feedback": "Failed to connect to the Gemini Optimization AI."
+            }
+
 # Export singleton instance
 optimization_engine = GeminiOptimizationEngine()
