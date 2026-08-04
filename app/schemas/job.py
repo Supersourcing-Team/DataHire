@@ -403,6 +403,7 @@ class JobPosterApplicantListItem(BaseModel):
     status: str
     applied_date: datetime
     is_viewed: bool = False
+    rejected_from: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -433,6 +434,7 @@ class JobPosterApplicantProfileResponse(BaseModel):
     cover_letter: Optional[str] = None
     timeline: List[TimelineEvent]
     is_viewed: bool = False
+    rejected_from: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
