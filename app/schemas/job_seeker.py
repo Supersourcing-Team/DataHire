@@ -543,8 +543,38 @@ class PaginatedCoverLetterDetailResponse(BaseModel):
     count: int
 
 
+class JobResumeOptimizeSection(BaseModel):
+    section_type: str
+    keywords: List[str]
+
+
 class JobResumeOptimizeRequest(BaseModel):
     keywords: Optional[List[str]] = None
+    sections: Optional[List[JobResumeOptimizeSection]] = None
+
+
+class OptimizeForJobRequest(BaseModel):
+    job_id: UUID
+    keywords: Optional[List[str]] = None
+    sections: Optional[List[JobResumeOptimizeSection]] = None
+
+
+class GeneralAnalysisRequest(BaseModel):
+    target_role: Optional[str] = None
+
+
+class GeneralAnalysisResponse(BaseModel):
+    target_role: str
+    gaps: List[str]
+    strengths: List[str]
+    suggested_keywords: List[str]
+
+
+class GeneralOptimizeRequest(BaseModel):
+    target_role: str
+    keywords: List[str]
+    sections: Optional[List[str]] = None
+
 
 
 
