@@ -1517,7 +1517,8 @@ def list_job_applicants(
                 employment_type=candidate.pref_role_type,
                 status=app.status,
                 applied_date=app.created_at,
-                is_viewed=app.is_viewed
+                is_viewed=app.is_viewed,
+                rejected_from=app.rejected_from
             )
         )
 
@@ -1666,6 +1667,11 @@ def get_applicant_profile(
     
     # Helper to check completion
     def get_stage_status(completed_statuses: list, active_statuses: list) -> str:
+        if app_status == "rejected":
+            ref_status = (app.rejected_from or "applied").lower()
+            if ref_status in completed_statuses:
+                return "completed"
+            return "pending"
         if app_status in completed_statuses:
             return "completed"
         if app_status in active_statuses:
@@ -1743,7 +1749,8 @@ def get_applicant_profile(
         resume_file_url=s3_service.get_presigned_url(resume.file_url) if resume else None,
         cover_letter=s3_service.get_presigned_url(app.cover_letter) if app.cover_letter else None,
         timeline=timeline,
-        is_viewed=app.is_viewed
+        is_viewed=app.is_viewed,
+        rejected_from=app.rejected_from
     )
 
 
@@ -1856,6 +1863,12 @@ def update_applicant_status(
         )
 
     # Update candidate's job application status
+    if requested_status == "rejected":
+        if app.status != "rejected":
+            app.rejected_from = app.status
+    else:
+        app.rejected_from = None
+
     app.status = requested_status
     app.updated_at = datetime.now(timezone.utc)
     db.flush()  # Push update to DB so count query is accurate
@@ -1985,6 +1998,12 @@ def bulk_update_applicant_status(
     ).count()
 
     for app in apps:
+        if requested_status == "rejected":
+            if app.status != "rejected":
+                app.rejected_from = app.status
+        else:
+            app.rejected_from = None
+
         app.status = requested_status
         app.updated_at = datetime.now(timezone.utc)
         db.flush()

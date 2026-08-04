@@ -1535,6 +1535,11 @@ def get_job_seeker_application_details(
     
     # Helper to check completion
     def get_stage_status(completed_statuses: list, active_statuses: list) -> str:
+        if app_status == "rejected":
+            ref_status = (app.rejected_from or "applied").lower()
+            if ref_status in completed_statuses:
+                return "completed"
+            return "pending"
         if app_status in completed_statuses:
             return "completed"
         if app_status in active_statuses:
@@ -1612,7 +1617,8 @@ def get_job_seeker_application_details(
         resume_file_url=s3_service.get_presigned_url(resume.file_url) if resume else None,
         cover_letter=s3_service.get_presigned_url(app.cover_letter) if app.cover_letter else None,
         timeline=timeline,
-        is_viewed=app.is_viewed
+        is_viewed=app.is_viewed,
+        rejected_from=app.rejected_from
     )
 
 
