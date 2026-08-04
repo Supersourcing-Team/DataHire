@@ -930,15 +930,15 @@ def get_saved_jobs_status(
                 ai_score = 0
                 
         # Determine status flags
-        is_high_match = ai_score >= 80
+        is_high_match = ai_score > 75
         is_visa_sponsored = job.requires_visa_sponsorship is not None
         
         is_closing_soon = False
         if job.application_deadline:
             deadline_utc = job.application_deadline.astimezone(timezone.utc) if job.application_deadline.tzinfo else job.application_deadline.replace(tzinfo=timezone.utc)
-            is_closing_soon = now <= deadline_utc <= now + timedelta(days=7)
+            is_closing_soon = now <= deadline_utc <= now + timedelta(days=3)
             
-        is_needs_resume_update = (primary_resume is None) or (ai_score < 80)
+        is_needs_resume_update = (primary_resume is None) or (ai_score < 40)
         
         # Increment counts
         if is_high_match:
@@ -1103,15 +1103,15 @@ def get_saved_jobs_pipeline(
                 ai_score = 0
                 
         # Determine status flags
-        is_high_match = ai_score >= 80
+        is_high_match = ai_score > 75
         is_visa_sponsored = job.requires_visa_sponsorship is not None
         
         is_closing_soon = False
         if job.application_deadline:
             deadline_utc = job.application_deadline.astimezone(timezone.utc) if job.application_deadline.tzinfo else job.application_deadline.replace(tzinfo=timezone.utc)
-            is_closing_soon = now <= deadline_utc <= now + timedelta(days=7)
+            is_closing_soon = now <= deadline_utc <= now + timedelta(days=3)
             
-        is_needs_resume_update = (primary_resume is None) or (ai_score < 80)
+        is_needs_resume_update = (primary_resume is None) or (ai_score < 40)
         
         # Apply filtering
         if has_active_filter:
