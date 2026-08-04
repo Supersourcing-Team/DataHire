@@ -1518,7 +1518,8 @@ def list_job_applicants(
                 status=app.status,
                 applied_date=app.created_at,
                 is_viewed=app.is_viewed,
-                rejected_from=app.rejected_from
+                rejected_from=app.rejected_from,
+                rejected_at=app.rejected_at
             )
         )
 
@@ -1678,6 +1679,16 @@ def get_applicant_profile(
             return "active"
         return "pending"
 
+    # Helper to get stage updated_at timestamp
+    def get_stage_updated_at(completed_statuses: list) -> Optional[datetime]:
+        if app_status in completed_statuses:
+            return app.updated_at
+        if app_status == "rejected":
+            ref_status = (app.rejected_from or "applied").lower()
+            if ref_status in completed_statuses:
+                return app.updated_at
+        return None
+
     # 2. Candidate Shortlisted!
     shortlist_completed = ["shortlisted", "interviewing", "interviewed", "offered", "hired"]
     shortlist_active = ["applied", "under_review"]
@@ -1685,7 +1696,7 @@ def get_applicant_profile(
         TimelineEvent(
             title="Candidate Shortlisted!",
             status=get_stage_status(shortlist_completed, shortlist_active),
-            updated_at=app.updated_at if app_status in shortlist_completed else None
+            updated_at=get_stage_updated_at(shortlist_completed)
         )
     )
 
@@ -1696,7 +1707,7 @@ def get_applicant_profile(
         TimelineEvent(
             title="Interviewed",
             status=get_stage_status(interview_completed, interview_active),
-            updated_at=app.updated_at if app_status in interview_completed else None
+            updated_at=get_stage_updated_at(interview_completed)
         )
     )
 
@@ -1707,7 +1718,7 @@ def get_applicant_profile(
         TimelineEvent(
             title="Application successful",
             status=get_stage_status(success_completed, success_active),
-            updated_at=app.updated_at if app_status in success_completed else None
+            updated_at=get_stage_updated_at(success_completed)
         )
     )
 
@@ -1717,7 +1728,7 @@ def get_applicant_profile(
             TimelineEvent(
                 title="Application Rejected",
                 status="completed",
-                updated_at=app.updated_at
+                updated_at=app.rejected_at or app.updated_at
             )
         )
     elif app_status in ("onhold", "on_hold"):
@@ -1750,7 +1761,8 @@ def get_applicant_profile(
         cover_letter=s3_service.get_presigned_url(app.cover_letter) if app.cover_letter else None,
         timeline=timeline,
         is_viewed=app.is_viewed,
-        rejected_from=app.rejected_from
+        rejected_from=app.rejected_from,
+        rejected_at=app.rejected_at
     )
 
 
@@ -1866,11 +1878,13 @@ def update_applicant_status(
     if requested_status == "rejected":
         if app.status != "rejected":
             app.rejected_from = app.status
+            app.rejected_at = datetime.now(timezone.utc)
     else:
         app.rejected_from = None
+        app.rejected_at = None
+        app.updated_at = datetime.now(timezone.utc)
 
     app.status = requested_status
-    app.updated_at = datetime.now(timezone.utc)
     db.flush()  # Push update to DB so count query is accurate
 
     job_closed_automatically = False
@@ -2001,11 +2015,13 @@ def bulk_update_applicant_status(
         if requested_status == "rejected":
             if app.status != "rejected":
                 app.rejected_from = app.status
+                app.rejected_at = datetime.now(timezone.utc)
         else:
             app.rejected_from = None
+            app.rejected_at = None
+            app.updated_at = datetime.now(timezone.utc)
 
         app.status = requested_status
-        app.updated_at = datetime.now(timezone.utc)
         db.flush()
 
         # Update hired count and check auto close

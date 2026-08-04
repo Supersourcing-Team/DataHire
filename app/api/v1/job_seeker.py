@@ -1546,6 +1546,16 @@ def get_job_seeker_application_details(
             return "active"
         return "pending"
 
+    # Helper to get stage updated_at timestamp
+    def get_stage_updated_at(completed_statuses: list) -> Optional[datetime]:
+        if app_status in completed_statuses:
+            return app.updated_at
+        if app_status == "rejected":
+            ref_status = (app.rejected_from or "applied").lower()
+            if ref_status in completed_statuses:
+                return app.updated_at
+        return None
+
     # 2. Candidate Shortlisted!
     shortlist_completed = ["shortlisted", "interviewing", "interviewed", "offered", "hired"]
     shortlist_active = ["applied", "under_review"]
@@ -1553,7 +1563,7 @@ def get_job_seeker_application_details(
         TimelineEvent(
             title="Candidate Shortlisted!",
             status=get_stage_status(shortlist_completed, shortlist_active),
-            updated_at=app.updated_at if app_status in shortlist_completed else None
+            updated_at=get_stage_updated_at(shortlist_completed)
         )
     )
 
@@ -1564,7 +1574,7 @@ def get_job_seeker_application_details(
         TimelineEvent(
             title="Interviewed",
             status=get_stage_status(interview_completed, interview_active),
-            updated_at=app.updated_at if app_status in interview_completed else None
+            updated_at=get_stage_updated_at(interview_completed)
         )
     )
 
@@ -1575,7 +1585,7 @@ def get_job_seeker_application_details(
         TimelineEvent(
             title="Application successful",
             status=get_stage_status(success_completed, success_active),
-            updated_at=app.updated_at if app_status in success_completed else None
+            updated_at=get_stage_updated_at(success_completed)
         )
     )
 
@@ -1585,7 +1595,7 @@ def get_job_seeker_application_details(
             TimelineEvent(
                 title="Application Rejected",
                 status="completed",
-                updated_at=app.updated_at
+                updated_at=app.rejected_at or app.updated_at
             )
         )
     elif app_status in ("onhold", "on_hold"):

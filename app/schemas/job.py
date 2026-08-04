@@ -404,6 +404,7 @@ class JobPosterApplicantListItem(BaseModel):
     applied_date: datetime
     is_viewed: bool = False
     rejected_from: Optional[str] = None
+    rejected_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -435,6 +436,7 @@ class JobPosterApplicantProfileResponse(BaseModel):
     timeline: List[TimelineEvent]
     is_viewed: bool = False
     rejected_from: Optional[str] = None
+    rejected_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 

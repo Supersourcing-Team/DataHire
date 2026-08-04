@@ -17,6 +17,7 @@ class JobApplication(Base):
     cover_letter = Column(String, nullable=True)  # Store generated cover letter or notes
     is_viewed = Column(Boolean, default=False, nullable=False)
     rejected_from = Column(String(50), nullable=True)
+    rejected_at = Column(DateTime(timezone=True), nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
