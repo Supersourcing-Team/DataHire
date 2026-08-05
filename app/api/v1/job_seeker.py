@@ -1972,7 +1972,7 @@ async def _optimize_resume_for_job_core(
         # Delete any sections in existing optimized resume that are no longer in primary resume
         for s_type, s in list(existing_sections_by_type.items()):
             if s_type not in primary_section_types:
-                db.delete(s)
+                resume_to_use.sections.remove(s)
                 
         for section in source_resume.sections:
             should_optimize = True
