@@ -1459,12 +1459,14 @@ def list_job_applicants(
         # Resolve the resume used (job-specific or primary)
         resume = db.query(Resume).filter(
             Resume.candidate_id == candidate.id,
-            Resume.job_id == job_id
-        ).first()
+            Resume.job_id == job_id,
+            Resume.is_deleted == False
+        ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
         if not resume:
             resume = db.query(Resume).filter(
                 Resume.candidate_id == candidate.id,
-                Resume.is_primary == True
+                Resume.is_primary == True,
+                Resume.is_deleted == False
             ).first()
 
         # Calculate AI match score
@@ -1619,15 +1621,17 @@ def get_applicant_profile(
         joinedload(Resume.sections)
     ).filter(
         Resume.candidate_id == candidate_id,
-        Resume.job_id == job_id
-    ).first()
+        Resume.job_id == job_id,
+        Resume.is_deleted == False
+    ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
     
     if not resume:
         resume = db.query(Resume).options(
             joinedload(Resume.sections)
         ).filter(
             Resume.candidate_id == candidate_id,
-            Resume.is_primary == True
+            Resume.is_primary == True,
+            Resume.is_deleted == False
         ).first()
 
     # Calculate AI match score

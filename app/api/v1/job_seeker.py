@@ -500,11 +500,12 @@ def get_job_seeker_job_details(
         Resume.candidate_id == candidate.id,
         Resume.job_id == job.id,
         Resume.is_deleted == False
-    ).first()
+    ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
     if not resume_to_use:
         resume_to_use = db.query(Resume).filter(
             Resume.candidate_id == candidate.id,
-            Resume.is_primary == True
+            Resume.is_primary == True,
+            Resume.is_deleted == False
         ).first()
     
     ai_score = 0
@@ -1290,7 +1291,11 @@ def get_submitted_applications(
             continue
             
         # Get resume used for this job
-        resume = db.query(Resume).filter(Resume.candidate_id == candidate.id, Resume.job_id == job.id).first()
+        resume = db.query(Resume).filter(
+            Resume.candidate_id == candidate.id,
+            Resume.job_id == job.id,
+            Resume.is_deleted == False
+        ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
         if not resume:
             resume = primary_resume
             
@@ -1487,15 +1492,17 @@ def get_job_seeker_application_details(
         joinedload(Resume.sections)
     ).filter(
         Resume.candidate_id == candidate.id,
-        Resume.job_id == job_id
-    ).first()
+        Resume.job_id == job_id,
+        Resume.is_deleted == False
+    ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
     
     if not resume:
         resume = db.query(Resume).options(
             joinedload(Resume.sections)
         ).filter(
             Resume.candidate_id == candidate.id,
-            Resume.is_primary == True
+            Resume.is_primary == True,
+            Resume.is_deleted == False
         ).first()
 
     # Calculate AI match score
@@ -1926,7 +1933,7 @@ async def _optimize_resume_for_job_core(
         Resume.candidate_id == candidate.id,
         Resume.job_id == job.id,
         Resume.is_deleted == False
-    ).first()
+    ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
 
     # Check saved resumes limit (only if creating a new one)
     if not existing_optimized_resume:
@@ -2183,7 +2190,7 @@ def get_optimized_resume_for_job(
         Resume.candidate_id == candidate.id,
         Resume.job_id == job.id,
         Resume.is_deleted == False
-    ).first()
+    ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
     
     if not optimized_resume:
         raise HTTPException(
@@ -2806,11 +2813,12 @@ def analyze_fit_for_job(
         Resume.candidate_id == candidate.id,
         Resume.job_id == job.id,
         Resume.is_deleted == False
-    ).first()
+    ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
     if not resume_to_use:
         resume_to_use = db.query(Resume).filter(
             Resume.candidate_id == candidate.id,
-            Resume.is_primary == True
+            Resume.is_primary == True,
+            Resume.is_deleted == False
         ).first()
         
     if not resume_to_use:
