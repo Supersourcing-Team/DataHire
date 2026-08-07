@@ -393,12 +393,25 @@ def get_job_seeker_feed(
             
     jobs = query.order_by(JobPosting.created_at.desc()).all()
     
-    # 2. Get candidate primary resume for score calculations
-    primary_resume = db.query(Resume).filter(
+    # 2. Get candidate resumes for score calculations
+    all_resumes = db.query(Resume).filter(
         Resume.candidate_id == candidate.id,
-        Resume.is_primary == True
-    ).first()
+        Resume.is_deleted == False
+    ).all()
     
+    primary_resume = next((r for r in all_resumes if r.is_primary), None)
+    
+    resumes_by_job = {}
+    for r in all_resumes:
+        if r.job_id:
+            if r.job_id not in resumes_by_job:
+                resumes_by_job[r.job_id] = []
+            resumes_by_job[r.job_id].append(r)
+            
+    # Sort resumes in each job group by is_ai_optimized desc, updated_at desc
+    for j_id in resumes_by_job:
+        resumes_by_job[j_id].sort(key=lambda r: (r.is_ai_optimized or False, r.updated_at), reverse=True)
+        
     matching_service = MatchingEngine(db)
     
     # 3. Process each job to add state & score
@@ -410,11 +423,15 @@ def get_job_seeker_feed(
         is_applied = app_record is not None
         app_status = app_record.status if app_record else None
         
+        # Resolve which resume to use: prioritize optimized/linked resume, fall back to primary resume
+        job_resumes = resumes_by_job.get(job.id)
+        resume_to_use = job_resumes[0] if job_resumes else primary_resume
+        
         # Calculate AI match score
         ai_score = 0
-        if primary_resume:
+        if resume_to_use:
             try:
-                score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
+                score_details = matching_service.score_resume_for_job(resume_to_use.id, job.id)
                 ai_score = int(score_details["final_score"])
             except Exception:
                 ai_score = 0
@@ -631,6 +648,13 @@ def apply_to_job(
     if not resume:
         for r in all_resumes:
             if clean_s3_url(r.file_url) == payload_clean_url and r.job_id == job.id:
+                resume = r
+                break
+                
+    # 1.5 If not matched by URL but candidate has an optimized resume for this job, prioritize it
+    if not resume:
+        for r in all_resumes:
+            if r.job_id == job.id and r.is_ai_optimized:
                 resume = r
                 break
                 
