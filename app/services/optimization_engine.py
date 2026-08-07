@@ -16,69 +16,210 @@ class GeminiOptimizationEngine:
         # Use gemini-3.1-flash-lite for fast, structured generation with stable high quota limits
         self.model = genai.GenerativeModel('gemini-3.1-flash-lite')
 
-    def _get_system_instruction_for_section(self, section_type: SectionType) -> str:
+    def _get_system_instruction_for_section(self, section_type: SectionType, has_structured: bool = False) -> str:
         """
         Returns a modular, task-specific prompt based on the section being optimized.
         """
-        base_instruction = (
-            "You are an expert AI Resume Optimizer. Your goal is to review a candidate's resume section "
-            "against a target job description and provide structured JSON output.\n"
-            "You MUST output raw JSON matching exactly this schema:\n"
-            "{ \"optimized_content\": \"string\", \"missing_keywords\": [\"string\"], \"optimization_feedback\": \"string\" }\n"
-        )
+        try:
+            section_type = SectionType(section_type)
+        except ValueError:
+            section_type = SectionType.OTHER
+
+        if has_structured:
+            base_instruction = (
+                "You are an expert AI Resume Optimizer. Your goal is to review a candidate's resume section "
+                "against a target job description and provide structured JSON output.\n"
+                "You MUST output raw JSON matching exactly this schema:\n"
+                "{\n"
+                "  \"optimized_content\": \"string\",\n"
+                "  \"optimized_structured_content\": <any JSON matching original structured schema>,\n"
+                "  \"missing_keywords\": [\"string\"],\n"
+                "  \"optimization_feedback\": \"string\"\n"
+                "}\n"
+            )
+        else:
+            base_instruction = (
+                "You are an expert AI Resume Optimizer. Your goal is to review a candidate's resume section "
+                "against a target job description and provide structured JSON output.\n"
+                "You MUST output raw JSON matching exactly this schema:\n"
+                "{\n"
+                "  \"optimized_content\": \"string\",\n"
+                "  \"missing_keywords\": [\"string\"],\n"
+                "  \"optimization_feedback\": \"string\"\n"
+                "}\n"
+            )
 
         if section_type == SectionType.SKILLS:
-            return base_instruction + (
-                "TASK: This is the SKILLS section. Do NOT write paragraphs or bullet points. "
-                "Only extract, format, and return a clean comma-separated or newline-separated list of skills. "
-                "Compare the candidate's existing skills with the job requirements and suggest missing technical keywords. "
-                "Most importantly, you MUST append the missing keywords from the job requirements (the 'Required Skills' list) "
-                "to the 'optimized_content' list of skills so that the optimized version actually contains them."
-            )
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the SKILLS section. You MUST output raw JSON matching the required schema.\n"
+                    "For 'optimized_structured_content', you are given a dictionary with 'technical', 'soft', and 'tools' keys (lists of strings).\n"
+                    "Inject the missing keywords from the job description into the appropriate list (usually 'technical') in that dictionary and return it.\n"
+                    "For 'optimized_content', return a clean, categorized, comma-separated plain-text string representation of all skills."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: This is the SKILLS section. Do NOT write paragraphs or bullet points. "
+                    "Only extract, format, and return a clean comma-separated or newline-separated list of skills. "
+                    "Compare the candidate's existing skills with the job requirements and suggest missing technical keywords. "
+                    "Most importantly, you MUST append the missing keywords from the job requirements (the 'Required Skills' list) "
+                    "to the 'optimized_content' list of skills so that the optimized version actually contains them."
+                )
         elif section_type == SectionType.EXPERIENCE:
-            return base_instruction + (
-                "TASK: This is the EXPERIENCE section. Rewrite the bullet points to use strong action verbs "
-                "and quantify achievements where possible. Ensure the tone is highly professional. "
-                "If the candidate's experience falls short of the job's minimum requirement, note it in the feedback. "
-                "Weave in the missing keywords/skills from the job requirements naturally where they fit the candidate's "
-                "responsibilities so that they are present in the experience content."
-            )
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the EXPERIENCE section. You MUST output raw JSON matching the required schema.\n"
+                    "For 'optimized_structured_content', you are given a list of experience entries.\n"
+                    "For each experience entry, rewrite its 'bullets' list of strings to use strong action verbs, quantify achievements, "
+                    "and naturally weave in target keywords. You MUST preserve all other fields (like company, role, location, startDate, endDate) exactly as they are.\n"
+                    "For 'optimized_content', return a clean, readable plain-text representation of all experiences, preserving their headers and original formatting."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: This is the EXPERIENCE section. Rewrite the bullet points to use strong action verbs "
+                    "and quantify achievements where possible. Ensure the tone is highly professional. "
+                    "If the candidate's experience falls short of the job's minimum requirement, note it in the feedback. "
+                    "Weave in the missing keywords/skills from the job requirements naturally where they fit the candidate's "
+                    "responsibilities so that they are present in the experience content."
+                )
+        elif section_type == SectionType.PROJECTS:
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the PROJECTS section. You MUST output raw JSON matching the required schema.\n"
+                    "For 'optimized_structured_content', you are given a list of projects.\n"
+                    "For each project, rewrite its 'description' and/or 'bullets' list of strings to use strong action verbs, professional tone, "
+                    "and weave in missing keywords naturally where they fit. You MUST preserve all other fields (like title, techStack, link) exactly as they are.\n"
+                    "For 'optimized_content', return a clean, readable plain-text representation of all projects, preserving their titles and original formatting."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: Optimize the provided content for professionalism, clarity, and alignment with the job description."
+                )
         elif section_type == SectionType.SUMMARY:
-            return base_instruction + (
-                "TASK: This is the SUMMARY section. Write a compelling, concise 3-4 line professional summary "
-                "that weaves in the core requirements of the job description and missing keywords/skills to hook the recruiter immediately."
-            )
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the SUMMARY section. You MUST output raw JSON matching the required schema.\n"
+                    "For 'optimized_structured_content', rewrite/polish the summary text and return it as a dictionary with a 'text' key (e.g. {\"text\": \"optimized summary...\"}).\n"
+                    "For 'optimized_content', return the same optimized summary as a raw string."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: This is the SUMMARY section. Write a compelling, concise 3-4 line professional summary "
+                    "that weaves in the core requirements of the job description and missing keywords/skills to hook the recruiter immediately."
+                )
+        elif section_type == SectionType.EDUCATION:
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the EDUCATION section. You MUST output raw JSON matching the required schema.\n"
+                    "For 'optimized_structured_content', return the same education entries as the original JSON list, but check for spelling, professional formatting, and capitalization.\n"
+                    "For 'optimized_content', return a clean, readable plain-text representation of all education entries."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: Optimize the provided content for professionalism, clarity, and alignment with the job description."
+                )
+        elif section_type == SectionType.CERTIFICATIONS:
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the CERTIFICATIONS section. You MUST output raw JSON matching the required schema.\n"
+                    "For 'optimized_structured_content', return the certifications JSON list. You may clean spelling or titles.\n"
+                    "For 'optimized_content', return a clean, readable plain-text representation of all certifications."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: Optimize the provided content for professionalism, clarity, and alignment with the job description."
+                )
         else:
             return base_instruction + (
                 "TASK: Optimize the provided content for professionalism, clarity, and alignment with the job description."
             )
 
-    def _get_general_system_instruction_for_section(self, section_type: SectionType) -> str:
+    def _get_general_system_instruction_for_section(self, section_type: SectionType, has_structured: bool = False) -> str:
         """
         Returns a system instruction for general resume section polishing without job details.
         """
-        base_instruction = (
-            "You are an expert AI Resume Optimizer. Your goal is to review a candidate's resume section "
-            "and provide a generally polished, professional, and optimized version of it.\n"
-            "You MUST output raw JSON matching exactly this schema:\n"
-            "{ \"optimized_content\": \"string\", \"optimization_feedback\": \"string\" }\n"
-        )
+        try:
+            section_type = SectionType(section_type)
+        except ValueError:
+            section_type = SectionType.OTHER
+
+        if has_structured:
+            base_instruction = (
+                "You are an expert AI Resume Optimizer. Your goal is to review a candidate's resume section "
+                "and provide a generally polished, professional, and optimized version of it.\n"
+                "You MUST output raw JSON matching exactly this schema:\n"
+                "{\n"
+                "  \"optimized_content\": \"string\",\n"
+                "  \"optimized_structured_content\": <any JSON matching original structured schema>,\n"
+                "  \"optimization_feedback\": \"string\"\n"
+                "}\n"
+            )
+        else:
+            base_instruction = (
+                "You are an expert AI Resume Optimizer. Your goal is to review a candidate's resume section "
+                "and provide a generally polished, professional, and optimized version of it.\n"
+                "You MUST output raw JSON matching exactly this schema:\n"
+                "{\n"
+                "  \"optimized_content\": \"string\",\n"
+                "  \"optimization_feedback\": \"string\"\n"
+                "}\n"
+            )
 
         if section_type == SectionType.SKILLS:
-            return base_instruction + (
-                "TASK: This is the SKILLS section. Format the skills into a clean, well-organized list. "
-                "Correct any spelling/casing issues. Do not write paragraphs."
-            )
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the SKILLS section. Format the skills into a clean, well-organized list in 'optimized_structured_content' keeping 'technical', 'soft', and 'tools' keys.\n"
+                    "Correct any spelling/casing issues. For 'optimized_content', return a clean categorized string representation."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: This is the SKILLS section. Format the skills into a clean, well-organized list. "
+                    "Correct any spelling/casing issues. Do not write paragraphs."
+                )
         elif section_type == SectionType.EXPERIENCE:
-            return base_instruction + (
-                "TASK: This is the EXPERIENCE section. Rewrite the bullet points to use strong action verbs "
-                "and quantify achievements/metrics where possible. Improve the professional tone and readability."
-            )
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the EXPERIENCE section. Rewrite the bullet points of each entry in 'optimized_structured_content' to use strong action verbs "
+                    "and quantify achievements/metrics where possible. Improve the professional tone and readability. Preserve other fields exactly.\n"
+                    "For 'optimized_content', return a clean plain-text string representation preserving headers."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: This is the EXPERIENCE section. Rewrite the bullet points to use strong action verbs "
+                    "and quantify achievements/metrics where possible. Improve the professional tone and readability."
+                )
         elif section_type == SectionType.SUMMARY:
-            return base_instruction + (
-                "TASK: This is the SUMMARY section. Write a compelling, concise 3-4 line professional summary "
-                "that highlights the candidate's core strengths, experience, and value proposition."
-            )
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the SUMMARY section. Write a compelling, concise 3-4 line professional summary. "
+                    "The 'optimized_structured_content' should be a dictionary with a single key 'text' containing this optimized summary.\n"
+                    "For 'optimized_content', return it as a raw string."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: This is the SUMMARY section. Write a compelling, concise 3-4 line professional summary "
+                    "that highlights the candidate's core strengths, experience, and value proposition."
+                )
+        elif section_type == SectionType.EDUCATION:
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the EDUCATION section. Polishing for grammar and style. Output original JSON list in 'optimized_structured_content'.\n"
+                    "For 'optimized_content', return a clean plain-text string representation."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: Optimize the provided content for professionalism, grammar, clarity, and impact."
+                )
+        elif section_type == SectionType.CERTIFICATIONS:
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the CERTIFICATIONS section. Polishing titles. Output original JSON list in 'optimized_structured_content'.\n"
+                    "For 'optimized_content', return a clean plain-text string representation."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: Optimize the provided content for professionalism, grammar, clarity, and impact."
+                )
         else:
             return base_instruction + (
                 "TASK: Optimize the provided content for professionalism, grammar, clarity, and impact."
@@ -88,13 +229,19 @@ class GeminiOptimizationEngine:
         """
         Sends the specific ResumeSection to Gemini to get a generally optimized version without target job context.
         """
-        system_instruction = self._get_general_system_instruction_for_section(section.section_type)
+        has_structured = section.structured_content is not None
+        system_instruction = self._get_general_system_instruction_for_section(section.section_type, has_structured=has_structured)
         
+        original_structured_str = ""
+        if has_structured:
+            original_structured_str = f"\n--- CANDIDATE'S ORIGINAL STRUCTURED JSON ---\n{json.dumps(section.structured_content)}\n"
+
         user_prompt = f"""
         {system_instruction}
         
         --- CANDIDATE'S ORIGINAL CONTENT ({section.section_type}) ---
         {section.original_content}
+        {original_structured_str}
         
         Provide the JSON output now:
         """
@@ -110,6 +257,7 @@ class GeminiOptimizationEngine:
             parsed_result = json.loads(response.text)
             return {
                 "optimized_content": parsed_result.get("optimized_content", section.original_content),
+                "optimized_structured_content": parsed_result.get("optimized_structured_content") if has_structured else None,
                 "optimization_feedback": parsed_result.get("optimization_feedback", "")
             }
         except Exception as e:
@@ -117,6 +265,7 @@ class GeminiOptimizationEngine:
             return {
                 "error": str(e),
                 "optimized_content": section.original_content,
+                "optimized_structured_content": section.structured_content if has_structured else None,
                 "optimization_feedback": "Failed to connect to the Gemini Optimization AI."
             }
 
@@ -128,8 +277,13 @@ class GeminiOptimizationEngine:
         job_skills = keywords if keywords is not None else job.resolved_skills
         job_skills_str = ", ".join(job_skills) if job_skills else "None specified"
         
-        system_instruction = self._get_system_instruction_for_section(section.section_type)
+        has_structured = section.structured_content is not None
+        system_instruction = self._get_system_instruction_for_section(section.section_type, has_structured=has_structured)
         
+        original_structured_str = ""
+        if has_structured:
+            original_structured_str = f"\n--- CANDIDATE'S ORIGINAL STRUCTURED JSON ---\n{json.dumps(section.structured_content)}\n"
+
         user_prompt = f"""
         {system_instruction}
         
@@ -141,6 +295,7 @@ class GeminiOptimizationEngine:
         
         --- CANDIDATE'S ORIGINAL CONTENT ({section.section_type}) ---
         {section.original_content}
+        {original_structured_str}
         
         Provide the JSON output now:
         """
@@ -161,6 +316,7 @@ class GeminiOptimizationEngine:
             # Ensure the required keys exist in case the LLM drifted
             return {
                 "optimized_content": parsed_result.get("optimized_content", section.original_content),
+                "optimized_structured_content": parsed_result.get("optimized_structured_content") if has_structured else None,
                 "missing_keywords": parsed_result.get("missing_keywords", []),
                 "optimization_feedback": parsed_result.get("optimization_feedback", "")
             }
@@ -170,6 +326,7 @@ class GeminiOptimizationEngine:
             return {
                 "error": str(e),
                 "optimized_content": section.original_content,
+                "optimized_structured_content": section.structured_content if has_structured else None,
                 "missing_keywords": [],
                 "optimization_feedback": "Failed to connect to the Gemini Optimization AI."
             }
@@ -415,29 +572,93 @@ class GeminiOptimizationEngine:
                 "suggested_keywords": []
             }
 
-    def _get_general_system_instruction_for_section_with_keywords(self, section_type: SectionType, target_role: str, keywords: List[str]) -> str:
-        base_instruction = (
-            "You are an expert AI Resume Optimizer. Your goal is to review a candidate's resume section "
-            f"and provide a generally polished, professional, and optimized version of it tailored for a '{target_role}' role.\n"
-            "You MUST output raw JSON matching exactly this schema:\n"
-            "{{ \"optimized_content\": \"string\", \"optimization_feedback\": \"string\" }}\n"
-            f"You MUST weave in these keywords naturally if possible: {', '.join(keywords)}.\n"
-        )
+    def _get_general_system_instruction_for_section_with_keywords(self, section_type: SectionType, target_role: str, keywords: List[str], has_structured: bool = False) -> str:
+        try:
+            section_type = SectionType(section_type)
+        except ValueError:
+            section_type = SectionType.OTHER
+
+        if has_structured:
+            base_instruction = (
+                "You are an expert AI Resume Optimizer. Your goal is to review a candidate's resume section "
+                f"and provide a generally polished, professional, and optimized version of it tailored for a '{target_role}' role.\n"
+                "You MUST output raw JSON matching exactly this schema:\n"
+                "{\n"
+                "  \"optimized_content\": \"string\",\n"
+                "  \"optimized_structured_content\": <any JSON matching original structured schema>,\n"
+                "  \"optimization_feedback\": \"string\"\n"
+                "}\n"
+                f"You MUST weave in these keywords naturally if possible: {', '.join(keywords)}.\n"
+            )
+        else:
+            base_instruction = (
+                "You are an expert AI Resume Optimizer. Your goal is to review a candidate's resume section "
+                f"and provide a generally polished, professional, and optimized version of it tailored for a '{target_role}' role.\n"
+                "You MUST output raw JSON matching exactly this schema:\n"
+                "{\n"
+                "  \"optimized_content\": \"string\",\n"
+                "  \"optimization_feedback\": \"string\"\n"
+                "}\n"
+                f"You MUST weave in these keywords naturally if possible: {', '.join(keywords)}.\n"
+            )
+
         if section_type == SectionType.SKILLS:
-            return base_instruction + (
-                "TASK: This is the SKILLS section. Do NOT write paragraphs or bullet points. "
-                "Only return a clean comma-separated or newline-separated list of skills, appending/including the target keywords."
-            )
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the SKILLS section. You MUST output raw JSON matching the required schema.\n"
+                    "For 'optimized_structured_content', you are given a dictionary with 'technical', 'soft', and 'tools' keys (lists of strings).\n"
+                    "Inject the target keywords into the appropriate list (usually 'technical') in that dictionary and return it.\n"
+                    "For 'optimized_content', return a clean, categorized, comma-separated plain-text string representation of all skills."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: This is the SKILLS section. Do NOT write paragraphs or bullet points. "
+                    "Only return a clean comma-separated or newline-separated list of skills, appending/including the target keywords."
+                )
         elif section_type == SectionType.EXPERIENCE:
-            return base_instruction + (
-                "TASK: This is the EXPERIENCE section. Rewrite the bullet points to use strong action verbs "
-                "and quantify achievements where possible. Weave in the target keywords naturally."
-            )
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the EXPERIENCE section. Rewrite the bullet points of each entry in 'optimized_structured_content' to use strong action verbs "
+                    "and quantify achievements where possible. Weave in the target keywords naturally. Preserve other fields exactly.\n"
+                    "For 'optimized_content', return a clean plain-text representation preserving headers."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: This is the EXPERIENCE section. Rewrite the bullet points to use strong action verbs "
+                    "and quantify achievements where possible. Weave in the target keywords naturally."
+                )
         elif section_type == SectionType.SUMMARY:
-            return base_instruction + (
-                "TASK: This is the SUMMARY section. Write a compelling, concise 3-4 line professional summary "
-                "weaving in the target keywords and target role to hook recruiters."
-            )
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the SUMMARY section. Write a compelling, concise 3-4 line professional summary "
+                    "weaving in the target keywords and target role. The 'optimized_structured_content' should be a dictionary with a single key 'text' containing this optimized summary.\n"
+                    "For 'optimized_content', return it as a raw string."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: This is the SUMMARY section. Write a compelling, concise 3-4 line professional summary "
+                    "weaving in the target keywords and target role to hook recruiters."
+                )
+        elif section_type == SectionType.EDUCATION:
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the EDUCATION section. Polishing for grammar and style. Output original JSON list in 'optimized_structured_content'.\n"
+                    "For 'optimized_content', return a clean plain-text string representation."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: Optimize the provided content for professionalism, clarity, and impact."
+                )
+        elif section_type == SectionType.CERTIFICATIONS:
+            if has_structured:
+                return base_instruction + (
+                    "TASK: This is the CERTIFICATIONS section. Polishing titles. Output original JSON list in 'optimized_structured_content'.\n"
+                    "For 'optimized_content', return a clean plain-text string representation."
+                )
+            else:
+                return base_instruction + (
+                    "TASK: Optimize the provided content for professionalism, clarity, and impact."
+                )
         else:
             return base_instruction + (
                 "TASK: Optimize the provided content for professionalism, clarity, and impact."
@@ -452,13 +673,19 @@ class GeminiOptimizationEngine:
         except ValueError:
             s_type = SectionType.OTHER
 
-        system_instruction = self._get_general_system_instruction_for_section_with_keywords(s_type, target_role, keywords)
+        has_structured = section.structured_content is not None
+        system_instruction = self._get_general_system_instruction_for_section_with_keywords(s_type, target_role, keywords, has_structured=has_structured)
+
+        original_structured_str = ""
+        if has_structured:
+            original_structured_str = f"\n--- CANDIDATE'S ORIGINAL STRUCTURED JSON ---\n{json.dumps(section.structured_content)}\n"
 
         user_prompt = f"""
         {system_instruction}
 
         --- ORIGINAL CONTENT ---
         {section.original_content}
+        {original_structured_str}
 
         Provide the JSON output now:
         """
@@ -474,12 +701,14 @@ class GeminiOptimizationEngine:
             parsed_result = json.loads(response.text)
             return {
                 "optimized_content": parsed_result.get("optimized_content", section.original_content),
+                "optimized_structured_content": parsed_result.get("optimized_structured_content") if has_structured else None,
                 "optimization_feedback": parsed_result.get("optimization_feedback", "")
             }
         except Exception as e:
             logger.error(f"Gemini General Optimization With Keywords Failed: {e}")
             return {
                 "optimized_content": section.original_content,
+                "optimized_structured_content": section.structured_content if has_structured else None,
                 "optimization_feedback": "Failed to connect to the Gemini Optimization AI."
             }
 
