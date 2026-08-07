@@ -1830,6 +1830,29 @@ def update_structured_data_with_optimized_sections(structured_data: Dict[str, An
     sd = copy.deepcopy(structured_data)
     
     for sec in sections:
+        # Prioritize structured mapping directly if available
+        if getattr(sec, "optimized_structured_content", None) is not None:
+            s_type = sec.section_type
+            if s_type == "Summary":
+                sd["summary"] = sec.optimized_structured_content
+            elif s_type == "Skills":
+                opt_skills = sec.optimized_structured_content
+                if isinstance(opt_skills, dict):
+                    if "skills" not in sd:
+                        sd["skills"] = {"technical": [], "soft": [], "tools": []}
+                    sd["skills"]["technical"] = opt_skills.get("technical", sd["skills"].get("technical", []))
+                    sd["skills"]["soft"] = opt_skills.get("soft", sd["skills"].get("soft", []))
+                    sd["skills"]["tools"] = opt_skills.get("tools", sd["skills"].get("tools", []))
+            elif s_type == "Experience":
+                sd["experience"] = sec.optimized_structured_content
+            elif s_type == "Projects":
+                sd["projects"] = sec.optimized_structured_content
+            elif s_type == "Education":
+                sd["education"] = sec.optimized_structured_content
+            elif s_type == "Certifications":
+                sd["certifications"] = sec.optimized_structured_content
+            continue
+
         content = sec.optimized_content or sec.original_content
         if not content:
             continue
@@ -1991,16 +2014,19 @@ async def _optimize_resume_for_job_core(
                 section_kw = section_keywords_map.get(section.section_type, target_skills)
                 result = optimization_engine.optimize_section(job, section, keywords=section_kw)
                 opt_content = result.get("optimized_content")
+                opt_structured = result.get("optimized_structured_content")
                 missing_kw = result.get("missing_keywords", [])
                 feedback = result.get("optimization_feedback", "")
             else:
                 opt_content = existing_sec.optimized_content if existing_sec else section.original_content
+                opt_structured = existing_sec.optimized_structured_content if existing_sec else None
                 missing_kw = existing_sec.optimization_metadata.get("missing_keywords", []) if existing_sec and existing_sec.optimization_metadata else []
                 feedback = existing_sec.optimization_metadata.get("feedback", "") if existing_sec and existing_sec.optimization_metadata else ""
             
             if existing_sec:
                 existing_sec.original_content = section.original_content
                 existing_sec.optimized_content = opt_content
+                existing_sec.optimized_structured_content = opt_structured
                 existing_sec.optimization_metadata = {
                     "missing_keywords": missing_kw,
                     "feedback": feedback
@@ -2013,6 +2039,7 @@ async def _optimize_resume_for_job_core(
                     section_type=section.section_type,
                     original_content=section.original_content,
                     optimized_content=opt_content,
+                    optimized_structured_content=opt_structured,
                     optimization_metadata={
                         "missing_keywords": missing_kw,
                         "feedback": feedback
@@ -2052,10 +2079,12 @@ async def _optimize_resume_for_job_core(
                 section_kw = section_keywords_map.get(section.section_type, target_skills)
                 result = optimization_engine.optimize_section(job, section, keywords=section_kw)
                 opt_content = result.get("optimized_content")
+                opt_structured = result.get("optimized_structured_content")
                 missing_kw = result.get("missing_keywords", [])
                 feedback = result.get("optimization_feedback", "")
             else:
                 opt_content = section.original_content
+                opt_structured = None
                 missing_kw = []
                 feedback = ""
                 
@@ -2064,6 +2093,7 @@ async def _optimize_resume_for_job_core(
                 section_type=section.section_type,
                 original_content=section.original_content,
                 optimized_content=opt_content,
+                optimized_structured_content=opt_structured,
                 optimization_metadata={
                     "missing_keywords": missing_kw,
                     "feedback": feedback
@@ -2349,13 +2379,16 @@ async def optimize_resume_general(
                     section, target_role, keywords
                 )
                 opt_content = result.get("optimized_content")
+                opt_structured = result.get("optimized_structured_content")
                 feedback = result.get("optimization_feedback", "")
             else:
                 opt_content = section.optimized_content or section.original_content
+                opt_structured = section.optimized_structured_content
                 feedback = ""
         else:
             result = optimization_engine.optimize_section_general(section)
             opt_content = result.get("optimized_content")
+            opt_structured = result.get("optimized_structured_content")
             feedback = result.get("optimization_feedback", "")
             
         # Save optimized content in a new section record linked to the new resume version
@@ -2364,6 +2397,7 @@ async def optimize_resume_general(
             section_type=section.section_type,
             original_content=section.original_content,
             optimized_content=opt_content,
+            optimized_structured_content=opt_structured,
             optimization_metadata={
                 "feedback": feedback
             }
@@ -2534,9 +2568,11 @@ async def optimize_resume_general_endpoint(
                 section, payload.target_role, payload.keywords
             )
             opt_content = result.get("optimized_content")
+            opt_structured = result.get("optimized_structured_content")
             feedback = result.get("optimization_feedback", "")
         else:
             opt_content = section.optimized_content or section.original_content
+            opt_structured = section.optimized_structured_content
             feedback = ""
             
         new_section = ResumeSection(
@@ -2544,6 +2580,7 @@ async def optimize_resume_general_endpoint(
             section_type=section.section_type,
             original_content=section.original_content,
             optimized_content=opt_content,
+            optimized_structured_content=opt_structured,
             optimization_metadata={
                 "feedback": feedback
             }
@@ -2630,6 +2667,7 @@ def optimize_resume_section(
         
         # Save optimized content back to the section
         section.optimized_content = result.get("optimized_content")
+        section.optimized_structured_content = result.get("optimized_structured_content")
         section.optimization_metadata = {
             "missing_keywords": result.get("missing_keywords", []),
             "feedback": result.get("optimization_feedback", "")
@@ -2639,6 +2677,7 @@ def optimize_resume_section(
         
         # Save optimized content back to the section
         section.optimized_content = result.get("optimized_content")
+        section.optimized_structured_content = result.get("optimized_structured_content")
         section.optimization_metadata = {
             "feedback": result.get("optimization_feedback", "")
         }
