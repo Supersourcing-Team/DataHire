@@ -393,25 +393,12 @@ def get_job_seeker_feed(
             
     jobs = query.order_by(JobPosting.created_at.desc()).all()
     
-    # 2. Get candidate resumes for score calculations
-    all_resumes = db.query(Resume).filter(
+    # 2. Get candidate primary resume for score calculations
+    primary_resume = db.query(Resume).filter(
         Resume.candidate_id == candidate.id,
-        Resume.is_deleted == False
-    ).all()
+        Resume.is_primary == True
+    ).first()
     
-    primary_resume = next((r for r in all_resumes if r.is_primary), None)
-    
-    resumes_by_job = {}
-    for r in all_resumes:
-        if r.job_id:
-            if r.job_id not in resumes_by_job:
-                resumes_by_job[r.job_id] = []
-            resumes_by_job[r.job_id].append(r)
-            
-    # Sort resumes in each job group by is_ai_optimized desc, updated_at desc
-    for j_id in resumes_by_job:
-        resumes_by_job[j_id].sort(key=lambda r: (r.is_ai_optimized or False, r.updated_at), reverse=True)
-        
     matching_service = MatchingEngine(db)
     
     # 3. Process each job to add state & score
@@ -423,15 +410,11 @@ def get_job_seeker_feed(
         is_applied = app_record is not None
         app_status = app_record.status if app_record else None
         
-        # Resolve which resume to use: prioritize optimized/linked resume, fall back to primary resume
-        job_resumes = resumes_by_job.get(job.id)
-        resume_to_use = job_resumes[0] if job_resumes else primary_resume
-        
         # Calculate AI match score
         ai_score = 0
-        if resume_to_use:
+        if primary_resume:
             try:
-                score_details = matching_service.score_resume_for_job(resume_to_use.id, job.id)
+                score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
                 ai_score = int(score_details["final_score"])
             except Exception:
                 ai_score = 0
@@ -512,12 +495,16 @@ def get_job_seeker_job_details(
     is_applied = app_record is not None
     app_status = app_record.status if app_record else None
     
-    # Resolve which resume to use: prioritize optimized resume for this job, fall back to primary resume
-    resume_to_use = db.query(Resume).filter(
-        Resume.candidate_id == candidate.id,
-        Resume.job_id == job.id,
-        Resume.is_deleted == False
-    ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
+    # Resolve which resume to use: if candidate has applied, use the resume linked to this job.
+    # If not applied, always use the primary/default resume.
+    resume_to_use = None
+    if is_applied:
+        resume_to_use = db.query(Resume).filter(
+            Resume.candidate_id == candidate.id,
+            Resume.job_id == job.id,
+            Resume.is_deleted == False
+        ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
+        
     if not resume_to_use:
         resume_to_use = db.query(Resume).filter(
             Resume.candidate_id == candidate.id,
