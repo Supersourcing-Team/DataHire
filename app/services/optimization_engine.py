@@ -234,14 +234,19 @@ class GeminiOptimizationEngine:
         
         original_structured_str = ""
         if has_structured:
-            original_structured_str = f"\n--- CANDIDATE'S ORIGINAL STRUCTURED JSON ---\n{json.dumps(section.structured_content)}\n"
+            original_structured_str = (
+                f"\n--- CANDIDATE'S ORIGINAL STRUCTURED JSON ({section.section_type}) ---\n"
+                f"{json.dumps(section.structured_content, indent=2)}\n"
+                "\nCRITICAL REQUIREMENT:\n"
+                "You MUST return the exact same JSON structure in 'optimized_structured_content', retaining all "
+                "original fields (such as 'id', 'company', 'role', 'startDate', 'endDate', 'location', 'institution', 'degree', 'title', etc.) exactly as they are. "
+                "DO NOT discard or replace these fields with null or 'N/A'. Only polish/optimize the text within 'bullets', 'description', or 'text' fields.\n"
+            )
 
         user_prompt = f"""
         {system_instruction}
         
-        --- CANDIDATE'S ORIGINAL CONTENT ({section.section_type}) ---
-        {section.original_content}
-        {original_structured_str}
+        {original_structured_str if has_structured else f'--- CANDIDATE RESUME CONTENT ({section.section_type}) ---\n{section.original_content}'}
         
         Provide the JSON output now:
         """
@@ -282,7 +287,14 @@ class GeminiOptimizationEngine:
         
         original_structured_str = ""
         if has_structured:
-            original_structured_str = f"\n--- CANDIDATE'S ORIGINAL STRUCTURED JSON ---\n{json.dumps(section.structured_content)}\n"
+            original_structured_str = (
+                f"\n--- CANDIDATE'S ORIGINAL STRUCTURED JSON ({section.section_type}) ---\n"
+                f"{json.dumps(section.structured_content, indent=2)}\n"
+                "\nCRITICAL REQUIREMENT:\n"
+                "You MUST return the exact same JSON structure in 'optimized_structured_content', retaining all "
+                "original fields (such as 'id', 'company', 'role', 'startDate', 'endDate', 'location', 'institution', 'degree', 'title', etc.) exactly as they are. "
+                "DO NOT discard or replace these fields with null or 'N/A'. Only polish/optimize the text within 'bullets', 'description', or 'text' fields to weave in the target keywords.\n"
+            )
 
         user_prompt = f"""
         {system_instruction}
@@ -293,9 +305,7 @@ class GeminiOptimizationEngine:
         Required Skills: {job_skills_str}
         Minimum Experience: {job.min_experience_years} years
         
-        --- CANDIDATE'S ORIGINAL CONTENT ({section.section_type}) ---
-        {section.original_content}
-        {original_structured_str}
+        {original_structured_str if has_structured else f'--- CANDIDATE RESUME CONTENT ({section.section_type}) ---\n{section.original_content}'}
         
         Provide the JSON output now:
         """
@@ -428,9 +438,9 @@ class GeminiOptimizationEngine:
             "1. 'missing_keywords': Identify which of the following job-required skills are missing from "
             f"the candidate's resume: {', '.join(job_skills)}.\n"
             "   Only list skills that are NOT present in the resume content.\n"
-            "2. 'ai_suggestions': Provide up to 4 actionable suggestions to improve the resume. "
-            "Keep suggestions simple and short, and understandable"
-            "Only suggest improvements for areas that are not already optimized.\n"
+            "2. 'ai_suggestions': Provide all actionable suggestions to improve the resume in a single go. "
+            "Do NOT limit the number of suggestions; list all areas that need improvement. "
+            "Keep suggestions simple, short, and understandable.\n"
             "   - If the summary section is brief or lacks impact, suggest 'Enhance summary' with high impact.\n"
             "   - If the experience section lacks metrics/quantification, suggest 'Add more impact metrics' with high impact.\n"
             "   - If there are missing key skills, suggest 'Improve skills section' with medium impact.\n"
@@ -455,7 +465,7 @@ class GeminiOptimizationEngine:
                 user_prompt,
                 generation_config=genai.GenerationConfig(
                     response_mime_type="application/json",
-                    temperature=0.2
+                    temperature=0.0
                 )
             )
             parsed_result = json.loads(response.text)
@@ -678,14 +688,19 @@ class GeminiOptimizationEngine:
 
         original_structured_str = ""
         if has_structured:
-            original_structured_str = f"\n--- CANDIDATE'S ORIGINAL STRUCTURED JSON ---\n{json.dumps(section.structured_content)}\n"
+            original_structured_str = (
+                f"\n--- CANDIDATE'S ORIGINAL STRUCTURED JSON ({section.section_type}) ---\n"
+                f"{json.dumps(section.structured_content, indent=2)}\n"
+                "\nCRITICAL REQUIREMENT:\n"
+                "You MUST return the exact same JSON structure in 'optimized_structured_content', retaining all "
+                "original fields (such as 'id', 'company', 'role', 'startDate', 'endDate', 'location', 'institution', 'degree', 'title', etc.) exactly as they are. "
+                "DO NOT discard or replace these fields with null or 'N/A'. Only polish/optimize the text within 'bullets', 'description', or 'text' fields to weave in target keywords.\n"
+            )
 
         user_prompt = f"""
         {system_instruction}
 
-        --- ORIGINAL CONTENT ---
-        {section.original_content}
-        {original_structured_str}
+        {original_structured_str if has_structured else f'--- CANDIDATE RESUME CONTENT ({section.section_type}) ---\n{section.original_content}'}
 
         Provide the JSON output now:
         """
