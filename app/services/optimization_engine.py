@@ -246,11 +246,12 @@ class GeminiOptimizationEngine:
         user_prompt = f"""
         {system_instruction}
         
-        {original_structured_str if has_structured else f'--- CANDIDATE RESUME CONTENT ({section.section_type}) ---\n{section.original_content}'}
+        {original_structured_str if has_structured else f'''--- CANDIDATE RESUME CONTENT ({section.section_type}) ---
+        {section.original_content}'''}
         
         Provide the JSON output now:
         """
-
+    
         try:
             response = self.model.generate_content(
                 user_prompt,
