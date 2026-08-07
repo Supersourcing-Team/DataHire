@@ -232,9 +232,8 @@ class GeminiOptimizationEngine:
         has_structured = section.structured_content is not None
         system_instruction = self._get_general_system_instruction_for_section(section.section_type, has_structured=has_structured)
         
-        original_structured_str = ""
         if has_structured:
-            original_structured_str = (
+            candidate_part = (
                 f"\n--- CANDIDATE'S ORIGINAL STRUCTURED JSON ({section.section_type}) ---\n"
                 f"{json.dumps(section.structured_content, indent=2)}\n"
                 "\nCRITICAL REQUIREMENT:\n"
@@ -242,12 +241,13 @@ class GeminiOptimizationEngine:
                 "original fields (such as 'id', 'company', 'role', 'startDate', 'endDate', 'location', 'institution', 'degree', 'title', etc.) exactly as they are. "
                 "DO NOT discard or replace these fields with null or 'N/A'. Only polish/optimize the text within 'bullets', 'description', or 'text' fields.\n"
             )
+        else:
+            candidate_part = f"--- CANDIDATE RESUME CONTENT ({section.section_type}) ---\n{section.original_content}"
 
         user_prompt = f"""
         {system_instruction}
         
-        {original_structured_str if has_structured else f'''--- CANDIDATE RESUME CONTENT ({section.section_type}) ---
-        {section.original_content}'''}
+        {candidate_part}
         
         Provide the JSON output now:
         """
@@ -286,9 +286,8 @@ class GeminiOptimizationEngine:
         has_structured = section.structured_content is not None
         system_instruction = self._get_system_instruction_for_section(section.section_type, has_structured=has_structured)
         
-        original_structured_str = ""
         if has_structured:
-            original_structured_str = (
+            candidate_part = (
                 f"\n--- CANDIDATE'S ORIGINAL STRUCTURED JSON ({section.section_type}) ---\n"
                 f"{json.dumps(section.structured_content, indent=2)}\n"
                 "\nCRITICAL REQUIREMENT:\n"
@@ -296,6 +295,8 @@ class GeminiOptimizationEngine:
                 "original fields (such as 'id', 'company', 'role', 'startDate', 'endDate', 'location', 'institution', 'degree', 'title', etc.) exactly as they are. "
                 "DO NOT discard or replace these fields with null or 'N/A'. Only polish/optimize the text within 'bullets', 'description', or 'text' fields to weave in the target keywords.\n"
             )
+        else:
+            candidate_part = f"--- CANDIDATE RESUME CONTENT ({section.section_type}) ---\n{section.original_content}"
 
         user_prompt = f"""
         {system_instruction}
@@ -306,7 +307,7 @@ class GeminiOptimizationEngine:
         Required Skills: {job_skills_str}
         Minimum Experience: {job.min_experience_years} years
         
-        {original_structured_str if has_structured else f'--- CANDIDATE RESUME CONTENT ({section.section_type}) ---\n{section.original_content}'}
+        {candidate_part}
         
         Provide the JSON output now:
         """
@@ -687,9 +688,8 @@ class GeminiOptimizationEngine:
         has_structured = section.structured_content is not None
         system_instruction = self._get_general_system_instruction_for_section_with_keywords(s_type, target_role, keywords, has_structured=has_structured)
 
-        original_structured_str = ""
         if has_structured:
-            original_structured_str = (
+            candidate_part = (
                 f"\n--- CANDIDATE'S ORIGINAL STRUCTURED JSON ({section.section_type}) ---\n"
                 f"{json.dumps(section.structured_content, indent=2)}\n"
                 "\nCRITICAL REQUIREMENT:\n"
@@ -697,11 +697,13 @@ class GeminiOptimizationEngine:
                 "original fields (such as 'id', 'company', 'role', 'startDate', 'endDate', 'location', 'institution', 'degree', 'title', etc.) exactly as they are. "
                 "DO NOT discard or replace these fields with null or 'N/A'. Only polish/optimize the text within 'bullets', 'description', or 'text' fields to weave in target keywords.\n"
             )
+        else:
+            candidate_part = f"--- CANDIDATE RESUME CONTENT ({section.section_type}) ---\n{section.original_content}"
 
         user_prompt = f"""
         {system_instruction}
 
-        {original_structured_str if has_structured else f'--- CANDIDATE RESUME CONTENT ({section.section_type}) ---\n{section.original_content}'}
+        {candidate_part}
 
         Provide the JSON output now:
         """
