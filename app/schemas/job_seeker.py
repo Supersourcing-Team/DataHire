@@ -571,7 +571,7 @@ class GeneralAnalysisResponse(BaseModel):
 
 
 class GeneralOptimizeRequest(BaseModel):
-    target_role: str
+    target_role: Optional[str] = None
     keywords: List[str]
     sections: Optional[List[str]] = None
 

@@ -2549,13 +2549,22 @@ async def optimize_resume_general_endpoint(
     if not primary_resume:
         raise HTTPException(status_code=404, detail="Resume not found.")
         
+    # Determine target role with fallback
+    target_role = payload.target_role
+    if not target_role:
+        target_role = candidate.pref_role_type
+    if not target_role and candidate.taxonomy_domain:
+        target_role = candidate.taxonomy_domain.name
+    if not target_role:
+        target_role = "Software Engineer"
+        
     existing_resumes_count = db.query(Resume).filter(Resume.candidate_id == candidate.id).count()
     
     # Create new optimized resume version
     new_resume = Resume(
         candidate_id=candidate.id,
         file_url=primary_resume.file_url,
-        file_name=f"Optimized Resume - General ({payload.target_role})",
+        file_name=f"Optimized Resume - General ({target_role})",
         parent_resume_id=primary_resume.id,
         job_id=None,
         version_number=existing_resumes_count + 1,
@@ -2576,7 +2585,7 @@ async def optimize_resume_general_endpoint(
     for section in primary_resume.sections:
         if section.section_type in sections_to_opt:
             result = optimization_engine.optimize_section_general_with_keywords(
-                section, payload.target_role, payload.keywords
+                section, target_role, payload.keywords
             )
             opt_content = result.get("optimized_content")
             opt_structured = result.get("optimized_structured_content")
