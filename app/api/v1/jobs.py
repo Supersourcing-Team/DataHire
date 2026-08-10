@@ -1616,15 +1616,25 @@ def get_applicant_profile(
             action_url=get_candidate_action_url(app.status)
         )
 
-    # Resolve the resume used (job-specific or primary)
-    resume = db.query(Resume).options(
-        joinedload(Resume.sections)
-    ).filter(
-        Resume.candidate_id == candidate_id,
-        Resume.job_id == job_id,
-        Resume.is_deleted == False
-    ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
-    
+    # Resolve the resume used (direct link or fallback)
+    resume = None
+    if app.resume_id:
+        resume = db.query(Resume).options(
+            joinedload(Resume.sections)
+        ).filter(
+            Resume.id == app.resume_id,
+            Resume.is_deleted == False
+        ).first()
+
+    if not resume:
+        resume = db.query(Resume).options(
+            joinedload(Resume.sections)
+        ).filter(
+            Resume.candidate_id == candidate_id,
+            Resume.job_id == job_id,
+            Resume.is_deleted == False
+        ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
+        
     if not resume:
         resume = db.query(Resume).options(
             joinedload(Resume.sections)

@@ -166,7 +166,8 @@ def execute_auto_apply_for_all(db: Session) -> dict:
                     candidate_id=candidate.id,
                     job_id=job.id,
                     status=app_status,
-                    apply_mode="auto-apply"
+                    apply_mode="auto-apply",
+                    resume_id=primary_resume.id
                 )
                 
                 # Deduct credits

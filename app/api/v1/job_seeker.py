@@ -755,7 +755,8 @@ def apply_to_job(
         job_id=job.id,
         status=app_status,
         apply_mode="apply",
-        cover_letter=payload.cover_letter_url
+        cover_letter=payload.cover_letter_url,
+        resume_id=resume.id if resume else None
     )
     
     db.add(new_app)
@@ -1498,15 +1499,25 @@ def get_job_seeker_application_details(
             detail="Job posting not found."
         )
 
-    # Resolve the resume used (job-specific or primary)
-    resume = db.query(Resume).options(
-        joinedload(Resume.sections)
-    ).filter(
-        Resume.candidate_id == candidate.id,
-        Resume.job_id == job_id,
-        Resume.is_deleted == False
-    ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
-    
+    # Resolve the resume used (direct link or fallback)
+    resume = None
+    if app.resume_id:
+        resume = db.query(Resume).options(
+            joinedload(Resume.sections)
+        ).filter(
+            Resume.id == app.resume_id,
+            Resume.is_deleted == False
+        ).first()
+
+    if not resume:
+        resume = db.query(Resume).options(
+            joinedload(Resume.sections)
+        ).filter(
+            Resume.candidate_id == candidate.id,
+            Resume.job_id == job_id,
+            Resume.is_deleted == False
+        ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
+        
     if not resume:
         resume = db.query(Resume).options(
             joinedload(Resume.sections)
@@ -4439,7 +4450,8 @@ def execute_auto_apply(
             candidate_id=candidate.id,
             job_id=job.id,
             status=app_status,
-            apply_mode="auto-apply"
+            apply_mode="auto-apply",
+            resume_id=primary_resume.id
         )
         
         # Deduct credit
