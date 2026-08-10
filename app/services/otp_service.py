@@ -5,6 +5,10 @@ from sqlalchemy.orm import Session
 
 from app.models.otp import OTPToken
 from app.services.email_service import EmailService
+from app.services.aws_ses_service import AWSSESService
+from app.services.sendgrid_service import SendGridService
+from app.services.telnyx_service import TelnyxService
+from app.core.config import settings
 
 class OTPService:
     @staticmethod
@@ -59,8 +63,31 @@ class OTPService:
         db.add(otp)
         db.commit()
 
-        # Send email
-        success = EmailService.send_otp_email(to_email=email, otp_code=code, purpose=purpose)
+        # Send email based on configured provider
+        purpose_label = purpose.replace("_", " ").title()
+        subject = f"Your {purpose_label} Code - DataHire"
+        template_data = {
+            "purpose": purpose_label,
+            "otp_code": code
+        }
+
+        if settings.EMAIL_PROVIDER == "ses":
+            success = await AWSSESService.send_mail_with_template(
+                to_email=email,
+                template_name_or_id="emails/otp.html",
+                template_data=template_data,
+                subject=subject
+            )
+        elif settings.EMAIL_PROVIDER == "sendgrid":
+            success = await SendGridService.send_mail_with_template(
+                to_email=email,
+                template_name_or_id="emails/otp.html",
+                template_data=template_data,
+                subject=subject
+            )
+        else:
+            # Fallback to standard SMTP
+            success = EmailService.send_otp_email(to_email=email, otp_code=code, purpose=purpose_label)
         return success
 
     @staticmethod
@@ -143,13 +170,11 @@ class OTPService:
         db.add(otp)
         db.commit()
 
-        # Log OTP (mock send)
-        logger.warning("----- SMS OTP -----")
-        logger.warning(f"To: {phone}")
-        logger.warning(f"Purpose: {purpose}")
-        logger.warning(f"OTP: {code}")
-        logger.warning("-------------------")
-        return True
+        # Send SMS via Telnyx
+        purpose_label = purpose.replace("_", " ").title()
+        message_text = f"Your DataHire verification code for {purpose_label} is: {code}. It is valid for 5 minutes."
+        success = await TelnyxService.send_sms(to_phone=phone, text=message_text)
+        return success
 
     @staticmethod
     async def verify_otp_by_phone(db: Session, phone: str, otp_code: str, purpose: str) -> bool:

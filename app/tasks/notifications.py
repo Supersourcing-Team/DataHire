@@ -6,6 +6,7 @@ from app.db.session import SessionLocal
 from app.models.application import JobApplication
 from app.models.notification import Notification, NotificationPreference
 from app.services.sendgrid_service import SendGridService
+from app.services.aws_ses_service import AWSSESService
 
 logger = logging.getLogger(__name__)
 
@@ -22,16 +23,27 @@ def send_email_task(self, to_email: str, template_name_or_id: str, template_data
     Automatically retries on network failures or rate limits (e.g. 429) using exponential backoff.
     """
     import asyncio
-    logger.info(f"Sending email to {to_email} with template/ID {template_name_or_id}")
+    logger.info(f"Sending email to {to_email} with template/ID {template_name_or_id} using provider {settings.EMAIL_PROVIDER}")
     
-    success = asyncio.run(
-        SendGridService.send_mail_with_template(
-            to_email=to_email,
-            template_name_or_id=template_name_or_id,
-            template_data=template_data,
-            subject=subject
+    if settings.EMAIL_PROVIDER == "ses":
+        success = asyncio.run(
+            AWSSESService.send_mail_with_template(
+                to_email=to_email,
+                template_name_or_id=template_name_or_id,
+                template_data=template_data,
+                subject=subject
+            )
         )
-    )
+    else:
+        success = asyncio.run(
+            SendGridService.send_mail_with_template(
+                to_email=to_email,
+                template_name_or_id=template_name_or_id,
+                template_data=template_data,
+                subject=subject
+            )
+        )
+        
     if not success:
         logger.warning(f"Failed to send email to {to_email}, scheduling retry...")
         raise Exception(f"Failed to send email to {to_email}")
