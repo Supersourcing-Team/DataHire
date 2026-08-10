@@ -25,18 +25,14 @@ class AWSSESService:
     @staticmethod
     def _get_ses_client():
         """Creates and returns a boto3 SES client if credentials are provided."""
-        aws_access_key = settings.SES_AWS_ACCESS_KEY_ID or settings.AWS_ACCESS_KEY_ID
-        aws_secret = settings.SES_AWS_SECRET_ACCESS_KEY or settings.AWS_SECRET_ACCESS_KEY
-        aws_region = settings.SES_AWS_REGION or settings.AWS_REGION or "us-east-1"
-
-        if not aws_access_key or not aws_secret:
+        if not settings.AWS_ACCESS_KEY_ID or not settings.AWS_SECRET_ACCESS_KEY:
             return None
         try:
             return boto3.client(
                 "ses",
-                aws_access_key_id=aws_access_key,
-                aws_secret_access_key=aws_secret,
-                region_name=aws_region
+                aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+                aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+                region_name=settings.AWS_REGION or "us-east-1"
             )
         except Exception as e:
             logger.error(f"Failed to initialize AWS SES client: {str(e)}")

@@ -52,9 +52,6 @@ class Settings(BaseSettings):
 
     # AWS SES
     SES_FROM_EMAIL: str = "admin@datahire.ai"
-    SES_AWS_ACCESS_KEY_ID: Optional[str] = None
-    SES_AWS_SECRET_ACCESS_KEY: Optional[str] = None
-    SES_AWS_REGION: Optional[str] = None
 
     # Telnyx SMS
     TELNYX_API_KEY: Optional[str] = None
