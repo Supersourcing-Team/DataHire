@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     REDIS_URL: Optional[str] = None
     
     # Email
+    EMAIL_PROVIDER: str = "ses"
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
     SMTP_USER: Optional[str] = None
@@ -48,6 +49,16 @@ class Settings(BaseSettings):
     SENDGRID_API_KEY: Optional[str] = None
     SENDGRID_FROM_EMAIL: str = "ayush@supersourcing.com"
     SENDGRID_FROM_NAME: str = "DataHire"
+
+    # AWS SES
+    SES_FROM_EMAIL: str = "admin@datahire.ai"
+    SES_AWS_ACCESS_KEY_ID: Optional[str] = None
+    SES_AWS_SECRET_ACCESS_KEY: Optional[str] = None
+    SES_AWS_REGION: Optional[str] = None
+
+    # Telnyx SMS
+    TELNYX_API_KEY: Optional[str] = None
+    TELNYX_FROM_PHONE: Optional[str] = None
     
     # CORS
     ALLOWED_ORIGINS: list = ["http://localhost:3000"]
