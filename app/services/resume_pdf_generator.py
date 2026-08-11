@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 def render_resume_to_html(structured_data: Dict[str, Any], default_name: str = "Candidate") -> str:
     """
     Renders structured resume JSON data into a clean, modern HTML document
-    compatible with xhtml2pdf engine.
+    compatible with xhtml2pdf engine, matching the user's specific B&W minimal layout.
     """
     if not structured_data:
         structured_data = {}
@@ -72,56 +72,71 @@ def render_resume_to_html(structured_data: Dict[str, Any], default_name: str = "
     }
     .header {
         text-align: center;
-        border-bottom: 2px solid #2563eb;
-        padding-bottom: 8px;
         margin-bottom: 12px;
     }
     .name {
-        font-size: 20pt;
+        font-size: 22pt;
         font-weight: bold;
-        color: #1e3a8a;
+        color: #000000;
         margin-bottom: 4px;
-        text-transform: uppercase;
         letter-spacing: 0.5px;
     }
     .contact {
-        font-size: 9pt;
+        font-size: 9.5pt;
         color: #4b5563;
+        text-decoration: none;
+    }
+    .contact a {
+        color: #4b5563;
+        text-decoration: underline;
     }
     .section-title {
-        font-size: 12pt;
+        font-size: 11pt;
         font-weight: bold;
-        color: #1e3a8a;
+        color: #000000;
         border-bottom: 1px solid #cbd5e1;
-        padding-bottom: 2px;
+        padding-bottom: 3px;
         margin-top: 14px;
         margin-bottom: 6px;
         text-transform: uppercase;
     }
     .summary-text {
-        font-size: 9.5pt;
-        color: #334155;
+        font-size: 10pt;
+        color: #222222;
         margin-bottom: 10px;
         text-align: justify;
     }
-    .item-header {
+    .item-table {
+        width: 100%;
+        border-collapse: collapse;
         margin-top: 6px;
         margin-bottom: 2px;
     }
-    .item-title {
-        font-size: 10.5pt;
-        font-weight: bold;
-        color: #0f172a;
+    .item-table td {
+        padding: 0;
+        vertical-align: top;
+        border: none;
     }
-    .item-subtitle {
+    .item-left {
+        text-align: left;
+        font-size: 10pt;
+    }
+    .item-right {
+        text-align: right;
         font-size: 9.5pt;
-        font-style: italic;
-        color: #475569;
+        color: #4b5563;
+        width: 150px;
     }
-    .item-date {
-        float: right;
-        font-size: 9pt;
-        color: #64748b;
+    .gpa-text {
+        font-size: 9.5pt;
+        color: #334155;
+        margin-bottom: 6px;
+        margin-top: 2px;
+    }
+    .item-header-no-date {
+        margin-top: 6px;
+        margin-bottom: 2px;
+        font-size: 10pt;
     }
     ul {
         margin-top: 3px;
@@ -130,21 +145,13 @@ def render_resume_to_html(structured_data: Dict[str, Any], default_name: str = "
     }
     li {
         font-size: 9.5pt;
-        color: #334155;
+        color: #222222;
         margin-bottom: 3px;
     }
     .skills-container {
-        font-size: 9.5pt;
-        color: #334155;
-    }
-    .skill-chip {
-        display: inline-block;
-        background-color: #f1f5f9;
-        color: #1e293b;
-        padding: 3px 8px;
-        margin: 2px;
-        border-radius: 4px;
-        font-size: 8.5pt;
+        font-size: 10pt;
+        color: #222222;
+        margin-top: 4px;
     }
 </style>
 </head>
@@ -152,7 +159,7 @@ def render_resume_to_html(structured_data: Dict[str, Any], default_name: str = "
 """)
 
     # Header
-    html_parts.append(f'<div class="header">')
+    html_parts.append('<div class="header">')
     html_parts.append(f'<div class="name">{full_name}</div>')
     if contact_line:
         html_parts.append(f'<div class="contact">{contact_line}</div>')
@@ -169,45 +176,36 @@ def render_resume_to_html(structured_data: Dict[str, Any], default_name: str = "
         for exp in experience_list:
             role = exp.get("role") or exp.get("title") or "Position"
             company = exp.get("company") or exp.get("organization") or ""
+            location = exp.get("location") or ""
             dates = f"{exp.get('startDate', '')} - {exp.get('endDate', 'Present' if exp.get('isCurrent') else '')}".strip(" -")
             
-            html_parts.append('<div class="item-header">')
-            if dates:
-                html_parts.append(f'<span class="item-date">{dates}</span>')
-            subtitle = f" at {company}" if company and company != "N/A" else ""
-            html_parts.append(f'<span class="item-title">{role}</span><span class="item-subtitle">{subtitle}</span>')
-            html_parts.append('</div>')
+            company_loc_parts = []
+            if company and company != "N/A":
+                company_loc_parts.append(company)
+            if location:
+                company_loc_parts.append(location)
+            
+            company_loc_str = ""
+            if company_loc_parts:
+                if len(company_loc_parts) > 1:
+                    company_loc_str = f"{company_loc_parts[0]} ({company_loc_parts[1]})"
+                else:
+                    company_loc_str = company_loc_parts[0]
+            
+            left_html = f'<strong>{role}</strong>'
+            if company_loc_str:
+                left_html += f', <span style="font-style: italic; color: #333333;">{company_loc_str}</span>'
+            
+            html_parts.append(f"""
+            <table class="item-table">
+                <tr>
+                    <td class="item-left">{left_html}</td>
+                    <td class="item-right">{dates}</td>
+                </tr>
+            </table>
+            """)
 
             bullets = exp.get("bullets") or []
-            if isinstance(bullets, str):
-                bullets = [b.strip() for b in bullets.split("\n") if b.strip()]
-            if bullets:
-                html_parts.append('<ul>')
-                for b in bullets:
-                    cleaned_b = re.sub(r'^[•\-*\d\.\s]+', '', str(b)).strip()
-                    if cleaned_b:
-                        html_parts.append(f'<li>{cleaned_b}</li>')
-                html_parts.append('</ul>')
-
-    # Projects
-    if projects_list:
-        html_parts.append('<div class="section-title">Key Projects</div>')
-        for proj in projects_list:
-            title = proj.get("title") or "Project"
-            desc = proj.get("description") or ""
-            bullets = proj.get("bullets") or []
-            tech = proj.get("techStack") or []
-
-            html_parts.append('<div class="item-header">')
-            html_parts.append(f'<span class="item-title">{title}</span>')
-            if tech:
-                tech_str = ", ".join(tech) if isinstance(tech, list) else str(tech)
-                html_parts.append(f'<span class="item-subtitle"> ({tech_str})</span>')
-            html_parts.append('</div>')
-
-            if desc:
-                html_parts.append(f'<div class="summary-text">{desc}</div>')
-
             if isinstance(bullets, str):
                 bullets = [b.strip() for b in bullets.split("\n") if b.strip()]
             if bullets:
@@ -224,22 +222,85 @@ def render_resume_to_html(structured_data: Dict[str, Any], default_name: str = "
         for edu in education_list:
             degree = edu.get("degree") or "Degree"
             inst = edu.get("institution") or edu.get("school") or ""
+            location = edu.get("location") or ""
             dates = f"{edu.get('startDate', '')} - {edu.get('endDate', '')}".strip(" -")
+            gpa = edu.get("grade") or edu.get("gpa") or ""
+            
+            inst_loc_parts = []
+            if inst and inst != "N/A":
+                inst_loc_parts.append(inst)
+            if location:
+                inst_loc_parts.append(location)
+                
+            inst_loc_str = ""
+            if inst_loc_parts:
+                if len(inst_loc_parts) > 1:
+                    inst_loc_str = f"{inst_loc_parts[0]} ({inst_loc_parts[1]})"
+                else:
+                    inst_loc_str = inst_loc_parts[0]
+            
+            left_html = f'<strong>{degree}</strong>'
+            if inst_loc_str:
+                left_html += f', <span style="font-style: italic; color: #333333;">{inst_loc_str}</span>'
+                
+            html_parts.append(f"""
+            <table class="item-table">
+                <tr>
+                    <td class="item-left">{left_html}</td>
+                    <td class="item-right">{dates}</td>
+                </tr>
+            </table>
+            """)
+            if gpa:
+                html_parts.append(f'<div class="gpa-text">GPA: {gpa}</div>')
 
-            html_parts.append('<div class="item-header">')
+    # Projects
+    if projects_list:
+        html_parts.append('<div class="section-title">Projects</div>')
+        for proj in projects_list:
+            title = proj.get("title") or "Project"
+            desc = proj.get("description") or ""
+            bullets = proj.get("bullets") or []
+            tech = proj.get("techStack") or []
+            dates = f"{proj.get('startDate', '')} - {proj.get('endDate', '')}".strip(" -")
+            
+            tech_str = ""
+            if tech:
+                tech_str = ", ".join(tech) if isinstance(tech, list) else str(tech)
+                tech_str = f' <span style="font-weight: normal; color: #555555; font-size: 9.5pt;">({tech_str})</span>'
+            
+            left_html = f'<strong>{title}</strong>{tech_str}'
+            
             if dates:
-                html_parts.append(f'<span class="item-date">{dates}</span>')
-            subtitle = f" - {inst}" if inst and inst != "N/A" else ""
-            html_parts.append(f'<span class="item-title">{degree}</span><span class="item-subtitle">{subtitle}</span>')
-            html_parts.append('</div>')
+                html_parts.append(f"""
+                <table class="item-table">
+                    <tr>
+                        <td class="item-left">{left_html}</td>
+                        <td class="item-right">{dates}</td>
+                    </tr>
+                </table>
+                """)
+            else:
+                html_parts.append(f'<div class="item-header-no-date">{left_html}</div>')
+                
+            if desc:
+                html_parts.append(f'<div class="summary-text">{desc}</div>')
+
+            if isinstance(bullets, str):
+                bullets = [b.strip() for b in bullets.split("\n") if b.strip()]
+            if bullets:
+                html_parts.append('<ul>')
+                for b in bullets:
+                    cleaned_b = re.sub(r'^[•\-*\d\.\s]+', '', str(b)).strip()
+                    if cleaned_b:
+                        html_parts.append(f'<li>{cleaned_b}</li>')
+                html_parts.append('</ul>')
 
     # Skills
     if all_skills:
-        html_parts.append('<div class="section-title">Skills & Competencies</div>')
-        html_parts.append('<div class="skills-container">')
-        for s in all_skills:
-            html_parts.append(f'<span class="skill-chip">{s}</span>')
-        html_parts.append('</div>')
+        skills_str = ", ".join(all_skills)
+        html_parts.append('<div class="section-title">Skills</div>')
+        html_parts.append(f'<div class="skills-container"><strong>Technical Skills:</strong> {skills_str}</div>')
 
     # Certifications
     if certifications_list:
