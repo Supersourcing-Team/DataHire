@@ -1976,10 +1976,11 @@ async def _optimize_resume_for_job_core(
     if not source_resume:
         raise HTTPException(status_code=400, detail="Resume not found.")
 
-    # Check if an active optimized resume already exists for this job
+    # Check if an active optimized resume already exists for this job and has the same parent resume
     existing_optimized_resume = db.query(Resume).filter(
         Resume.candidate_id == candidate.id,
         Resume.job_id == job.id,
+        Resume.parent_resume_id == source_resume.id,
         Resume.is_deleted == False
     ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
 
@@ -2047,10 +2048,10 @@ async def _optimize_resume_for_job_core(
                 missing_kw = result.get("missing_keywords", [])
                 feedback = result.get("optimization_feedback", "")
             else:
-                opt_content = existing_sec.optimized_content if existing_sec else section.original_content
-                opt_structured = existing_sec.optimized_structured_content if existing_sec else None
-                missing_kw = existing_sec.optimization_metadata.get("missing_keywords", []) if existing_sec and existing_sec.optimization_metadata else []
-                feedback = existing_sec.optimization_metadata.get("feedback", "") if existing_sec and existing_sec.optimization_metadata else ""
+                opt_content = section.original_content
+                opt_structured = None
+                missing_kw = []
+                feedback = ""
             
             if existing_sec:
                 existing_sec.original_content = section.original_content
@@ -2446,8 +2447,8 @@ async def optimize_resume_general_endpoint(
             opt_structured = result.get("optimized_structured_content")
             feedback = result.get("optimization_feedback", "")
         else:
-            opt_content = section.optimized_content or section.original_content
-            opt_structured = section.optimized_structured_content
+            opt_content = section.original_content
+            opt_structured = None
             feedback = ""
             
         new_section = ResumeSection(
