@@ -1939,6 +1939,9 @@ def update_structured_data_with_optimized_sections(structured_data: Dict[str, An
                             proj_item["bullets"] = blocks[i]
                 else:
                     sd["projects"][0]["description"] = content
+    
+    return sd
+
                 
 async def _optimize_resume_for_job_core(
     db: Session,
@@ -2172,29 +2175,6 @@ async def _optimize_resume_for_job_core(
     return res
 
 
-@router.post("/jobs/{job_id}/optimize-resume")
-async def optimize_resume_for_job(
-    job_id: UUID,
-    payload: Optional[JobResumeOptimizeRequest] = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_candidate),
-):
-    candidate = get_candidate(current_user, db)
-    primary_resume = db.query(Resume).filter(
-        Resume.candidate_id == candidate.id,
-        Resume.is_primary == True
-    ).first()
-    if not primary_resume:
-        raise HTTPException(status_code=400, detail="You do not have a primary resume uploaded.")
-        
-    return await _optimize_resume_for_job_core(
-        db=db,
-        current_user=current_user,
-        candidate=candidate,
-        job_id=job_id,
-        resume_id=primary_resume.id,
-        payload=payload
-    )
 
 
 @router.post("/resumes/{resume_id}/optimize-for-job")
@@ -2306,149 +2286,6 @@ def get_optimized_resume_for_job_endpoint(
         
     res = format_resume_structure(optimized_resume, candidate, current_user, db)
     res["ai_score"] = new_ai_score
-@router.post("/resume/optimize")
-async def optimize_resume_general(
-    resume_id: UUID,
-    payload: Optional[GeneralOptimizeRequest] = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_candidate),
-):
-    """
-    Optimize a specific resume generally (without a target job description).
-    If payload is provided with target_role and keywords, optimizes using them.
-    """
-    candidate = get_candidate(current_user, db)
-    candidate = check_and_reset_candidate_credits(candidate, db)
-    
-    tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get_limits(tier, db)
-    
-    # Enforce limit for Free Plan resume optimization limit
-    if limits["monthly_resume_optimization_limit"] < 9999:
-        if candidate.resume_optimizations_used_this_month >= limits["monthly_resume_optimization_limit"]:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="You’ve reached your monthly optimization limit. You can’t re-optimize this resume."
-            )
-            
-    # Check saved resumes limit
-    existing_non_deleted_count = db.query(Resume).filter(
-        Resume.candidate_id == candidate.id,
-        Resume.is_deleted == False
-    ).count()
-    if existing_non_deleted_count >= limits["saved_resumes_limit"]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"You have reached your limit of {limits['saved_resumes_limit']} saved resumes. Please delete an existing resume to optimize a new one."
-        )
-            
-    # Check and deduct credits via CreditManager (Cost: 10 AI credits)
-    credit_manager.check_and_deduct_credits(
-        candidate=candidate,
-        cost=CreditManager.COST_RESUME_OPTIMIZATION,
-        limits=limits,
-        db=db
-    )
-            
-    # Get specific resume
-    primary_resume = db.query(Resume).options(joinedload(Resume.sections)).filter(
-        Resume.id == resume_id,
-        Resume.candidate_id == candidate.id
-    ).first()
-    if not primary_resume:
-        raise HTTPException(status_code=404, detail="Resume not found.")
-        
-    existing_resumes_count = db.query(Resume).filter(Resume.candidate_id == candidate.id).count()
-    
-    target_role = payload.target_role if payload else None
-    keywords = payload.keywords if payload else []
-    sections_to_opt = payload.sections if (payload and payload.sections is not None) else None
-    
-    file_name = "Optimized Resume - General"
-    if target_role:
-        file_name = f"Optimized Resume - General ({target_role})"
-        
-    extracted_skills = primary_resume.extracted_skills or []
-    if keywords:
-        extracted_skills = list(set(extracted_skills) | set(keywords))
-        
-    # Create new optimized resume version
-    new_resume = Resume(
-        candidate_id=candidate.id,
-        file_url=primary_resume.file_url,
-        file_name=file_name,
-        parent_resume_id=primary_resume.id,
-        job_id=None,
-        version_number=existing_resumes_count + 1,
-        is_primary=False,
-        is_ai_optimized=True,
-        total_experience_years=primary_resume.total_experience_years,
-        taxonomy_domain_id=primary_resume.taxonomy_domain_id,
-        extracted_skills=extracted_skills,
-        structured_data=primary_resume.structured_data
-    )
-    db.add(new_resume)
-    db.flush() # Populate new_resume.id
-    
-    # Optimize resume sections
-    new_sections = []
-    for section in primary_resume.sections:
-        if target_role:
-            should_opt = True
-            if sections_to_opt is not None:
-                should_opt = section.section_type in sections_to_opt
-                
-            if should_opt:
-                result = optimization_engine.optimize_section_general_with_keywords(
-                    section, target_role, keywords
-                )
-                opt_content = result.get("optimized_content")
-                opt_structured = result.get("optimized_structured_content")
-                feedback = result.get("optimization_feedback", "")
-            else:
-                opt_content = section.optimized_content or section.original_content
-                opt_structured = section.optimized_structured_content
-                feedback = ""
-        else:
-            result = optimization_engine.optimize_section_general(section)
-            opt_content = result.get("optimized_content")
-            opt_structured = result.get("optimized_structured_content")
-            feedback = result.get("optimization_feedback", "")
-            
-        # Save optimized content in a new section record linked to the new resume version
-        new_section = ResumeSection(
-            resume_id=new_resume.id,
-            section_type=section.section_type,
-            original_content=section.original_content,
-            optimized_content=opt_content,
-            structured_content=section.structured_content,
-            optimized_structured_content=opt_structured,
-            optimization_metadata={
-                "feedback": feedback
-            }
-        )
-        db.add(new_section)
-        new_sections.append(new_section)
-        
-    # Update new resume's structured_data using the optimized sections
-    from sqlalchemy.orm.attributes import flag_modified
-    new_resume.structured_data = update_structured_data_with_optimized_sections(new_resume.structured_data, new_sections)
-    flag_modified(new_resume, "structured_data")
-        
-    # Generate and save rendered PDF for the optimized resume to S3
-    from app.services.resume_pdf_generator import generate_and_save_optimized_resume_pdf
-    pdf_s3_url = await generate_and_save_optimized_resume_pdf(db, new_resume, candidate)
-    if pdf_s3_url:
-        new_resume.file_url = pdf_s3_url
-        db.add(new_resume)
-
-    # Increment usage
-    candidate.resume_optimizations_used_this_month += 1
-    db.add(candidate)
-    db.commit()
-    db.refresh(new_resume)
-    
-    return format_resume_structure(new_resume, candidate, current_user, db)
 
 
 @router.post("/resumes/{resume_id}/general-analysis", response_model=GeneralAnalysisResponse)
@@ -2642,98 +2479,6 @@ async def optimize_resume_general_endpoint(
     db.refresh(new_resume)
     
     return format_resume_structure(new_resume, candidate, current_user, db)
-
-
-@router.post("/resumes/{resume_id}/sections/{section_type}/optimize", response_model=OptimizeSectionResult)
-def optimize_resume_section(
-    resume_id: UUID,
-    section_type: SectionType,
-    payload: OptimizeSectionRequest,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(require_candidate),
-):
-    """
-    Optimize a specific section of a resume.
-    If job_id is passed, optimizes against the job description; otherwise, performs a general polish.
-    """
-    candidate = get_candidate(current_user, db)
-    candidate = check_and_reset_candidate_credits(candidate, db)
-    
-    # 1. Fetch the resume and ensure it belongs to the candidate
-    resume = db.query(Resume).filter(
-        Resume.id == resume_id,
-        Resume.candidate_id == candidate.id
-    ).first()
-    if not resume:
-        raise HTTPException(status_code=404, detail="Resume not found.")
-        
-    # 2. Find the specific section
-    section = db.query(ResumeSection).filter(
-        ResumeSection.resume_id == resume.id,
-        ResumeSection.section_type == section_type.value
-    ).first()
-    if not section:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Section '{section_type.value}' not found in this resume."
-        )
-        
-    # 3. Check credits (Section-wise optimization costs 2 AI credits)
-    tier = candidate.plan_tier or "free"
-    limits = PLAN_LIMITS.get_limits(tier, db)
-    
-    credit_manager.check_and_deduct_credits(
-        candidate=candidate,
-        cost=CreditManager.COST_SECTION_OPTIMIZATION,
-        limits=limits,
-        db=db
-    )
-    
-    # 4. Optimize the section based on whether job_id is passed
-    if payload.job_id:
-        job = db.query(JobPosting).filter(
-            JobPosting.id == payload.job_id,
-            JobPosting.is_active == True
-        ).first()
-        if not job:
-            raise HTTPException(status_code=404, detail="Job posting not found.")
-            
-        result = optimization_engine.optimize_section(job, section)
-        
-        # Save optimized content back to the section
-        section.optimized_content = result.get("optimized_content")
-        section.optimized_structured_content = result.get("optimized_structured_content")
-        section.optimization_metadata = {
-            "missing_keywords": result.get("missing_keywords", []),
-            "feedback": result.get("optimization_feedback", "")
-        }
-    else:
-        result = optimization_engine.optimize_section_general(section)
-        
-        # Save optimized content back to the section
-        section.optimized_content = result.get("optimized_content")
-        section.optimized_structured_content = result.get("optimized_structured_content")
-        section.optimization_metadata = {
-            "feedback": result.get("optimization_feedback", "")
-        }
-        
-    db.add(section)
-    
-    # Update structured_data using the optimized section
-    from sqlalchemy.orm.attributes import flag_modified
-    resume.structured_data = update_structured_data_with_optimized_sections(resume.structured_data, [section])
-    flag_modified(resume, "structured_data")
-    db.add(resume)
-    
-    db.commit()
-    db.refresh(section)
-    
-    return OptimizeSectionResult(
-        section_type=section.section_type,
-        original_content=section.original_content,
-        optimized_content=section.optimized_content,
-        optimization_feedback=section.optimization_metadata.get("feedback") if section.optimization_metadata else None
-    )
 
 
 @router.post("/jobs/{job_id}/generate-cover-letter", response_model=CoverLetterResponse)
