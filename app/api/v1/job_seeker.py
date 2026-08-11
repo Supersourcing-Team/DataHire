@@ -1961,8 +1961,8 @@ async def _optimize_resume_for_job_core(
     if limits["monthly_resume_optimization_limit"] < 9999:
         if candidate.resume_optimizations_used_this_month >= limits["monthly_resume_optimization_limit"]:
             raise HTTPException(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail=f"You have reached your monthly Resume Optimization limit of {limits['monthly_resume_optimization_limit']}."
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You’ve reached your monthly optimization limit. You can’t re-optimize this resume."
             )
             
     # Get primary/source resume
@@ -2061,6 +2061,7 @@ async def _optimize_resume_for_job_core(
                     section_type=section.section_type,
                     original_content=section.original_content,
                     optimized_content=opt_content,
+                    structured_content=section.structured_content,
                     optimized_structured_content=opt_structured,
                     optimization_metadata={
                         "missing_keywords": missing_kw,
@@ -2115,6 +2116,7 @@ async def _optimize_resume_for_job_core(
                 section_type=section.section_type,
                 original_content=section.original_content,
                 optimized_content=opt_content,
+                structured_content=section.structured_content,
                 optimized_structured_content=opt_structured,
                 optimization_metadata={
                     "missing_keywords": missing_kw,
@@ -2325,8 +2327,8 @@ async def optimize_resume_general(
     if limits["monthly_resume_optimization_limit"] < 9999:
         if candidate.resume_optimizations_used_this_month >= limits["monthly_resume_optimization_limit"]:
             raise HTTPException(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail=f"You have reached your monthly Resume Optimization limit of {limits['monthly_resume_optimization_limit']}."
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You’ve reached your monthly optimization limit. You can’t re-optimize this resume."
             )
             
     # Check saved resumes limit
@@ -2419,6 +2421,7 @@ async def optimize_resume_general(
             section_type=section.section_type,
             original_content=section.original_content,
             optimized_content=opt_content,
+            structured_content=section.structured_content,
             optimized_structured_content=opt_structured,
             optimization_metadata={
                 "feedback": feedback
@@ -2529,8 +2532,8 @@ async def optimize_resume_general_endpoint(
     if limits["monthly_resume_optimization_limit"] < 9999:
         if candidate.resume_optimizations_used_this_month >= limits["monthly_resume_optimization_limit"]:
             raise HTTPException(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail=f"You have reached your monthly Resume Optimization limit of {limits['monthly_resume_optimization_limit']}."
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You’ve reached your monthly optimization limit. You can’t re-optimize this resume."
             )
             
     # Check saved resumes limit
@@ -2611,6 +2614,7 @@ async def optimize_resume_general_endpoint(
             section_type=section.section_type,
             original_content=section.original_content,
             optimized_content=opt_content,
+            structured_content=section.structured_content,
             optimized_structured_content=opt_structured,
             optimization_metadata={
                 "feedback": feedback
@@ -3503,8 +3507,8 @@ async def reoptimize_resume(
     if limits["monthly_resume_optimization_limit"] < 9999:
         if candidate.resume_optimizations_used_this_month >= limits["monthly_resume_optimization_limit"]:
             raise HTTPException(
-                status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail=f"You have reached your monthly Resume Optimization limit of {limits['monthly_resume_optimization_limit']}."
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="You’ve reached your monthly optimization limit. You can’t re-optimize this resume."
             )
             
     # Deduct credit via CreditManager (Cost: 10 AI credits)
