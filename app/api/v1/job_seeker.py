@@ -1976,10 +1976,11 @@ async def _optimize_resume_for_job_core(
     if not source_resume:
         raise HTTPException(status_code=400, detail="Resume not found.")
 
-    # Check if an active optimized resume already exists for this job
+    # Check if an active optimized resume already exists for this job and has the same parent resume
     existing_optimized_resume = db.query(Resume).filter(
         Resume.candidate_id == candidate.id,
         Resume.job_id == job.id,
+        Resume.parent_resume_id == source_resume.id,
         Resume.is_deleted == False
     ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
 
