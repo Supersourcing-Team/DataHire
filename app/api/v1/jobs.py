@@ -1695,13 +1695,23 @@ def get_applicant_profile(
         return "pending"
 
     # Helper to get stage updated_at timestamp
-    def get_stage_updated_at(completed_statuses: list) -> Optional[datetime]:
-        if app_status in completed_statuses:
+    def get_stage_updated_at(completed_statuses: list, active_statuses: list = None) -> Optional[datetime]:
+        is_current_stage = False
+        if active_statuses and app_status in active_statuses:
+            is_current_stage = True
+        elif app_status == completed_statuses[0]:
+            is_current_stage = True
+            
+        if is_current_stage:
             return app.updated_at
+            
+        if app_status in completed_statuses:
+            return app.created_at
+            
         if app_status == "rejected":
             ref_status = (app.rejected_from or "applied").lower()
             if ref_status in completed_statuses:
-                return app.updated_at
+                return app.created_at
         return None
 
     # 2. Candidate Shortlisted!
@@ -1711,7 +1721,7 @@ def get_applicant_profile(
         TimelineEvent(
             title="Candidate Shortlisted!",
             status=get_stage_status(shortlist_completed, shortlist_active),
-            updated_at=get_stage_updated_at(shortlist_completed)
+            updated_at=get_stage_updated_at(shortlist_completed, shortlist_active)
         )
     )
 
@@ -1722,7 +1732,7 @@ def get_applicant_profile(
         TimelineEvent(
             title="Interviewed",
             status=get_stage_status(interview_completed, interview_active),
-            updated_at=get_stage_updated_at(interview_completed)
+            updated_at=get_stage_updated_at(interview_completed, interview_active)
         )
     )
 
@@ -1733,7 +1743,7 @@ def get_applicant_profile(
         TimelineEvent(
             title="Application successful",
             status=get_stage_status(success_completed, success_active),
-            updated_at=get_stage_updated_at(success_completed)
+            updated_at=get_stage_updated_at(success_completed, success_active)
         )
     )
 

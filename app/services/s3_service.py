@@ -172,8 +172,12 @@ def clean_s3_url(url: str) -> str:
     if not url:
         return url
     from urllib.parse import urlparse
+    import re
     try:
         parsed = urlparse(url)
-        return f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+        netloc = parsed.netloc
+        # Normalize S3 region-specific endpoints to generic global endpoints for consistent matching
+        netloc = re.sub(r's3\.[a-z0-9\-]+\.amazonaws\.com', 's3.amazonaws.com', netloc)
+        return f"{parsed.scheme}://{netloc}{parsed.path}"
     except Exception:
         return url

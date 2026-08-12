@@ -44,7 +44,11 @@ def _get_text_to_embed(target) -> str:
 
 def generate_target_embedding(mapper: Mapper, connection: Connection, target: Base):
     from app.models.job import JobPosting
+    from app.models.resume import Resume
     
+    if isinstance(target, Resume) and target.is_ai_optimized and target.overall_embedding is not None:
+        return
+        
     # Auto-generate description for JobPosting if empty
     if isinstance(target, JobPosting) and not getattr(target, "description"):
         sections = []
