@@ -72,7 +72,11 @@ class GeminiOptimizationEngine:
                     "For 'optimized_structured_content', you are given a list of experience entries.\n"
                     "For each experience entry, rewrite its 'bullets' list of strings to use strong action verbs, quantify achievements, "
                     "and naturally weave in target keywords. You MUST preserve all other fields (like company, role, location, startDate, endDate) exactly as they are.\n"
-                    "For 'optimized_content', return a clean, readable plain-text representation of all experiences, preserving their headers and original formatting."
+                    "For 'optimized_content', return a clean, readable plain-text representation of all experiences, preserving their headers and original formatting.\n"
+                    "CRITICAL CONSTRAINTS TO PREVENT FABRICATION:\n"
+                    "1. DO NOT fabricate completely new roles, projects, or achievements.\n"
+                    "2. DO NOT change the candidate's core technologies or domain to something completely different (e.g., do not rewrite an SAP ABAP developer role to claim they architected Java Spring Cloud microservices).\n"
+                    "3. Only weave in target keywords/skills if they can be reasonably and truthfully integrated as tools/skills within their actual job responsibilities. Keep the core work ABAP/SAP-focused if that was their role."
                 )
             else:
                 return base_instruction + (
@@ -80,7 +84,11 @@ class GeminiOptimizationEngine:
                     "and quantify achievements where possible. Ensure the tone is highly professional. "
                     "If the candidate's experience falls short of the job's minimum requirement, note it in the feedback. "
                     "Weave in the missing keywords/skills from the job requirements naturally where they fit the candidate's "
-                    "responsibilities so that they are present in the experience content."
+                    "responsibilities so that they are present in the experience content.\n"
+                    "CRITICAL CONSTRAINTS TO PREVENT FABRICATION:\n"
+                    "1. DO NOT fabricate completely new roles, projects, or achievements.\n"
+                    "2. DO NOT change the candidate's core technologies or domain to something completely different (e.g., do not rewrite an SAP ABAP developer role to claim they architected Java Spring Cloud microservices).\n"
+                    "3. Only weave in target keywords/skills if they can be reasonably and truthfully integrated as tools/skills within their actual job responsibilities. Keep the core work ABAP/SAP-focused if that was their role."
                 )
         elif section_type == SectionType.PROJECTS:
             if has_structured:
@@ -89,23 +97,37 @@ class GeminiOptimizationEngine:
                     "For 'optimized_structured_content', you are given a list of projects.\n"
                     "For each project, rewrite its 'description' and/or 'bullets' list of strings to use strong action verbs, professional tone, "
                     "and weave in missing keywords naturally where they fit. You MUST preserve all other fields (like title, techStack, link) exactly as they are.\n"
-                    "For 'optimized_content', return a clean, readable plain-text representation of all projects, preserving their titles and original formatting."
+                    "For 'optimized_content', return a clean, readable plain-text representation of all projects, preserving their titles and original formatting.\n"
+                    "CRITICAL CONSTRAINTS TO PREVENT FABRICATION:\n"
+                    "1. DO NOT fabricate completely new projects or achievements.\n"
+                    "2. Do not change the core technologies used in a project to something completely unrelated (e.g., do not claim an SAP project was built on Java Spring Boot).\n"
+                    "3. Keep all optimizations grounded in the candidate's actual work."
                 )
             else:
                 return base_instruction + (
-                    "TASK: Optimize the provided content for professionalism, clarity, and alignment with the job description."
+                    "TASK: Optimize the provided content for professionalism, clarity, and alignment with the job description.\n"
+                    "CRITICAL CONSTRAINTS TO PREVENT FABRICATION:\n"
+                    "1. DO NOT fabricate completely new projects or achievements.\n"
+                    "2. Do not change the core technologies used in a project to something completely unrelated.\n"
+                    "3. Keep all optimizations grounded in the candidate's actual work."
                 )
         elif section_type == SectionType.SUMMARY:
             if has_structured:
                 return base_instruction + (
                     "TASK: This is the SUMMARY section. You MUST output raw JSON matching the required schema.\n"
                     "For 'optimized_structured_content', rewrite/polish the summary text and return it as a dictionary with a 'text' key (e.g. {\"text\": \"optimized summary...\"}).\n"
-                    "For 'optimized_content', return the same optimized summary as a raw string."
+                    "For 'optimized_content', return the same optimized summary as a raw string.\n"
+                    "CRITICAL CONSTRAINTS TO PREVENT FABRICATION:\n"
+                    "1. DO NOT claim expertise in core technologies that are completely absent from the candidate's actual background.\n"
+                    "2. Truthfully frame any transitions (e.g., 'SAP Developer transitioning to Backend Roles' or 'leveraging SAP experience in backend contexts') instead of claiming direct, long-term experience with foreign stacks."
                 )
             else:
                 return base_instruction + (
                     "TASK: This is the SUMMARY section. Write a compelling, concise 3-4 line professional summary "
-                    "that weaves in the core requirements of the job description and missing keywords/skills to hook the recruiter immediately."
+                    "that weaves in the core requirements of the job description and missing keywords/skills to hook the recruiter immediately.\n"
+                    "CRITICAL CONSTRAINTS TO PREVENT FABRICATION:\n"
+                    "1. DO NOT claim expertise in core technologies that are completely absent from the candidate's actual background.\n"
+                    "2. Truthfully frame any transitions (e.g., 'SAP Developer transitioning to Backend Roles' or 'leveraging SAP experience in backend contexts') instead of claiming direct, long-term experience with foreign stacks."
                 )
         elif section_type == SectionType.EDUCATION:
             if has_structured:
