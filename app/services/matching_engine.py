@@ -20,6 +20,76 @@ class MatchingEngine:
 
     def __init__(self, db: Session):
         self.db = db
+        self._skill_groups = None
+        self._canonical_to_aliases = None
+        self._job_role_aliases = None
+
+    def _normalize_text(self, text: str) -> str:
+        if not text:
+            return ""
+        return re.sub(r'[^a-z0-9]+', ' ', text.lower()).strip()
+
+    def _load_taxonomy_skills(self):
+        if self._skill_groups is not None:
+            return
+            
+        from app.models.taxonomy import TaxonomySkill
+        try:
+            tax_skills = self.db.query(TaxonomySkill).filter(TaxonomySkill.is_active == True).all()
+            groups = {}
+            canonical_map = {}
+            
+            for ts in tax_skills:
+                canonical = ts.name.lower().strip()
+                norm_canonical = self._normalize_text(canonical)
+                
+                aliases_set = {norm_canonical}
+                if ts.slug:
+                    norm_slug = self._normalize_text(ts.slug)
+                    if norm_slug:
+                        aliases_set.add(norm_slug)
+                if ts.aliases:
+                    for alias in ts.aliases:
+                        if alias and isinstance(alias, str):
+                            norm_alias = self._normalize_text(alias)
+                            if norm_alias:
+                                aliases_set.add(norm_alias)
+                                
+                for variant in aliases_set:
+                    groups[variant] = canonical
+                    
+                if canonical not in canonical_map:
+                    canonical_map[canonical] = list(aliases_set)
+                else:
+                    canonical_map[canonical] = list(set(canonical_map[canonical]).union(aliases_set))
+                    
+            self._skill_groups = groups
+            self._canonical_to_aliases = canonical_map
+        except Exception as e:
+            logger.error(f"Error loading taxonomy skills: {e}")
+            self._skill_groups = {}
+            self._canonical_to_aliases = {}
+
+    def _get_job_role_aliases(self) -> Dict[int, List[str]]:
+        if self._job_role_aliases is None:
+            from app.models.taxonomy import TaxonomyJobRole
+            try:
+                tax_roles = self.db.query(TaxonomyJobRole).filter(TaxonomyJobRole.is_active == True).all()
+                role_aliases = {}
+                for tr in tax_roles:
+                    aliases = [tr.name.lower().strip()]
+                    if tr.slug:
+                        aliases.append(tr.slug.lower().strip())
+                    if tr.aliases:
+                        for alias in tr.aliases:
+                            if alias and isinstance(alias, str):
+                                aliases.append(alias.lower().strip())
+                    role_aliases[tr.id] = list(set(aliases))
+                self._job_role_aliases = role_aliases
+            except Exception as e:
+                logger.error(f"Error loading taxonomy job roles: {e}")
+                self._job_role_aliases = {}
+        return self._job_role_aliases
 
     def calculate_cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
         """Calculate cosine similarity between two vectors."""
@@ -64,8 +134,8 @@ class MatchingEngine:
     def evaluate_skills_overlap(self, job: JobPosting, resume: Resume) -> Dict[str, Any]:
         """
         Calculates Hard Skills Overlap Score (0-100 scale).
-        Uses multi-tier matching (exact, normalized, token/word boundary matching,
-        and fallback text search) for maximum accuracy.
+        Uses multi-tier matching (exact, normalized, taxonomy alias mapping,
+        token/word boundary matching, and fallback text search) for maximum accuracy.
         """
         job_skills_raw = job.resolved_skills
         job_skills_cleaned = [s.strip() for s in job_skills_raw if s and isinstance(s, str) and s.strip()]
@@ -87,29 +157,38 @@ class MatchingEngine:
         if not job_skills_cleaned:
             return {"score": 100.0, "matched": list(resume_skills_cleaned), "missing": []}
 
+        # Lazy load taxonomy skills
+        self._load_taxonomy_skills()
+        skill_groups = self._skill_groups
+        canonical_to_aliases = self._canonical_to_aliases
+
         matched_skills = []
         missing_skills = []
 
-        def normalize(text):
-            return re.sub(r'[^a-z0-9]+', ' ', text.lower()).strip()
-
-        resume_norm_list = [normalize(rs) for rs in resume_skills_cleaned]
+        resume_norm_list = [self._normalize_text(rs) for rs in resume_skills_cleaned]
         resume_norm_set = set(resume_norm_list)
 
         for js in job_skills_cleaned:
-            js_norm = normalize(js)
+            js_norm = self._normalize_text(js)
             if not js_norm:
                 continue
 
             is_matched = False
+            js_canonical = skill_groups.get(js_norm) if skill_groups else None
 
-            # Tier 1: Direct exact normalized match
+            # Tier 1: Direct exact normalized match or taxonomy alias group match
             if js_norm in resume_norm_set:
                 is_matched = True
+            elif js_canonical:
+                for r_norm in resume_norm_list:
+                    if r_norm in skill_groups and skill_groups[r_norm] == js_canonical:
+                        is_matched = True
+                        break
+
             # Tier 2: Substring & Word boundary match against resume explicit skills
-            else:
+            if not is_matched:
                 for r_raw, r_norm in zip(resume_skills_cleaned, resume_norm_list):
-                    # Check if job skill word is contained in resume skill (e.g. "sql" in "ms sql database" or "python" in "python 3")
+                    # Check if job skill word is contained in resume skill
                     pattern = r'\b' + re.escape(js_norm) + r'\b'
                     if re.search(pattern, r_norm):
                         is_matched = True
@@ -127,27 +206,36 @@ class MatchingEngine:
                         is_matched = True
                         break
 
-            # Tier 3: Fallback text search
+            # Tier 3: Fallback text search using all skill variants/aliases from taxonomy
             if not is_matched and fallback_text:
-                pattern = r'\b' + re.escape(js_norm) + r'\b'
-                if re.search(pattern, fallback_text):
-                    is_matched = True
-                else:
+                variants = [js_norm]
+                if js_canonical and canonical_to_aliases and js_canonical in canonical_to_aliases:
+                    variants = list(set(variants + canonical_to_aliases[js_canonical]))
+                
+                for variant in variants:
+                    pattern = r'\b' + re.escape(variant) + r'\b'
+                    if re.search(pattern, fallback_text):
+                        is_matched = True
+                        break
+                    
                     # Suffix check in fallback text (e.g. singular/plural)
-                    if js_norm.endswith('s') and len(js_norm) > 3:
-                        pattern_sing = r'\b' + re.escape(js_norm[:-1]) + r'\b'
+                    if variant.endswith('s') and len(variant) > 3:
+                        pattern_sing = r'\b' + re.escape(variant[:-1]) + r'\b'
                         if re.search(pattern_sing, fallback_text):
                             is_matched = True
+                            break
                     else:
-                        pattern_plur = r'\b' + re.escape(js_norm + 's') + r'\b'
+                        pattern_plur = r'\b' + re.escape(variant + 's') + r'\b'
                         if re.search(pattern_plur, fallback_text):
                             is_matched = True
+                            break
                     
                     # Role inflection fallback check
-                    if not is_matched and 'engineering' in js_norm:
-                        pattern_eng = r'\b' + re.escape(js_norm.replace('engineering', 'engineer')) + r'\b'
+                    if 'engineering' in variant:
+                        pattern_eng = r'\b' + re.escape(variant.replace('engineering', 'engineer')) + r'\b'
                         if re.search(pattern_eng, fallback_text):
                             is_matched = True
+                            break
 
             if is_matched:
                 matched_skills.append(js)
@@ -203,6 +291,23 @@ class MatchingEngine:
             if roles:
                 job_title_lower = job.title.lower() if job.title else ""
                 match = any(role in job_title_lower for role in roles)
+                
+                # Check taxonomy roles and their aliases
+                if not match and job.taxonomy_job_role_id:
+                    role_aliases_map = self._get_job_role_aliases()
+                    job_role_aliases = role_aliases_map.get(job.taxonomy_job_role_id, [])
+                    for role in roles:
+                        role_norm = self._normalize_text(role)
+                        if not role_norm:
+                            continue
+                        for ja in job_role_aliases:
+                            ja_norm = self._normalize_text(ja)
+                            if role_norm == ja_norm or role_norm in ja_norm or ja_norm in role_norm:
+                                match = True
+                                break
+                        if match:
+                            break
+                            
                 score_components.append(100.0 if match else 0.0)
                 logger.debug(f"Logistics - Role Match check for candidate {candidate.id} against job {job.id} ({job.title}): preferred roles={roles}, job title={job_title_lower}, match={match}")
 

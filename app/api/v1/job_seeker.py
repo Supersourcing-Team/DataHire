@@ -402,20 +402,36 @@ def get_job_seeker_feed(
     
     matching_service = MatchingEngine(db)
     
+    # Preload saved jobs and applications in bulk to avoid N+1 query problem
+    job_ids = [job.id for job in jobs]
+    saved_job_ids = set()
+    applied_jobs_status = {}
+    if job_ids:
+        saved_jobs = db.query(SavedJob.job_id).filter(
+            SavedJob.candidate_id == candidate.id,
+            SavedJob.job_id.in_(job_ids)
+        ).all()
+        saved_job_ids = {r[0] for r in saved_jobs}
+        
+        applications = db.query(JobApplication.job_id, JobApplication.status).filter(
+            JobApplication.candidate_id == candidate.id,
+            JobApplication.job_id.in_(job_ids)
+        ).all()
+        applied_jobs_status = {app.job_id: app.status for app in applications}
+    
     # 3. Process each job to add state & score
     feed_items = []
     for job in jobs:
-        # Check if saved or applied
-        is_saved = db.query(SavedJob).filter(SavedJob.candidate_id == candidate.id, SavedJob.job_id == job.id).first() is not None
-        app_record = db.query(JobApplication).filter(JobApplication.candidate_id == candidate.id, JobApplication.job_id == job.id).first()
-        is_applied = app_record is not None
-        app_status = app_record.status if app_record else None
+        # Check if saved or applied using preloaded maps
+        is_saved = job.id in saved_job_ids
+        app_status = applied_jobs_status.get(job.id)
+        is_applied = app_status is not None
         
         # Calculate AI match score
         ai_score = 0
-        if primary_resume:
+        if primary_resume and primary_resume.overall_embedding is not None:
             try:
-                score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
+                score_details = matching_service.score_resume_object_for_job_object(primary_resume, job)
                 ai_score = int(score_details["final_score"])
             except Exception:
                 ai_score = 0
@@ -519,7 +535,7 @@ def get_job_seeker_job_details(
     if resume_to_use:
         matching_service = MatchingEngine(db)
         try:
-            score_details = matching_service.score_resume_for_job(resume_to_use.id, job.id)
+            score_details = matching_service.score_resume_object_for_job_object(resume_to_use, job)
             ai_score = int(score_details["final_score"])
             
             # Map breakdown percentages
@@ -741,7 +757,7 @@ def apply_to_job(
     if resume and resume.overall_embedding is not None:
         try:
             matching_service = MatchingEngine(db)
-            score_details = matching_service.score_resume_for_job(resume.id, job.id)
+            score_details = matching_service.score_resume_object_for_job_object(resume, job)
             ai_score = int(score_details["final_score"])
         except Exception:
             ai_score = 0
@@ -1303,20 +1319,14 @@ def get_submitted_applications(
         if not job:
             continue
             
-        # Get resume used for this job
-        resume = db.query(Resume).filter(
-            Resume.candidate_id == candidate.id,
-            Resume.job_id == job.id,
-            Resume.is_deleted == False
-        ).order_by(Resume.is_ai_optimized.desc(), Resume.updated_at.desc()).first()
-        if not resume:
-            resume = primary_resume
+        # Get resume used for this job from application relationship, or fallback to primary resume
+        resume = record.resume or primary_resume
             
         # Calculate AI match score
         ai_score = 0
         if resume and resume.overall_embedding is not None:
             try:
-                score_details = matching_service.score_resume_for_job(resume.id, job.id)
+                score_details = matching_service.score_resume_object_for_job_object(resume, job)
                 ai_score = int(score_details["final_score"])
             except Exception:
                 ai_score = 0
@@ -1533,7 +1543,7 @@ def get_job_seeker_application_details(
     if resume and resume.overall_embedding is not None:
         try:
             matching_service = MatchingEngine(db)
-            score_details = matching_service.score_resume_for_job(resume.id, job_id)
+            score_details = matching_service.score_resume_object_for_job_object(resume, job)
             ai_score = int(score_details["final_score"])
         except Exception:
             ai_score = 0
@@ -1675,15 +1685,19 @@ def format_resume_structure(resume: Resume, candidate: Candidate, user: User, db
         try:
             from app.services.matching_engine import MatchingEngine
             matching_service = MatchingEngine(db_session)
+            job = db_session.query(JobPosting).filter(JobPosting.id == resume.job_id).first()
             
-            # Optimized score
-            score_details = matching_service.score_resume_for_job(resume.id, resume.job_id)
-            optimized_score = int(score_details["final_score"])
-            
-            # Original score
-            if resume.parent_resume_id:
-                parent_score_details = matching_service.score_resume_for_job(resume.parent_resume_id, resume.job_id)
-                original_score = int(parent_score_details["final_score"])
+            if job:
+                # Optimized score
+                score_details = matching_service.score_resume_object_for_job_object(resume, job)
+                optimized_score = int(score_details["final_score"])
+                
+                # Original score
+                if resume.parent_resume_id:
+                    parent_resume = db_session.query(Resume).filter(Resume.id == resume.parent_resume_id).first()
+                    if parent_resume:
+                        parent_score_details = matching_service.score_resume_object_for_job_object(parent_resume, job)
+                        original_score = int(parent_score_details["final_score"])
         except Exception as e:
             logger.error(f"Error calculating score for formatted structure: {e}")
 
@@ -2171,7 +2185,7 @@ async def _optimize_resume_for_job_core(
     matching_service = MatchingEngine(db)
     new_ai_score = 0
     try:
-        score_details = matching_service.score_resume_for_job(resume_to_use.id, job.id)
+        score_details = matching_service.score_resume_object_for_job_object(resume_to_use, job)
         new_ai_score = int(score_details["final_score"])
     except Exception:
         pass
@@ -2242,7 +2256,7 @@ def get_optimized_resume_for_job(
     matching_service = MatchingEngine(db)
     new_ai_score = 0
     try:
-        score_details = matching_service.score_resume_for_job(optimized_resume.id, job.id)
+        score_details = matching_service.score_resume_object_for_job_object(optimized_resume, job)
         new_ai_score = int(score_details["final_score"])
     except Exception:
         pass
@@ -2285,7 +2299,7 @@ def get_optimized_resume_for_job_endpoint(
     matching_service = MatchingEngine(db)
     new_ai_score = 0
     try:
-        score_details = matching_service.score_resume_for_job(optimized_resume.id, job.id)
+        score_details = matching_service.score_resume_object_for_job_object(optimized_resume, job)
         new_ai_score = int(score_details["final_score"])
     except Exception:
         pass
@@ -2652,7 +2666,7 @@ def analyze_fit_for_job(
         
     # Score resume
     matching_service = MatchingEngine(db)
-    score_details = matching_service.score_resume_for_job(resume_to_use.id, job.id)
+    score_details = matching_service.score_resume_object_for_job_object(resume_to_use, job)
     
     breakdown = score_details["breakdown"]
     insights = score_details["insights"]
@@ -2701,7 +2715,7 @@ def list_resumes(
                 job_title = job.title
                 company_name = job.company.name if job.company else None
                 try:
-                    score_details = matching_service.score_resume_for_job(r.id, job.id)
+                    score_details = matching_service.score_resume_object_for_job_object(r, job)
                     ai_score = int(score_details["final_score"])
                 except Exception:
                     ai_score = None
@@ -2841,7 +2855,7 @@ def analyze_resume_fit_endpoint(
 
     # Calculate match score using MatchingEngine for consistency across feed, recommendations, and analyze-fit
     matching_service = MatchingEngine(db)
-    score_details = matching_service.score_resume_for_job(resume.id, job.id)
+    score_details = matching_service.score_resume_object_for_job_object(resume, job)
     score = int(score_details["final_score"])
         
     # 4. Call the Gemini optimization/matching engine to analyze fit
@@ -3346,7 +3360,7 @@ def rename_resume(
             company_name = job.company.name if job.company else None
             try:
                 matching_service = MatchingEngine(db)
-                score_details = matching_service.score_resume_for_job(resume.id, job.id)
+                score_details = matching_service.score_resume_object_for_job_object(resume, job)
                 ai_score = int(score_details["final_score"])
             except Exception:
                 ai_score = None
@@ -3451,7 +3465,7 @@ def list_cover_letters(
                 ).first()
                 if primary_resume:
                      try:
-                         score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
+                         score_details = matching_service.score_resume_object_for_job_object(primary_resume, job)
                          ai_score = int(score_details["final_score"])
                      except Exception:
                          ai_score = None
@@ -3976,7 +3990,7 @@ def get_auto_apply_jobs(
         ai_score = 0
         if primary_resume.overall_embedding is not None:
             try:
-                score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
+                score_details = matching_service.score_resume_object_for_job_object(primary_resume, job)
                 ai_score = int(score_details["final_score"])
                 logger.debug(f"Scored job {job.id} ({job.title}) - AI Score: {ai_score}")
             except Exception as e:
@@ -4182,7 +4196,7 @@ def execute_auto_apply(
         ai_score = 0
         if primary_resume.overall_embedding is not None:
             try:
-                score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
+                score_details = matching_service.score_resume_object_for_job_object(primary_resume, job)
                 ai_score = int(score_details["final_score"])
                 logger.debug(f"Scored job {job.id} ({job.title}) - AI Score: {ai_score}")
             except Exception as e:
@@ -4409,7 +4423,7 @@ def get_auto_apply_history(
         ai_score = 0
         if primary_resume and primary_resume.overall_embedding is not None:
             try:
-                score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
+                score_details = matching_service.score_resume_object_for_job_object(primary_resume, job)
                 ai_score = int(score_details["final_score"])
             except Exception:
                 ai_score = 0
