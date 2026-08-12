@@ -256,7 +256,7 @@ def get_dashboard_jobs(
         ai_score = 0
         if primary_resume and primary_resume.overall_embedding is not None and matching_service:
             try:
-                score_details = matching_service.score_resume_for_job(primary_resume.id, job.id)
+                score_details = matching_service.score_resume_object_for_job_object(primary_resume, job)
                 ai_score = int(score_details["final_score"])
             except Exception:
                 ai_score = 0
@@ -1449,6 +1449,7 @@ def list_job_applicants(
     applications = query.order_by(JobApplication.created_at.desc()).all()
 
     matching_service = MatchingEngine(db)
+    job = db.query(JobPosting).filter(JobPosting.id == job_id).first()
     response = []
 
     for app in applications:
@@ -1471,9 +1472,9 @@ def list_job_applicants(
 
         # Calculate AI match score
         ai_score = 0
-        if resume and resume.overall_embedding is not None:
+        if resume and resume.overall_embedding is not None and job:
             try:
-                score_details = matching_service.score_resume_for_job(resume.id, job_id)
+                score_details = matching_service.score_resume_object_for_job_object(resume, job)
                 ai_score = int(score_details["final_score"])
             except Exception:
                 ai_score = 0
@@ -1646,10 +1647,10 @@ def get_applicant_profile(
 
     # Calculate AI match score
     ai_score = 0
-    if resume and resume.overall_embedding is not None:
+    if resume and resume.overall_embedding is not None and job:
         try:
             matching_service = MatchingEngine(db)
-            score_details = matching_service.score_resume_for_job(resume.id, job_id)
+            score_details = matching_service.score_resume_object_for_job_object(resume, job)
             ai_score = int(score_details["final_score"])
         except Exception:
             ai_score = 0
