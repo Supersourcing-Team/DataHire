@@ -405,7 +405,7 @@ def get_job_seeker_feed(
     # Preload saved jobs and applications in bulk to avoid N+1 query problem
     job_ids = [job.id for job in jobs]
     saved_job_ids = set()
-    applied_jobs_status = {}
+    applied_jobs_map = {}
     if job_ids:
         saved_jobs = db.query(SavedJob.job_id).filter(
             SavedJob.candidate_id == candidate.id,
@@ -413,19 +413,21 @@ def get_job_seeker_feed(
         ).all()
         saved_job_ids = {r[0] for r in saved_jobs}
         
-        applications = db.query(JobApplication.job_id, JobApplication.status).filter(
+        applications = db.query(JobApplication.job_id, JobApplication.status, JobApplication.apply_mode).filter(
             JobApplication.candidate_id == candidate.id,
             JobApplication.job_id.in_(job_ids)
         ).all()
-        applied_jobs_status = {app.job_id: app.status for app in applications}
+        applied_jobs_map = {app.job_id: (app.status, app.apply_mode) for app in applications}
     
     # 3. Process each job to add state & score
     feed_items = []
     for job in jobs:
         # Check if saved or applied using preloaded maps
         is_saved = job.id in saved_job_ids
-        app_status = applied_jobs_status.get(job.id)
-        is_applied = app_status is not None
+        app_info = applied_jobs_map.get(job.id)
+        is_applied = app_info is not None
+        app_status = app_info[0] if app_info else None
+        app_apply_mode = app_info[1] if app_info else None
         
         # Calculate AI match score
         ai_score = 0
@@ -484,7 +486,7 @@ def get_job_seeker_feed(
                 saved=is_saved,
                 applied=is_applied,
                 application_status=app_status,
-                apply_mode=app_record.apply_mode if app_record else None,
+                apply_mode=app_apply_mode,
                 coverLetter=job.cover_letter_required
             )
         )
