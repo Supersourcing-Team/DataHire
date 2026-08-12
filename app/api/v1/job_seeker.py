@@ -2027,7 +2027,7 @@ async def _optimize_resume_for_job_core(
     matched_skills = skills_eval["matched"]
     
     approved_keywords = payload.keywords if (payload and payload.keywords is not None) else None
-    target_skills = approved_keywords if approved_keywords is not None else matched_skills
+    target_skills = approved_keywords if approved_keywords is not None else job.resolved_skills
     union_skills = list(set(source_resume.extracted_skills or []) | set(target_skills))
     
     section_keywords_map = {s.section_type: s.keywords for s in payload.sections} if (payload and payload.sections) else {}
