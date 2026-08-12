@@ -26,6 +26,7 @@ from app.services.optimization_engine import optimization_engine
 from app.services.credit_manager import CreditManager, credit_manager
 from app.services.pdf_service import pdf_service
 from app.services.embedding_service import embedding_service
+from app.services.cover_letter_service import generate_and_save_cover_letter
 from app.schemas.job_seeker import (
     ResumePDFRequest,
     ResumeAnalyzeFitRequest,
@@ -2504,16 +2505,17 @@ def generate_cover_letter_for_job(
     limits = PLAN_LIMITS.get_limits(tier, db)
     
     # Enforce limit for Free Plan cover letter limit
-    if limits["monthly_cover_letter_limit"] < 9999:
-        if limits["monthly_cover_letter_limit"] == 0:
+    monthly_limit = limits.get("monthly_cover_letter_limit", 0)
+    if monthly_limit < 9999:
+        if monthly_limit <= 0:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail="The Free plan only supports manual upload of cover letters. Please upgrade to a paid plan to use AI generation."
             )
-        elif candidate.cover_letters_generated_this_month >= limits["monthly_cover_letter_limit"]:
+        elif candidate.cover_letters_generated_this_month >= monthly_limit:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail=f"You have reached your monthly Cover Letter Generation limit of {limits['monthly_cover_letter_limit']}."
+                detail=f"You have reached your monthly Cover Letter Generation limit of {monthly_limit}."
             )
             
     # Check and deduct credits via CreditManager (Cost: 3 AI credits)
@@ -3628,18 +3630,19 @@ def reoptimize_cover_letter(
         
     tier = candidate.plan_tier or "free"
     limits = PLAN_LIMITS.get_limits(tier, db)
+    monthly_limit = limits.get("monthly_cover_letter_limit", 0)
     
     # Enforce limit for Free Plan cover letter limit
-    if limits["monthly_cover_letter_limit"] < 9999:
-        if limits["monthly_cover_letter_limit"] == 0:
+    if monthly_limit < 9999:
+        if monthly_limit <= 0:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
                 detail="The Free plan only supports manual upload of cover letters. Please upgrade to a paid plan to use AI generation."
             )
-        elif candidate.cover_letters_generated_this_month >= limits["monthly_cover_letter_limit"]:
+        elif candidate.cover_letters_generated_this_month >= monthly_limit:
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail=f"You have reached your monthly Cover Letter Generation limit of {limits['monthly_cover_letter_limit']}."
+                detail=f"You have reached your monthly Cover Letter Generation limit of {monthly_limit}."
             )
             
     # Deduct credit via CreditManager (Cost: 3 AI credits)
@@ -4098,7 +4101,13 @@ def execute_auto_apply(
     # Get auto apply eligible jobs (ordered by AI score)
     query = (
         db.query(JobPosting)
-        .options(joinedload(JobPosting.company))
+        .options(
+            joinedload(JobPosting.company),
+            joinedload(JobPosting.city),
+            joinedload(JobPosting.state),
+            joinedload(JobPosting.country),
+            joinedload(JobPosting.work_mode),
+        )
         .filter(JobPosting.is_active == True)
     )
     
@@ -4186,31 +4195,70 @@ def execute_auto_apply(
         
     scored_jobs.sort(key=lambda x: x[1], reverse=True)
     
-    remaining_daily = limits["daily_apply_limit"] - candidate.daily_apply_credits_used
-    remaining_monthly = (limits["monthly_ai_credits"] - candidate.monthly_ai_credits_used) // 2
-    max_to_apply = min(limit, remaining_daily, remaining_monthly)
-    
-    logger.info(f"Total scored jobs: {len(scored_jobs)}. Daily remaining: {remaining_daily}, Monthly remaining application equivalent: {remaining_monthly}. Will apply to top {max_to_apply} jobs.")
-    
-    top_matches = scored_jobs[:max_to_apply]
-    
+    top_matches = []
+    for job, ai_score in scored_jobs:
+        remaining_daily = limits["daily_apply_limit"] - candidate.daily_apply_credits_used
+        remaining_monthly_credits = limits["monthly_ai_credits"] - candidate.monthly_ai_credits_used
+        
+        # Respect the query limit parameter or daily limit
+        if len(top_matches) >= limit or remaining_daily <= 0:
+            break
+            
+        if job.cover_letter_required:
+            # Cover letter is mandated
+            monthly_limit = limits.get("monthly_cover_letter_limit", 0)
+            if monthly_limit <= 0:
+                logger.info(f"Skipping job {job.id} requiring cover letter: Free tier candidate {candidate.id} cannot generate cover letters.")
+                continue
+            if monthly_limit < 9999:
+                if candidate.cover_letters_generated_this_month >= monthly_limit:
+                    logger.info(f"Skipping job {job.id} requiring cover letter: Candidate {candidate.id} cover letter limit reached.")
+                    continue
+            
+            required_credits = 2 + CreditManager.COST_COVER_LETTER_GENERATION
+            if remaining_monthly_credits < required_credits:
+                logger.info(f"Skipping job {job.id} requiring cover letter: Candidate {candidate.id} insufficient credits (needs {required_credits}, has {remaining_monthly_credits}).")
+                continue
+                
+            top_matches.append((job, ai_score, True))
+            candidate.daily_apply_credits_used += 1
+            candidate.monthly_ai_credits_used += required_credits
+        else:
+            # Standard application
+            required_credits = 2
+            if remaining_monthly_credits < required_credits:
+                logger.info(f"Skipping job {job.id}: Candidate {candidate.id} insufficient credits (needs {required_credits}, has {remaining_monthly_credits}).")
+                continue
+                
+            top_matches.append((job, ai_score, False))
+            candidate.daily_apply_credits_used += 1
+            candidate.monthly_ai_credits_used += required_credits
+
     applied_responses = []
-    for job, ai_score in top_matches:
+    for job, ai_score, needs_cl in top_matches:
         # Determine status: "shortlisted" if ai_score matches or exceeds job's threshold (or default 70)
         threshold = job.ai_score_threshold if (job.ai_score_threshold and job.ai_score_threshold > 0) else 70
         app_status = "shortlisted" if ai_score >= threshold else "applied"
+
+        cover_letter_content = None
+        if needs_cl:
+            try:
+                cover_letter_content = generate_and_save_cover_letter(candidate, job, primary_resume, db)
+            except Exception as ex:
+                logger.error(f"Failed to generate cover letter for job {job.id} for candidate {candidate.id}: {ex}")
+                # Refund credits in memory
+                candidate.daily_apply_credits_used -= 1
+                candidate.monthly_ai_credits_used -= (2 + CreditManager.COST_COVER_LETTER_GENERATION)
+                continue
 
         new_app = JobApplication(
             candidate_id=candidate.id,
             job_id=job.id,
             status=app_status,
             apply_mode="auto-apply",
+            cover_letter=cover_letter_content,
             resume_id=primary_resume.id
         )
-        
-        # Deduct credit
-        candidate.daily_apply_credits_used += 1
-        candidate.monthly_ai_credits_used += 2
         
         db.add(new_app)
         db.commit()
