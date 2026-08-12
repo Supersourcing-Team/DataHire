@@ -1589,13 +1589,23 @@ def get_job_seeker_application_details(
         return "pending"
 
     # Helper to get stage updated_at timestamp
-    def get_stage_updated_at(completed_statuses: list) -> Optional[datetime]:
-        if app_status in completed_statuses:
+    def get_stage_updated_at(completed_statuses: list, active_statuses: list = None) -> Optional[datetime]:
+        is_current_stage = False
+        if active_statuses and app_status in active_statuses:
+            is_current_stage = True
+        elif app_status == completed_statuses[0]:
+            is_current_stage = True
+            
+        if is_current_stage:
             return app.updated_at
+            
+        if app_status in completed_statuses:
+            return app.created_at
+            
         if app_status == "rejected":
             ref_status = (app.rejected_from or "applied").lower()
             if ref_status in completed_statuses:
-                return app.updated_at
+                return app.created_at
         return None
 
     # 2. Candidate Shortlisted!
@@ -1605,7 +1615,7 @@ def get_job_seeker_application_details(
         TimelineEvent(
             title="Candidate Shortlisted!",
             status=get_stage_status(shortlist_completed, shortlist_active),
-            updated_at=get_stage_updated_at(shortlist_completed)
+            updated_at=get_stage_updated_at(shortlist_completed, shortlist_active)
         )
     )
 
@@ -1616,7 +1626,7 @@ def get_job_seeker_application_details(
         TimelineEvent(
             title="Interviewed",
             status=get_stage_status(interview_completed, interview_active),
-            updated_at=get_stage_updated_at(interview_completed)
+            updated_at=get_stage_updated_at(interview_completed, interview_active)
         )
     )
 
@@ -1627,7 +1637,7 @@ def get_job_seeker_application_details(
         TimelineEvent(
             title="Application successful",
             status=get_stage_status(success_completed, success_active),
-            updated_at=get_stage_updated_at(success_completed)
+            updated_at=get_stage_updated_at(success_completed, success_active)
         )
     )
 
@@ -2155,6 +2165,21 @@ async def _optimize_resume_for_job_core(
     # Update structured_data using the optimized sections
     from sqlalchemy.orm.attributes import flag_modified
     resume_to_use.structured_data = update_structured_data_with_optimized_sections(resume_to_use.structured_data, new_sections)
+    
+    # Synchronize extracted_skills (which includes injected/target skills) back to structured_data
+    if not isinstance(resume_to_use.structured_data, dict):
+        resume_to_use.structured_data = {}
+    if "skills" not in resume_to_use.structured_data or not isinstance(resume_to_use.structured_data["skills"], dict):
+        resume_to_use.structured_data["skills"] = {"technical": [], "soft": [], "tools": []}
+    
+    current_tech = resume_to_use.structured_data["skills"].get("technical", []) or []
+    if not isinstance(current_tech, list):
+        current_tech = [current_tech] if current_tech else []
+    for skill in (resume_to_use.extracted_skills or []):
+        if skill not in current_tech:
+            current_tech.append(skill)
+    resume_to_use.structured_data["skills"]["technical"] = current_tech
+    
     flag_modified(resume_to_use, "structured_data")
 
     # Recalculate and save overall_embedding for the optimized resume using the new optimized sections
