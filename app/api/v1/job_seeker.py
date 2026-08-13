@@ -1911,6 +1911,12 @@ def update_structured_data_with_optimized_sections(structured_data: Dict[str, An
             s_type = sec.section_type
             if s_type == "Summary":
                 sd["summary"] = sec.optimized_structured_content
+            elif s_type in ("PersonalInfo", "Personal Info"):
+                personal_info = sec.optimized_structured_content
+                if isinstance(personal_info, dict):
+                    if "name" in personal_info and "fullName" not in personal_info:
+                        personal_info["fullName"] = personal_info["name"]
+                sd["personalInfo"] = personal_info
             elif s_type == "Skills":
                 opt_skills = sec.optimized_structured_content
                 if isinstance(opt_skills, dict):
@@ -2303,9 +2309,16 @@ async def save_customized_resume_endpoint(
     
     for section_payload in payload.sections:
         existing_sec = existing_sections_by_type.get(section_payload.section_type)
+        
+        import json
+        try:
+            parsed_content = json.loads(section_payload.content)
+        except Exception:
+            parsed_content = None
+            
         if existing_sec:
             existing_sec.optimized_content = section_payload.content
-            existing_sec.optimized_structured_content = None  # Force fallback parsing
+            existing_sec.optimized_structured_content = parsed_content
             existing_sec.optimization_metadata = {
                 "feedback": "User customized",
                 "missing_keywords": []
@@ -2319,6 +2332,7 @@ async def save_customized_resume_endpoint(
                 section_type=section_payload.section_type,
                 original_content=section_payload.content,
                 optimized_content=section_payload.content,
+                optimized_structured_content=parsed_content,
                 optimization_metadata={
                     "feedback": "User customized",
                     "missing_keywords": []
