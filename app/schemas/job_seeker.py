@@ -155,10 +155,11 @@ class JobApplicationResponse(BaseModel):
 
 
 class JobApplicationSubmitRequest(BaseModel):
-    resume_url: str
-    resume_name: str
+    resume_url: Optional[str] = None
+    resume_name: Optional[str] = None
     resume_id: Optional[UUID] = None
     cover_letter_url: Optional[str] = None
+    cover_letter_id: Optional[UUID] = None
 
 
 class JobApplicationSubmitDetail(BaseModel):
@@ -545,7 +546,17 @@ class PaginatedCoverLetterDetailResponse(BaseModel):
 
 class JobResumeOptimizeSection(BaseModel):
     section_type: str
-    keywords: List[str]
+    keywords: Optional[List[str]] = None
+    content: Optional[str] = None
+
+
+class SaveCustomizedResumeSection(BaseModel):
+    section_type: str
+    content: str
+
+
+class SaveCustomizedResumeRequest(BaseModel):
+    sections: List[SaveCustomizedResumeSection]
 
 
 class JobResumeOptimizeRequest(BaseModel):
