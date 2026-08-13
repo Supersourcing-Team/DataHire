@@ -81,7 +81,8 @@ from app.schemas.job_seeker import (
     GeneralAnalysisResponse,
     GeneralOptimizeRequest,
     JobResumeOptimizeSection,
-    OptimizeForJobRequest
+    OptimizeForJobRequest,
+    SaveCustomizedResumeRequest
 )
 from app.models.meta import MetaWorkStatus, MetaVisaStatus
 from app.models.taxonomy import TaxonomyDomain
@@ -634,7 +635,7 @@ def apply_to_job(
         
     # Resolve the resume passed in payload
     from app.services.s3_service import clean_s3_url
-    payload_clean_url = clean_s3_url(payload.resume_url)
+    payload_clean_url = clean_s3_url(payload.resume_url) if payload.resume_url else None
     
     # Query all candidate resumes to match using cleaned S3 URLs or resume_id
     all_resumes = db.query(Resume).filter(
@@ -651,9 +652,9 @@ def apply_to_job(
                 break
 
     # 1. Prioritize a resume matching the URL that is already linked to this job (e.g. optimized)
-    if not resume:
+    if not resume and payload_clean_url:
         for r in all_resumes:
-            if clean_s3_url(r.file_url) == payload_clean_url and r.job_id == job.id:
+            if r.file_url and clean_s3_url(r.file_url) == payload_clean_url and r.job_id == job.id:
                 resume = r
                 break
                 
@@ -665,11 +666,18 @@ def apply_to_job(
                 break
                 
     # 2. Fall back to any resume matching the URL if no job-linked version exists
-    if not resume:
+    if not resume and payload_clean_url:
         for r in all_resumes:
-            if clean_s3_url(r.file_url) == payload_clean_url:
+            if r.file_url and clean_s3_url(r.file_url) == payload_clean_url:
                 resume = r
                 break
+
+    if not resume:
+        if not payload.resume_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A valid resume_id or resume_url must be provided to apply."
+            )
                 
     if not resume:
         # Check saved resumes limit
@@ -768,13 +776,25 @@ def apply_to_job(
     threshold = job.ai_score_threshold if (job.ai_score_threshold and job.ai_score_threshold > 0) else 70
     app_status = "shortlisted" if ai_score >= threshold else "applied"
 
+    # Resolve cover letter content if cover_letter_id is provided
+    cover_letter_content = payload.cover_letter_url
+    if payload.cover_letter_id:
+        from app.models.cover_letter import CoverLetter
+        cl = db.query(CoverLetter).filter(
+            CoverLetter.id == payload.cover_letter_id,
+            CoverLetter.candidate_id == candidate.id
+        ).first()
+        if not cl:
+            raise HTTPException(status_code=404, detail="Cover letter not found.")
+        cover_letter_content = cl.content
+
     # Create application record
     new_app = JobApplication(
         candidate_id=candidate.id,
         job_id=job.id,
         status=app_status,
         apply_mode="apply",
-        cover_letter=payload.cover_letter_url,
+        cover_letter=cover_letter_content,
         resume_id=resume.id if resume else None
     )
     
@@ -788,8 +808,8 @@ def apply_to_job(
         application=JobApplicationSubmitDetail(
             job_id=new_app.job_id,
             applied_at=new_app.created_at,
-            resume_url=payload.resume_url,
-            cover_letter_url=payload.cover_letter_url
+            resume_url=(resume.file_url if resume else None) or payload.resume_url or "",
+            cover_letter_url=cover_letter_content
         )
     )
 
@@ -2195,12 +2215,7 @@ async def _optimize_resume_for_job_core(
         resume_to_use.overall_embedding = embedding_service.get_embedding(resume_text)
         db.add(resume_to_use)
 
-    # Generate and save rendered PDF for the optimized resume to S3
-    from app.services.resume_pdf_generator import generate_and_save_optimized_resume_pdf
-    pdf_s3_url = await generate_and_save_optimized_resume_pdf(db, resume_to_use, candidate)
-    if pdf_s3_url:
-        resume_to_use.file_url = pdf_s3_url
-        db.add(resume_to_use)
+
         
     # Increment usage
     candidate.resume_optimizations_used_this_month += 1
@@ -2250,6 +2265,114 @@ async def optimize_resume_for_job_endpoint(
         resume_id=resume_id,
         payload=core_payload
     )
+
+
+@router.post("/resumes/{resume_id}/save-customized")
+async def save_customized_resume_endpoint(
+    resume_id: UUID,
+    payload: SaveCustomizedResumeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_candidate),
+):
+    """
+    Save manually edited/customized content of an optimized resume,
+    regenerate its structured data, embedding, PDF and upload to S3.
+    """
+    candidate = get_candidate(current_user, db)
+    
+    # 1. Fetch the resume
+    resume = db.query(Resume).filter(
+        Resume.id == resume_id,
+        Resume.candidate_id == candidate.id,
+        Resume.is_deleted == False
+    ).first()
+    
+    if not resume:
+        raise HTTPException(status_code=404, detail="Resume not found.")
+        
+    # 2. Update sections in database
+    existing_sections_by_type = {s.section_type: s for s in resume.sections}
+    updated_sections = []
+    
+    for section_payload in payload.sections:
+        existing_sec = existing_sections_by_type.get(section_payload.section_type)
+        if existing_sec:
+            existing_sec.optimized_content = section_payload.content
+            existing_sec.optimized_structured_content = None  # Force fallback parsing
+            existing_sec.optimization_metadata = {
+                "feedback": "User customized",
+                "missing_keywords": []
+            }
+            db.add(existing_sec)
+            updated_sections.append(existing_sec)
+        else:
+            from app.models.resume import ResumeSection
+            new_sec = ResumeSection(
+                resume_id=resume.id,
+                section_type=section_payload.section_type,
+                original_content=section_payload.content,
+                optimized_content=section_payload.content,
+                optimization_metadata={
+                    "feedback": "User customized",
+                    "missing_keywords": []
+                }
+            )
+            db.add(new_sec)
+            updated_sections.append(new_sec)
+            
+    # Add any other existing sections that weren't customized
+    for s_type, s in existing_sections_by_type.items():
+        if s not in updated_sections:
+            updated_sections.append(s)
+            
+    db.flush()
+    
+    # 3. Synchronize structured_data using the updated sections
+    from sqlalchemy.orm.attributes import flag_modified
+    resume.structured_data = update_structured_data_with_optimized_sections(resume.structured_data, updated_sections)
+    
+    # Re-sync extracted skills if present
+    if not isinstance(resume.structured_data, dict):
+        resume.structured_data = {}
+    if "skills" not in resume.structured_data or not isinstance(resume.structured_data["skills"], dict):
+        resume.structured_data["skills"] = {"technical": [], "soft": [], "tools": []}
+    
+    current_tech = resume.structured_data["skills"].get("technical", []) or []
+    if not isinstance(current_tech, list):
+        current_tech = [current_tech] if current_tech else []
+    for skill in (resume.extracted_skills or []):
+        if skill not in current_tech:
+            current_tech.append(skill)
+    resume.structured_data["skills"]["technical"] = current_tech
+    
+    flag_modified(resume, "structured_data")
+    
+    # 4. Recalculate embedding
+    parts = []
+    if resume.extracted_skills:
+        parts.append(" ".join(resume.extracted_skills))
+    for sec in updated_sections:
+        content = sec.optimized_content or sec.original_content
+        if content:
+            parts.append(content)
+    resume_text = " ".join(parts)
+    if resume_text.strip():
+        resume.overall_embedding = embedding_service.get_embedding(resume_text)
+        
+    # 5. Generate and save PDF to S3
+    from app.services.resume_pdf_generator import generate_and_save_optimized_resume_pdf
+    pdf_s3_url = await generate_and_save_optimized_resume_pdf(db, resume, candidate)
+    if pdf_s3_url:
+        resume.file_url = pdf_s3_url
+        
+    db.add(resume)
+    db.commit()
+    db.refresh(resume)
+    
+    return {
+        "resume_id": resume.id,
+        "resume_url": resume.file_url
+    }
 
 
 @router.get("/jobs/{job_id}/optimized-resume")
