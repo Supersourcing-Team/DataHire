@@ -788,6 +788,13 @@ def apply_to_job(
             raise HTTPException(status_code=404, detail="Cover letter not found.")
         cover_letter_content = cl.content
 
+    # Check if cover letter is mandated for this job posting
+    if job.cover_letter_required and (not cover_letter_content or not cover_letter_content.strip()):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A cover letter is required to apply for this job."
+        )
+
     # Create application record
     new_app = JobApplication(
         candidate_id=candidate.id,
