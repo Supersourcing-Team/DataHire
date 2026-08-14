@@ -22,11 +22,10 @@ job_poster_plans_router = APIRouter(prefix="/job-poster/plans", tags=["plans"])
 
 @job_seeker_plans_router.get("", response_model=List[MetaSubscriptionPlanResponse])
 def get_job_seeker_plans(db: Session = Depends(get_db)):
-    """Retrieve all active plans configured for Job Seekers (candidates)."""
+    """Retrieve all plans configured for Job Seekers (candidates), including inactive ones."""
     return db.query(MetaSubscriptionPlan).filter(
-        MetaSubscriptionPlan.is_active == True,
         MetaSubscriptionPlan.role == "candidate"
-    ).all()
+    ).order_by(MetaSubscriptionPlan.id).all()
 
 
 @job_seeker_plans_router.post("", response_model=MetaSubscriptionPlanResponse, status_code=status.HTTP_201_CREATED)
@@ -94,11 +93,10 @@ def delete_job_seeker_plan(
 
 @job_poster_plans_router.get("", response_model=List[MetaSubscriptionPlanResponse])
 def get_job_poster_plans(db: Session = Depends(get_db)):
-    """Retrieve all active plans configured for Job Posters (employers)."""
+    """Retrieve all plans configured for Job Posters (employers), including inactive ones."""
     return db.query(MetaSubscriptionPlan).filter(
-        MetaSubscriptionPlan.is_active == True,
         MetaSubscriptionPlan.role == "employer"
-    ).all()
+    ).order_by(MetaSubscriptionPlan.id).all()
 
 
 @job_poster_plans_router.post("", response_model=MetaSubscriptionPlanResponse, status_code=status.HTTP_201_CREATED)

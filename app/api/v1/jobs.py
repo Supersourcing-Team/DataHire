@@ -43,9 +43,8 @@ from app.models.meta import MetaSubscriptionPlan
 
 @router.get("/plans", response_model=List[MetaSubscriptionPlanResponse])
 def get_employer_plans(db: Session = Depends(get_db)):
-    """Retrieve all active plans configured for Job Posters (employers)."""
+    """Retrieve all plans configured for Job Posters (employers), including inactive ones."""
     return db.query(MetaSubscriptionPlan).filter(
-        MetaSubscriptionPlan.is_active == True,
         MetaSubscriptionPlan.role == "employer"
     ).order_by(MetaSubscriptionPlan.id).all()
 

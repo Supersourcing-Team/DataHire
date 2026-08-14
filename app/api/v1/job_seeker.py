@@ -109,9 +109,8 @@ from app.models.meta import MetaSubscriptionPlan
 
 @router.get("/plans", response_model=List[MetaSubscriptionPlanResponse])
 def get_candidate_plans(db: Session = Depends(get_db)):
-    """Retrieve all active plans configured for Job Seekers (candidates)."""
+    """Retrieve all plans configured for Job Seekers (candidates), including inactive ones."""
     return db.query(MetaSubscriptionPlan).filter(
-        MetaSubscriptionPlan.is_active == True,
         MetaSubscriptionPlan.role == "candidate"
     ).order_by(MetaSubscriptionPlan.id).all()
 
