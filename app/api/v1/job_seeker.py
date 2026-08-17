@@ -4979,16 +4979,20 @@ def get_recommended_jobs(
     candidate_exp = candidate.experience_years if candidate.experience_years is not None else primary_resume.total_experience_years
     candidate_domain = candidate.taxonomy_domain_id if candidate.taxonomy_domain_id is not None else primary_resume.taxonomy_domain_id
 
-    # 3. Formulate exclusions subquery (exclude skipped jobs, but include applied jobs per comments)
+    # 3. Formulate exclusions subqueries (exclude skipped and already applied jobs)
     skipped_job_ids_query = select(CandidateSkippedJob.job_id).where(
         CandidateSkippedJob.candidate_id == candidate.id
+    )
+    applied_job_ids_query = select(JobApplication.job_id).where(
+        JobApplication.candidate_id == candidate.id
     )
 
     # 4. Fetch candidate pool of jobs
     query = db.query(JobPosting).filter(
         JobPosting.is_active == True,
         JobPosting.status == JobStatus.PUBLISHED,
-        ~JobPosting.id.in_(skipped_job_ids_query)
+        ~JobPosting.id.in_(skipped_job_ids_query),
+        ~JobPosting.id.in_(applied_job_ids_query)
     )
 
     if search:
