@@ -551,7 +551,8 @@ def get_ai_match_engine_dashboard(
             total_matches += len(skills_eval.get("matched", []))
             total_gaps += len(skills_eval.get("missing", []))
             
-    gap_analysis_rate = round((total_gaps / total_analyses) * 100, 1) if total_analyses > 0 else 0.0
+    total_skills = total_matches + total_gaps
+    gap_analysis_rate = round((total_gaps / total_skills) * 100, 1) if total_skills > 0 else 0.0
 
     return {
         "title": "AI MATCH ENGINE",
