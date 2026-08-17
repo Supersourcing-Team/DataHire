@@ -1270,6 +1270,9 @@ def get_submitted_applications(
             query = query.filter(func.lower(JobApplication.status).in_(["interviewing", "interviewed", "interview"]))
         elif status_lower in ("onhold", "on_hold", "on hold"):
             query = query.filter(func.lower(JobApplication.status).in_(["onhold", "on_hold"]))
+        elif status_lower == "applied":
+            # "applied" represents the "Applications" tab, which shows all applications
+            pass
         else:
             query = query.filter(func.lower(JobApplication.status) == status_lower)
 
@@ -1499,6 +1502,8 @@ def get_job_application_stats(
         
         stats_data["total"] += count
         
+    stats_data["applied"] = stats_data["total"]
+        
     return JobApplicationStatsResponse(**stats_data)
 
 
@@ -1615,14 +1620,8 @@ def get_job_seeker_application_details(
         return "pending"
 
     # Helper to get stage updated_at timestamp
-    def get_stage_updated_at(completed_statuses: list, active_statuses: list = None) -> Optional[datetime]:
-        is_current_stage = False
-        if active_statuses and app_status in active_statuses:
-            is_current_stage = True
-        elif app_status == completed_statuses[0]:
-            is_current_stage = True
-            
-        if is_current_stage:
+    def get_stage_updated_at(completed_statuses: list, current_statuses: list) -> Optional[datetime]:
+        if app_status in current_statuses:
             return app.updated_at
             
         if app_status in completed_statuses:
@@ -1636,34 +1635,37 @@ def get_job_seeker_application_details(
 
     # 2. Candidate Shortlisted!
     shortlist_completed = ["shortlisted", "interviewing", "interviewed", "offered", "hired"]
+    shortlist_current = ["shortlisted"]
     shortlist_active = ["applied", "under_review"]
     timeline.append(
         TimelineEvent(
             title="Candidate Shortlisted!",
             status=get_stage_status(shortlist_completed, shortlist_active),
-            updated_at=get_stage_updated_at(shortlist_completed, shortlist_active)
+            updated_at=get_stage_updated_at(shortlist_completed, shortlist_current)
         )
     )
 
     # 3. Interviewed
-    interview_completed = ["interviewed", "offered", "hired"]
-    interview_active = ["interviewing"]
+    interview_completed = ["interviewing", "interviewed", "offered", "hired"]
+    interview_current = ["interviewing", "interviewed"]
+    interview_active = []
     timeline.append(
         TimelineEvent(
             title="Interviewed",
             status=get_stage_status(interview_completed, interview_active),
-            updated_at=get_stage_updated_at(interview_completed, interview_active)
+            updated_at=get_stage_updated_at(interview_completed, interview_current)
         )
     )
 
     # 4. Application successful (Candidate Selected!)
     success_completed = ["offered", "hired"]
+    success_current = ["offered", "hired"]
     success_active = ["interviewed"]
     timeline.append(
         TimelineEvent(
             title="Application successful",
             status=get_stage_status(success_completed, success_active),
-            updated_at=get_stage_updated_at(success_completed, success_active)
+            updated_at=get_stage_updated_at(success_completed, success_current)
         )
     )
 
@@ -4977,16 +4979,20 @@ def get_recommended_jobs(
     candidate_exp = candidate.experience_years if candidate.experience_years is not None else primary_resume.total_experience_years
     candidate_domain = candidate.taxonomy_domain_id if candidate.taxonomy_domain_id is not None else primary_resume.taxonomy_domain_id
 
-    # 3. Formulate exclusions subquery (exclude skipped jobs, but include applied jobs per comments)
+    # 3. Formulate exclusions subqueries (exclude skipped and already applied jobs)
     skipped_job_ids_query = select(CandidateSkippedJob.job_id).where(
         CandidateSkippedJob.candidate_id == candidate.id
+    )
+    applied_job_ids_query = select(JobApplication.job_id).where(
+        JobApplication.candidate_id == candidate.id
     )
 
     # 4. Fetch candidate pool of jobs
     query = db.query(JobPosting).filter(
         JobPosting.is_active == True,
         JobPosting.status == JobStatus.PUBLISHED,
-        ~JobPosting.id.in_(skipped_job_ids_query)
+        ~JobPosting.id.in_(skipped_job_ids_query),
+        ~JobPosting.id.in_(applied_job_ids_query)
     )
 
     if search:
