@@ -1694,14 +1694,8 @@ def get_applicant_profile(
         return "pending"
 
     # Helper to get stage updated_at timestamp
-    def get_stage_updated_at(completed_statuses: list, active_statuses: list = None) -> Optional[datetime]:
-        is_current_stage = False
-        if active_statuses and app_status in active_statuses:
-            is_current_stage = True
-        elif app_status == completed_statuses[0]:
-            is_current_stage = True
-            
-        if is_current_stage:
+    def get_stage_updated_at(completed_statuses: list, current_statuses: list) -> Optional[datetime]:
+        if app_status in current_statuses:
             return app.updated_at
             
         if app_status in completed_statuses:
@@ -1715,34 +1709,37 @@ def get_applicant_profile(
 
     # 2. Candidate Shortlisted!
     shortlist_completed = ["shortlisted", "interviewing", "interviewed", "offered", "hired"]
+    shortlist_current = ["shortlisted"]
     shortlist_active = ["applied", "under_review"]
     timeline.append(
         TimelineEvent(
             title="Candidate Shortlisted!",
             status=get_stage_status(shortlist_completed, shortlist_active),
-            updated_at=get_stage_updated_at(shortlist_completed, shortlist_active)
+            updated_at=get_stage_updated_at(shortlist_completed, shortlist_current)
         )
     )
 
     # 3. Interviewed
-    interview_completed = ["interviewed", "offered", "hired"]
-    interview_active = ["interviewing"]
+    interview_completed = ["interviewing", "interviewed", "offered", "hired"]
+    interview_current = ["interviewing", "interviewed"]
+    interview_active = []
     timeline.append(
         TimelineEvent(
             title="Interviewed",
             status=get_stage_status(interview_completed, interview_active),
-            updated_at=get_stage_updated_at(interview_completed, interview_active)
+            updated_at=get_stage_updated_at(interview_completed, interview_current)
         )
     )
 
     # 4. Application successful (Candidate Selected!)
     success_completed = ["offered", "hired"]
+    success_current = ["offered", "hired"]
     success_active = ["interviewed"]
     timeline.append(
         TimelineEvent(
             title="Application successful",
             status=get_stage_status(success_completed, success_active),
-            updated_at=get_stage_updated_at(success_completed, success_active)
+            updated_at=get_stage_updated_at(success_completed, success_current)
         )
     )
 
