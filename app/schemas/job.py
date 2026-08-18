@@ -433,6 +433,8 @@ class JobPosterApplicantProfileResponse(BaseModel):
     resume_file_name: Optional[str] = None
     resume_file_url: Optional[str] = None
     cover_letter: Optional[str] = None
+    cover_letter_url: Optional[str] = None
+    cover_letter_text: Optional[str] = None
     timeline: List[TimelineEvent]
     is_viewed: bool = False
     rejected_from: Optional[str] = None

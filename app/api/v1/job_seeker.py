@@ -1687,6 +1687,15 @@ def get_job_seeker_application_details(
             )
         )
 
+    # Resolve cover letter format
+    cover_letter_url = None
+    cover_letter_text = None
+    if app.cover_letter:
+        if app.cover_letter.strip().startswith(("http://", "https://", "s3://")):
+            cover_letter_url = s3_service.get_presigned_url(app.cover_letter)
+        else:
+            cover_letter_text = app.cover_letter
+
     # Prepare response
     return JobPosterApplicantProfileResponse(
         id=candidate.id,
@@ -1705,10 +1714,13 @@ def get_job_seeker_application_details(
         about_summary=about_summary,
         resume_file_name=resume.file_name if resume else None,
         resume_file_url=s3_service.get_presigned_url(resume.file_url) if resume else None,
-        cover_letter=s3_service.get_presigned_url(app.cover_letter) if app.cover_letter else None,
+        cover_letter=cover_letter_url or cover_letter_text,
+        cover_letter_url=cover_letter_url,
+        cover_letter_text=cover_letter_text,
         timeline=timeline,
         is_viewed=app.is_viewed,
-        rejected_from=app.rejected_from
+        rejected_from=app.rejected_from,
+        rejected_at=app.rejected_at
     )
 
 
