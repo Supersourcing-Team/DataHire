@@ -1270,6 +1270,9 @@ def get_submitted_applications(
             query = query.filter(func.lower(JobApplication.status).in_(["interviewing", "interviewed", "interview"]))
         elif status_lower in ("onhold", "on_hold", "on hold"):
             query = query.filter(func.lower(JobApplication.status).in_(["onhold", "on_hold"]))
+        elif status_lower == "applied":
+            # "applied" represents the "Applications" tab, which shows all applications
+            pass
         else:
             query = query.filter(func.lower(JobApplication.status) == status_lower)
 
@@ -1499,6 +1502,8 @@ def get_job_application_stats(
         
         stats_data["total"] += count
         
+    stats_data["applied"] = stats_data["total"]
+        
     return JobApplicationStatsResponse(**stats_data)
 
 
@@ -1615,14 +1620,8 @@ def get_job_seeker_application_details(
         return "pending"
 
     # Helper to get stage updated_at timestamp
-    def get_stage_updated_at(completed_statuses: list, active_statuses: list = None) -> Optional[datetime]:
-        is_current_stage = False
-        if active_statuses and app_status in active_statuses:
-            is_current_stage = True
-        elif app_status == completed_statuses[0]:
-            is_current_stage = True
-            
-        if is_current_stage:
+    def get_stage_updated_at(completed_statuses: list, current_statuses: list) -> Optional[datetime]:
+        if app_status in current_statuses:
             return app.updated_at
             
         if app_status in completed_statuses:
@@ -1636,34 +1635,37 @@ def get_job_seeker_application_details(
 
     # 2. Candidate Shortlisted!
     shortlist_completed = ["shortlisted", "interviewing", "interviewed", "offered", "hired"]
+    shortlist_current = ["shortlisted"]
     shortlist_active = ["applied", "under_review"]
     timeline.append(
         TimelineEvent(
             title="Candidate Shortlisted!",
             status=get_stage_status(shortlist_completed, shortlist_active),
-            updated_at=get_stage_updated_at(shortlist_completed, shortlist_active)
+            updated_at=get_stage_updated_at(shortlist_completed, shortlist_current)
         )
     )
 
     # 3. Interviewed
-    interview_completed = ["interviewed", "offered", "hired"]
-    interview_active = ["interviewing"]
+    interview_completed = ["interviewing", "interviewed", "offered", "hired"]
+    interview_current = ["interviewing", "interviewed"]
+    interview_active = []
     timeline.append(
         TimelineEvent(
             title="Interviewed",
             status=get_stage_status(interview_completed, interview_active),
-            updated_at=get_stage_updated_at(interview_completed, interview_active)
+            updated_at=get_stage_updated_at(interview_completed, interview_current)
         )
     )
 
     # 4. Application successful (Candidate Selected!)
     success_completed = ["offered", "hired"]
+    success_current = ["offered", "hired"]
     success_active = ["interviewed"]
     timeline.append(
         TimelineEvent(
             title="Application successful",
             status=get_stage_status(success_completed, success_active),
-            updated_at=get_stage_updated_at(success_completed, success_active)
+            updated_at=get_stage_updated_at(success_completed, success_current)
         )
     )
 
@@ -2069,10 +2071,10 @@ async def _optimize_resume_for_job_core(
     matched_skills = skills_eval["matched"]
     
     approved_keywords = payload.keywords if (payload and payload.keywords is not None) else None
-    target_skills = approved_keywords if approved_keywords is not None else job.resolved_skills
+    target_skills = approved_keywords if approved_keywords is not None else []
     union_skills = list(set(source_resume.extracted_skills or []) | set(target_skills))
     
-    section_keywords_map = {s.section_type: s.keywords for s in payload.sections} if (payload and payload.sections) else {}
+    section_keywords_map = {s.section_type.lower(): s.keywords for s in payload.sections} if (payload and payload.sections) else {}
     
     if existing_optimized_resume:
         resume_to_use = existing_optimized_resume
@@ -2096,21 +2098,27 @@ async def _optimize_resume_for_job_core(
         for section in source_resume.sections:
             should_optimize = True
             if payload and payload.sections is not None:
-                should_optimize = section.section_type in {s.section_type for s in payload.sections}
+                should_optimize = section.section_type.lower() in {s.section_type.lower() for s in payload.sections}
                 
             existing_sec = existing_sections_by_type.get(section.section_type)
             if should_optimize:
-                section_kw = section_keywords_map.get(section.section_type, target_skills)
+                section_kw = section_keywords_map.get(section.section_type.lower(), target_skills)
                 result = optimization_engine.optimize_section(job, section, keywords=section_kw)
                 opt_content = result.get("optimized_content")
                 opt_structured = result.get("optimized_structured_content")
                 missing_kw = result.get("missing_keywords", [])
                 feedback = result.get("optimization_feedback", "")
             else:
-                opt_content = section.original_content
-                opt_structured = None
-                missing_kw = []
-                feedback = ""
+                if existing_sec:
+                    opt_content = existing_sec.optimized_content
+                    opt_structured = existing_sec.optimized_structured_content
+                    missing_kw = existing_sec.optimization_metadata.get("missing_keywords", []) if existing_sec.optimization_metadata else []
+                    feedback = existing_sec.optimization_metadata.get("feedback", "") if existing_sec.optimization_metadata else ""
+                else:
+                    opt_content = section.optimized_content or section.original_content
+                    opt_structured = section.optimized_structured_content or section.structured_content
+                    missing_kw = []
+                    feedback = ""
             
             if existing_sec:
                 existing_sec.original_content = section.original_content
@@ -2163,18 +2171,18 @@ async def _optimize_resume_for_job_core(
         for section in source_resume.sections:
             should_optimize = True
             if payload and payload.sections is not None:
-                should_optimize = section.section_type in {s.section_type for s in payload.sections}
+                should_optimize = section.section_type.lower() in {s.section_type.lower() for s in payload.sections}
                 
             if should_optimize:
-                section_kw = section_keywords_map.get(section.section_type, target_skills)
+                section_kw = section_keywords_map.get(section.section_type.lower(), target_skills)
                 result = optimization_engine.optimize_section(job, section, keywords=section_kw)
                 opt_content = result.get("optimized_content")
                 opt_structured = result.get("optimized_structured_content")
                 missing_kw = result.get("missing_keywords", [])
                 feedback = result.get("optimization_feedback", "")
             else:
-                opt_content = section.original_content
-                opt_structured = None
+                opt_content = section.optimized_content or section.original_content
+                opt_structured = section.optimized_structured_content or section.structured_content
                 missing_kw = []
                 feedback = ""
                 
@@ -2621,10 +2629,10 @@ async def optimize_resume_general_endpoint(
     
     # Optimize resume sections
     new_sections = []
-    sections_to_opt = payload.sections or [s.value for s in SectionType]
+    sections_to_opt = [s.lower() for s in payload.sections] if payload.sections is not None else [s.value.lower() for s in SectionType]
     
     for section in primary_resume.sections:
-        if section.section_type in sections_to_opt:
+        if section.section_type.lower() in sections_to_opt:
             result = optimization_engine.optimize_section_general_with_keywords(
                 section, target_role, payload.keywords
             )
@@ -2632,9 +2640,9 @@ async def optimize_resume_general_endpoint(
             opt_structured = result.get("optimized_structured_content")
             feedback = result.get("optimization_feedback", "")
         else:
-            opt_content = section.original_content
-            opt_structured = None
-            feedback = ""
+            opt_content = section.optimized_content or section.original_content
+            opt_structured = section.optimized_structured_content or section.structured_content
+            feedback = section.optimization_metadata.get("feedback", "") if section.optimization_metadata else ""
             
         new_section = ResumeSection(
             resume_id=new_resume.id,
@@ -4977,16 +4985,20 @@ def get_recommended_jobs(
     candidate_exp = candidate.experience_years if candidate.experience_years is not None else primary_resume.total_experience_years
     candidate_domain = candidate.taxonomy_domain_id if candidate.taxonomy_domain_id is not None else primary_resume.taxonomy_domain_id
 
-    # 3. Formulate exclusions subquery (exclude skipped jobs, but include applied jobs per comments)
+    # 3. Formulate exclusions subqueries (exclude skipped and already applied jobs)
     skipped_job_ids_query = select(CandidateSkippedJob.job_id).where(
         CandidateSkippedJob.candidate_id == candidate.id
+    )
+    applied_job_ids_query = select(JobApplication.job_id).where(
+        JobApplication.candidate_id == candidate.id
     )
 
     # 4. Fetch candidate pool of jobs
     query = db.query(JobPosting).filter(
         JobPosting.is_active == True,
         JobPosting.status == JobStatus.PUBLISHED,
-        ~JobPosting.id.in_(skipped_job_ids_query)
+        ~JobPosting.id.in_(skipped_job_ids_query),
+        ~JobPosting.id.in_(applied_job_ids_query)
     )
 
     if search:

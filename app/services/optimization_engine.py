@@ -16,7 +16,7 @@ class GeminiOptimizationEngine:
         # Use gemini-3.1-flash-lite for fast, structured generation with stable high quota limits
         self.model = genai.GenerativeModel('gemini-3.1-flash-lite')
 
-    def _get_system_instruction_for_section(self, section_type: SectionType, has_structured: bool = False) -> str:
+    def _get_system_instruction_for_section(self, section_type: SectionType, keywords: List[str], has_structured: bool = False) -> str:
         """
         Returns a modular, task-specific prompt based on the section being optimized.
         """
@@ -24,6 +24,8 @@ class GeminiOptimizationEngine:
             section_type = SectionType(section_type)
         except ValueError:
             section_type = SectionType.OTHER
+
+        keyword_str = ", ".join(keywords) if keywords else "None"
 
         if has_structured:
             base_instruction = (
@@ -49,21 +51,34 @@ class GeminiOptimizationEngine:
                 "}\n"
             )
 
+        # Enforce Preservation of Essential Fields (No Hallucination)
+        base_instruction += (
+            "CRITICAL REQUIREMENT TO PREVENT HALLUCINATION & FABRICATION:\n"
+            "1. You MUST retain all essential original facts, details, and identifiers exactly as they are in the original content. "
+            "This includes: candidate name, email, phone, location, links, company names, job titles, employment dates, university/institution names, degrees, graduation dates, project titles, and certification details.\n"
+            "2. DO NOT change, fabricate, or omit any of these essential details.\n"
+            "3. DO NOT fabricate any roles, companies, projects, achievements, or skills that are not present in the candidate's original resume.\n"
+            "4. Only optimize/polish descriptions, bullets, or summaries for clarity, impact, and natural keyword integration.\n"
+        )
+
+        if keywords:
+            base_instruction += f"You MUST weave in these keywords naturally if possible: {keyword_str}.\n"
+        else:
+            base_instruction += "DO NOT add any new skills, tools, or keywords that are not already present in the candidate's original resume content.\n"
+
         if section_type == SectionType.SKILLS:
             if has_structured:
                 return base_instruction + (
                     "TASK: This is the SKILLS section. You MUST output raw JSON matching the required schema.\n"
                     "For 'optimized_structured_content', you are given a dictionary with 'technical', 'soft', and 'tools' keys (lists of strings).\n"
-                    "Inject the missing keywords from the job description into the appropriate list (usually 'technical') in that dictionary and return it.\n"
+                    "Inject the target keywords into the appropriate list (usually 'technical') in that dictionary and return it. If no target keywords are provided, return the original lists unchanged.\n"
                     "For 'optimized_content', return a clean, categorized, comma-separated plain-text string representation of all skills."
                 )
             else:
                 return base_instruction + (
                     "TASK: This is the SKILLS section. Do NOT write paragraphs or bullet points. "
                     "Only extract, format, and return a clean comma-separated or newline-separated list of skills. "
-                    "Compare the candidate's existing skills with the job requirements and suggest missing technical keywords. "
-                    "Most importantly, you MUST append the missing keywords from the job requirements (the 'Required Skills' list) "
-                    "to the 'optimized_content' list of skills so that the optimized version actually contains them."
+                    "Append the target keywords if provided. If no target keywords are provided, do NOT add any new skills."
                 )
         elif section_type == SectionType.EXPERIENCE:
             if has_structured:
@@ -306,7 +321,7 @@ class GeminiOptimizationEngine:
         job_skills_str = ", ".join(job_skills) if job_skills else "None specified"
         
         has_structured = section.structured_content is not None
-        system_instruction = self._get_system_instruction_for_section(section.section_type, has_structured=has_structured)
+        system_instruction = self._get_system_instruction_for_section(section.section_type, keywords=job_skills, has_structured=has_structured)
         
         if has_structured:
             candidate_part = (
@@ -622,7 +637,6 @@ class GeminiOptimizationEngine:
                 "  \"optimized_structured_content\": <any JSON matching original structured schema>,\n"
                 "  \"optimization_feedback\": \"string\"\n"
                 "}\n"
-                f"You MUST weave in these keywords naturally if possible: {', '.join(keywords)}.\n"
             )
         else:
             base_instruction = (
@@ -633,21 +647,35 @@ class GeminiOptimizationEngine:
                 "  \"optimized_content\": \"string\",\n"
                 "  \"optimization_feedback\": \"string\"\n"
                 "}\n"
-                f"You MUST weave in these keywords naturally if possible: {', '.join(keywords)}.\n"
             )
+
+        # Enforce Preservation of Essential Fields (No Hallucination)
+        base_instruction += (
+            "CRITICAL REQUIREMENT TO PREVENT HALLUCINATION & FABRICATION:\n"
+            "1. You MUST retain all essential original facts, details, and identifiers exactly as they are in the original content. "
+            "This includes: candidate name, email, phone, location, links, company names, job titles, employment dates, university/institution names, degrees, graduation dates, project titles, and certification details.\n"
+            "2. DO NOT change, fabricate, or omit any of these essential details.\n"
+            "3. DO NOT fabricate any roles, companies, projects, achievements, or skills that are not present in the candidate's original resume.\n"
+            "4. Only optimize/polish descriptions, bullets, or summaries for clarity, impact, and natural keyword integration.\n"
+        )
+
+        if keywords:
+            base_instruction += f"You MUST weave in these keywords naturally if possible: {', '.join(keywords)}.\n"
+        else:
+            base_instruction += "DO NOT add any new skills, tools, or keywords that are not already present in the candidate's original resume content.\n"
 
         if section_type == SectionType.SKILLS:
             if has_structured:
                 return base_instruction + (
                     "TASK: This is the SKILLS section. You MUST output raw JSON matching the required schema.\n"
                     "For 'optimized_structured_content', you are given a dictionary with 'technical', 'soft', and 'tools' keys (lists of strings).\n"
-                    "Inject the target keywords into the appropriate list (usually 'technical') in that dictionary and return it.\n"
+                    "Inject the target keywords into the appropriate list (usually 'technical') in that dictionary and return it. If no target keywords are provided, return the original lists unchanged.\n"
                     "For 'optimized_content', return a clean, categorized, comma-separated plain-text string representation of all skills."
                 )
             else:
                 return base_instruction + (
                     "TASK: This is the SKILLS section. Do NOT write paragraphs or bullet points. "
-                    "Only return a clean comma-separated or newline-separated list of skills, appending/including the target keywords."
+                    "Only return a clean comma-separated or newline-separated list of skills, appending/including the target keywords if provided. If no target keywords are provided, do NOT add any new skills."
                 )
         elif section_type == SectionType.EXPERIENCE:
             if has_structured:
