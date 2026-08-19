@@ -260,6 +260,7 @@ class ActionFeedItem(BaseModel):
     title: str
     description: str
     created_at: datetime
+    icon: Optional[str] = None
 
 
 class FunnelStagePoint(BaseModel):

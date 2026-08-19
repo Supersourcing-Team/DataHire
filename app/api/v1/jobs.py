@@ -649,14 +649,11 @@ def get_employer_dashboard_overview(
     )
 
     # 2. Monthly Success Rate (Trend)
-    # Fetch all hired applications for the company to aggregate in Python (fully DB independent)
-    hired_apps = (
-        db.query(JobApplication.created_at)
+    # Fetch all applications for the company to aggregate in Python (fully DB independent)
+    all_apps = (
+        db.query(JobApplication.created_at, JobApplication.status)
         .join(JobPosting, JobApplication.job_id == JobPosting.id)
-        .filter(
-            JobPosting.company_id == company_id,
-            JobApplication.status.in_(["offered", "hired"])
-        )
+        .filter(JobPosting.company_id == company_id)
         .all()
     )
 
@@ -669,20 +666,38 @@ def get_employer_dashboard_overview(
     monthly_success_rate = []
 
     for year, month_num, month_name in months_list:
-        count_in_month = sum(
-            1 for (created_at,) in hired_apps
+        total_in_month = sum(
+            1 for (created_at, _) in all_apps
             if created_at.year == year and created_at.month == month_num
         )
+        hired_in_month = sum(
+            1 for (created_at, status) in all_apps
+            if created_at.year == year and created_at.month == month_num and status in ["offered", "hired"]
+        )
+        
+        rate = 0.0
+        if total_in_month > 0:
+            rate = round((hired_in_month / total_in_month) * 100, 2)
         
         monthly_success_rate.append(
             MonthlySuccessRatePoint(
                 month=month_name,
-                rate=float(count_in_month)
+                rate=rate
             )
         )
 
     # 3. Candidates Hired By Domain
     from app.models.taxonomy import TaxonomyDomain
+    
+    # Get all domains associated with the company's job postings to show all active domains on UI chart
+    company_domains = (
+        db.query(TaxonomyDomain.name)
+        .join(JobPosting, JobPosting.taxonomy_domain_id == TaxonomyDomain.id)
+        .filter(JobPosting.company_id == company_id)
+        .distinct()
+        .all()
+    )
+    
     domain_query = (
         db.query(TaxonomyDomain.name, func.count(JobApplication.id))
         .join(JobPosting, JobPosting.taxonomy_domain_id == TaxonomyDomain.id)
@@ -695,12 +710,17 @@ def get_employer_dashboard_overview(
         .all()
     )
 
+    domain_counts = {name: 0 for (name,) in company_domains if name}
+    for name, count in domain_query:
+        if name:
+            domain_counts[name] = count
+
     hires_by_domain = [
         HiresByDomainPoint(
             domain=name,
             count=count
         )
-        for name, count in domain_query
+        for name, count in domain_counts.items()
     ]
 
     # 4. Recent Action Feed
@@ -723,7 +743,8 @@ def get_employer_dashboard_overview(
                 type="action_required",
                 title="Hiring action required",
                 description=f"Candidate applied for {app.job.title}. Pending decision is waiting.",
-                created_at=app.created_at
+                created_at=app.created_at,
+                icon="target"
             )
         )
         feed_id_counter += 1
@@ -745,7 +766,8 @@ def get_employer_dashboard_overview(
                 type="warning",
                 title="Complete draft job posting",
                 description=f"Draft post '{dj.title}' was updated. Revise skills for today's market.",
-                created_at=dj.updated_at
+                created_at=dj.updated_at,
+                icon="alert-circle"
             )
         )
         feed_id_counter += 1
