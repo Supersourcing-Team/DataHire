@@ -528,6 +528,35 @@ class AdminJobReportResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AdminJobReportDetailResponse(BaseModel):
+    id: UUID
+    reason: str
+    description: Optional[str] = None
+    created_at: datetime
+    
+    # Candidate details
+    candidate_id: UUID
+    candidate_name: str
+    candidate_email: str
+    candidate_phone: Optional[str] = None
+    candidate_profile_picture: Optional[str] = None
+    
+    # Job details
+    job_id: UUID
+    job_title: str
+    job_description: Optional[str] = None
+    job_status: str
+    job_is_active: bool
+    job_created_at: datetime
+    
+    # Company details
+    company_id: Optional[UUID] = None
+    company_name: Optional[str] = None
+    company_logo_url: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ActiveTaxonomyRolesMetric(BaseModel):
     count: int
     label: str

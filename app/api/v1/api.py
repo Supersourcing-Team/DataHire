@@ -104,6 +104,11 @@ async def api_info():
             "admin_candidate_experience_levels": "/admin/dashboard/candidate_analytics/experience_levels",
             "admin_candidate_skill_density": "/admin/dashboard/candidate_analytics/skill_density",
             "admin_update_user_plan": "/admin/users/update-plan",
+            "admin_job_reports": "/admin/job-reports",
+            "admin_job_report_details": "/admin/job-reports/{report_id}",
+            "admin_delete_job_report": "/admin/job-reports/{report_id}",
+            "admin_toggle_job_active": "/admin/jobs/{job_id}/toggle-active",
+            "admin_delete_job": "/admin/jobs/{job_id}",
             # Add more endpoints as they are created
         }
     }
