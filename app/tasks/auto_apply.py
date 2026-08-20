@@ -46,7 +46,7 @@ def execute_candidate_auto_apply_task(candidate_id: str) -> bool:
         has_preferences = bool(
             pref_role_str or 
             pref_loc_str or 
-            candidate.pref_min_salary is not None
+            (candidate.pref_min_salary is not None and candidate.pref_min_salary > 0)
         )
         if not has_preferences:
             logger.info(f"Candidate {candidate_id} has no preferences set.")
@@ -319,7 +319,7 @@ def dispatch_auto_apply_all_task() -> dict:
             has_preferences = bool(
                 pref_role_str or 
                 pref_loc_str or 
-                candidate.pref_min_salary is not None
+                (candidate.pref_min_salary is not None and candidate.pref_min_salary > 0)
             )
             if not has_preferences:
                 logger.debug(f"Candidate {candidate.id} excluded: no preferences set (role: {candidate.pref_role_type}, location: {candidate.pref_locations}, salary: {candidate.pref_min_salary}).")
