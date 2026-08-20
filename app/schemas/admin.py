@@ -594,6 +594,25 @@ class AdminUpdatePlanRequest(BaseModel):
     plan_tier: str
 
 
+class AdminCompaniesPaginatedResponse(BaseModel):
+    companies: List[AdminCompanyResponse]
+    total: int
+    offset: int
+    limit: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AdminJobsPaginatedResponse(BaseModel):
+    jobs: List[AdminJobResponse]
+    total: int
+    offset: int
+    limit: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+
 
 
 
