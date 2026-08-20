@@ -2,7 +2,7 @@ from datetime import date, datetime, timezone, timedelta
 from typing import List, Optional, Dict
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, case
+from sqlalchemy import func, case, or_
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.db.session import get_db
@@ -25,9 +25,11 @@ from app.schemas.admin import (
     AdminCandidateResumeResponse,
     AdminCandidateApplicationResponse,
     AdminCompanyResponse,
+    AdminCompaniesPaginatedResponse,
     AdminHiringFunnelAnalyticsResponse,
     AdminHiringFunnelDataPoint,
     AdminJobResponse,
+    AdminJobsPaginatedResponse,
     AdminJobDashboardResponse,
     AdminJobDetailResponse,
     AdminOrganizationAboutCompany,
@@ -870,7 +872,7 @@ def get_candidate_application_history(
     return response
 
 
-@router.get("/companies", response_model=List[AdminCompanyResponse])
+@router.get("/companies", response_model=AdminCompaniesPaginatedResponse)
 def get_all_companies(
     search: Optional[str] = None,
     organization_type_id: Optional[int] = None,
@@ -879,7 +881,7 @@ def get_all_companies(
     limit: int = 100,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
-) -> List[AdminCompanyResponse]:
+) -> AdminCompaniesPaginatedResponse:
     """List all companies registered in the platform (Admin only)."""
     query = db.query(Company)
 
@@ -891,6 +893,8 @@ def get_all_companies(
 
     if industry_id not in (None, 0):
         query = query.filter(Company.industry_id == industry_id)
+
+    total = query.count()
 
     companies = (
         query.options(
@@ -910,7 +914,7 @@ def get_all_companies(
     response = []
     for comp in companies:
         response.append(_format_company_response(comp))
-    return response
+    return AdminCompaniesPaginatedResponse(companies=response, total=total, offset=skip, limit=limit)
 
 
 @router.get("/companies/{company_id}/details", response_model=AdminOrganizationDetailResponse)
@@ -1118,7 +1122,7 @@ def get_company_jobs(
     return response
 
 
-@router.get("/jobs", response_model=List[AdminJobResponse])
+@router.get("/jobs", response_model=AdminJobsPaginatedResponse)
 def get_all_jobs(
     search: Optional[str] = None,
     work_mode_id: Optional[int] = None,
@@ -1127,7 +1131,7 @@ def get_all_jobs(
     limit: int = 100,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
-) -> List[AdminJobResponse]:
+) -> AdminJobsPaginatedResponse:
     """List all jobs (active, inactive, draft) posted in the platform (Admin only)."""
     query = db.query(JobPosting)
 
@@ -1159,6 +1163,8 @@ def get_all_jobs(
             query = query.filter(JobPosting.requires_visa_sponsorship.isnot(None))
         elif val in ("false", "0", "no", "no_sponsorship", "does_not_require"):
             query = query.filter(JobPosting.requires_visa_sponsorship.is_(None))
+
+    total = query.count()
 
     jobs = (
         query.options(
@@ -1211,7 +1217,7 @@ def get_all_jobs(
                 profile_picture=_get_job_profile_picture(job)
             )
         )
-    return response
+    return AdminJobsPaginatedResponse(jobs=response, total=total, offset=skip, limit=limit)
 
 
 @router.get("/dashboard/jobs", response_model=AdminJobDashboardResponse)
