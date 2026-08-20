@@ -55,6 +55,7 @@ from app.schemas.admin import (
     AdminCandidateStateResponse,
     AdminJobCandidateResponse,
     AdminJobReportResponse,
+    AdminJobReportDetailResponse,
     AdminAIMatchInsightsResponse,
     AdminUpdatePlanRequest
 )
@@ -1891,15 +1892,34 @@ def close_job(
 
 @router.get("/job-reports", response_model=List[AdminJobReportResponse])
 def get_job_reports(
+    search: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
 ) -> List[AdminJobReportResponse]:
     """Retrieve all job reports submitted by candidates (Admin only)."""
+    query = db.query(JobReport)
+    
+    if search:
+        search_filter = f"%{search.strip()}%"
+        query = (
+            query.join(Candidate, JobReport.candidate_id == Candidate.id)
+            .join(User, Candidate.user_id == User.id)
+            .join(JobPosting, JobReport.job_id == JobPosting.id)
+            .outerjoin(Company, JobPosting.company_id == Company.id)
+            .filter(
+                (JobPosting.title.ilike(search_filter)) |
+                (Candidate.full_name.ilike(search_filter)) |
+                (User.email.ilike(search_filter)) |
+                (Company.name.ilike(search_filter)) |
+                (JobReport.reason.ilike(search_filter)) |
+                (JobReport.description.ilike(search_filter))
+            )
+        )
+        
     reports = (
-        db.query(JobReport)
-        .options(
+        query.options(
             joinedload(JobReport.candidate).joinedload(Candidate.user),
             joinedload(JobReport.job).joinedload(JobPosting.company)
         )
@@ -1926,6 +1946,161 @@ def get_job_reports(
             )
         )
     return response
+
+
+@router.get("/job-reports/{report_id}", response_model=AdminJobReportDetailResponse)
+def get_job_report_detail(
+    report_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminJobReportDetailResponse:
+    """Retrieve detailed information of a specific job report (Admin only)."""
+    report = (
+        db.query(JobReport)
+        .options(
+            joinedload(JobReport.candidate).joinedload(Candidate.user),
+            joinedload(JobReport.job).joinedload(JobPosting.company)
+        )
+        .filter(JobReport.id == report_id)
+        .first()
+    )
+    
+    if not report:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job report not found."
+        )
+        
+    candidate_profile_pic = s3_service.get_presigned_url(report.candidate.profile_picture) if (report.candidate and report.candidate.profile_picture) else None
+    company_logo = s3_service.get_presigned_url(report.job.company.logo_url) if (report.job and report.job.company and report.job.company.logo_url) else None
+    
+    return AdminJobReportDetailResponse(
+        id=report.id,
+        reason=report.reason,
+        description=report.description,
+        created_at=report.created_at,
+        
+        candidate_id=report.candidate_id,
+        candidate_name=report.candidate.full_name if report.candidate else "Unknown Candidate",
+        candidate_email=report.candidate.user.email if report.candidate and report.candidate.user else "Unknown Email",
+        candidate_phone=report.candidate.phone if report.candidate else None,
+        candidate_profile_picture=candidate_profile_pic,
+        
+        job_id=report.job_id,
+        job_title=report.job.title if report.job else "Unknown Position",
+        job_description=report.job.description if report.job else None,
+        job_status=report.job.status if report.job else "Unknown Status",
+        job_is_active=report.job.is_active if report.job else False,
+        job_created_at=report.job.created_at if report.job else report.created_at,
+        
+        company_id=report.job.company_id if (report.job and report.job.company) else None,
+        company_name=report.job.company.name if (report.job and report.job.company) else None,
+        company_logo_url=company_logo
+    )
+
+
+@router.delete("/job-reports/{report_id}", status_code=status.HTTP_200_OK)
+def delete_job_report(
+    report_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Delete (dismiss) a job report (Admin only)."""
+    report = db.query(JobReport).filter(JobReport.id == report_id).first()
+    if not report:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job report not found."
+        )
+        
+    db.delete(report)
+    db.commit()
+    return {"message": "Job report dismissed successfully."}
+
+
+@router.put("/jobs/{job_id}/toggle-active", response_model=AdminJobResponse)
+def toggle_job_active_status(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+) -> AdminJobResponse:
+    """Toggle a job posting's active status (Admin only)."""
+    job = db.query(JobPosting).filter(JobPosting.id == job_id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job posting not found."
+        )
+        
+    job.is_active = not job.is_active
+    db.commit()
+    
+    updated_job = (
+        db.query(JobPosting)
+        .options(
+            joinedload(JobPosting.company).joinedload(Company.employers).joinedload(Employer.user),
+            joinedload(JobPosting.employment_type),
+            joinedload(JobPosting.work_mode),
+            joinedload(JobPosting.city),
+            joinedload(JobPosting.state),
+            joinedload(JobPosting.country),
+            joinedload(JobPosting.currency)
+        )
+        .filter(JobPosting.id == job_id)
+        .first()
+    )
+    
+    return AdminJobResponse(
+        id=updated_job.id,
+        company_id=updated_job.company_id,
+        company_name=updated_job.company.name if updated_job.company else None,
+        title=updated_job.title,
+        description=updated_job.description,
+        employment_type_id=updated_job.employment_type_id,
+        employment_type_name=updated_job.employment_type.name if updated_job.employment_type else None,
+        work_mode_id=updated_job.work_mode_id,
+        work_mode_name=updated_job.work_mode.name if updated_job.work_mode else None,
+        city_id=updated_job.city_id,
+        city_name=updated_job.city.name if updated_job.city else None,
+        state_id=updated_job.state_id,
+        state_name=updated_job.state.name if updated_job.state else None,
+        country_id=updated_job.country_id,
+        country_name=updated_job.country.name if updated_job.country else None,
+        salary_min=updated_job.salary_min,
+        salary_max=updated_job.salary_max,
+        currency_id=updated_job.currency_id,
+        currency_code=updated_job.currency.code if updated_job.currency else None,
+        start_date=updated_job.start_date,
+        application_deadline=updated_job.application_deadline,
+        min_experience_years=updated_job.min_experience_years,
+        max_experience_years=updated_job.max_experience_years,
+        requires_visa_sponsorship=updated_job.requires_visa_sponsorship,
+        num_positions=updated_job.num_positions,
+        status=updated_job.status,
+        is_active=updated_job.is_active,
+        created_at=updated_job.created_at,
+        updated_at=updated_job.updated_at,
+        profile_picture=_get_job_profile_picture(updated_job)
+    )
+
+
+@router.delete("/jobs/{job_id}", status_code=status.HTTP_200_OK)
+def delete_job(
+    job_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Delete a job posting from the platform (Admin only)."""
+    job = db.query(JobPosting).filter(JobPosting.id == job_id).first()
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job posting not found."
+        )
+        
+    db.delete(job)
+    db.commit()
+    return {"message": "Job posting deleted successfully."}
 
 
 @router.post("/users/update-plan")
