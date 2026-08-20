@@ -58,7 +58,7 @@ def generate_cover_letter_text(candidate: Candidate, job: JobPosting, resume: Re
     response = model.generate_content(prompt)
     return response.text
 
-def generate_and_save_cover_letter(candidate: Candidate, job: JobPosting, resume: Resume, db: Session) -> str:
+def generate_and_save_cover_letter(candidate: Candidate, job: JobPosting, resume: Resume, db: Session) -> CoverLetter:
     """
     Generates cover letter text using Gemini API, creates a CoverLetter DB record,
     and updates candidate's monthly cover letters generated count.
@@ -81,10 +81,11 @@ def generate_and_save_cover_letter(candidate: Candidate, job: JobPosting, resume
         job_id=job.id,
         title=f"{job.title} Cover Letter",
         content=cover_letter_text,
+        cover_letter_url=None,
         is_default=False
     )
     db.add(new_cover_letter)
     candidate.cover_letters_generated_this_month += 1
     db.add(candidate)
     
-    return cover_letter_text
+    return new_cover_letter

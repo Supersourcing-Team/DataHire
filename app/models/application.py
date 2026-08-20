@@ -15,6 +15,7 @@ class JobApplication(Base):
     status = Column(String(50), default="applied", nullable=False)  # applied, under_review, interviewing, offered, rejected
     apply_mode = Column(String(50), default="apply", nullable=False)  # apply (manual), auto-apply
     cover_letter = Column(String, nullable=True)  # Store generated cover letter or notes
+    cover_letter_id = Column(UUID(as_uuid=True), ForeignKey("cover_letters.id", ondelete="SET NULL"), nullable=True)
     is_viewed = Column(Boolean, default=False, nullable=False)
     rejected_from = Column(String(50), nullable=True)
     rejected_at = Column(DateTime(timezone=True), nullable=True)
@@ -27,6 +28,7 @@ class JobApplication(Base):
     candidate = relationship("Candidate", back_populates="applications")
     job = relationship("JobPosting")
     resume = relationship("Resume")
+    cover_letter_ref = relationship("CoverLetter")
 
     __table_args__ = (
         UniqueConstraint("candidate_id", "job_id", name="uq_candidate_job_application"),

@@ -160,6 +160,7 @@ class JobApplicationSubmitRequest(BaseModel):
     resume_id: Optional[UUID] = None
     cover_letter_url: Optional[str] = None
     cover_letter_id: Optional[UUID] = None
+    cover_letter_text: Optional[str] = None
 
 
 class JobApplicationSubmitDetail(BaseModel):
@@ -167,6 +168,7 @@ class JobApplicationSubmitDetail(BaseModel):
     applied_at: datetime
     resume_url: str
     cover_letter_url: Optional[str] = None
+    cover_letter_text: Optional[str] = None
 
 
 class JobApplicationSubmitResponse(BaseModel):
@@ -191,7 +193,9 @@ class OptimizeResumeResponse(BaseModel):
     optimized_sections: List[OptimizeSectionResult]
 
 class CoverLetterResponse(BaseModel):
-    cover_letter: str
+    cover_letter: Optional[str] = None
+    cover_letter_url: Optional[str] = None
+    cover_letter_id: Optional[UUID] = None
 
 class CoverLetterGenerateRequest(BaseModel):
     customization: Optional[str] = None
@@ -288,7 +292,8 @@ class CoverLetterDetailResponse(BaseModel):
     job_title: Optional[str] = None
     company_name: Optional[str] = None
     title: str
-    content: str
+    content: Optional[str] = None
+    cover_letter_url: Optional[str] = None
     is_default: bool
     created_at: datetime
     updated_at: datetime
@@ -308,6 +313,7 @@ class CoverLetterCreateRequest(BaseModel):
 class CoverLetterUpdateRequest(BaseModel):
     title: Optional[str] = None
     content: Optional[str] = None
+    cover_letter_url: Optional[str] = None
 
 
 class SavedJobsStatusResponse(BaseModel):
