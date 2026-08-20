@@ -46,7 +46,7 @@ def execute_candidate_auto_apply_task(candidate_id: str) -> bool:
         has_preferences = bool(
             pref_role_str or 
             pref_loc_str or 
-            candidate.pref_min_salary is not None
+            (candidate.pref_min_salary is not None and candidate.pref_min_salary > 0)
         )
         if not has_preferences:
             logger.info(f"Candidate {candidate_id} has no preferences set.")
@@ -215,9 +215,11 @@ def execute_candidate_auto_apply_task(candidate_id: str) -> bool:
             app_status = "shortlisted" if ai_score >= threshold else "applied"
 
             cover_letter_content = None
+            cl_obj = None
             if needs_cl:
                 try:
-                    cover_letter_content = generate_and_save_cover_letter(candidate, job, primary_resume, db)
+                    cl_obj = generate_and_save_cover_letter(candidate, job, primary_resume, db)
+                    cover_letter_content = cl_obj.content
                 except Exception as ex:
                     logger.error(f"Failed to generate cover letter for job {job.id} for candidate {candidate.id}: {ex}")
                     # Refund credits in memory
@@ -231,6 +233,7 @@ def execute_candidate_auto_apply_task(candidate_id: str) -> bool:
                 status=app_status,
                 apply_mode="auto-apply",
                 cover_letter=cover_letter_content,
+                cover_letter_id=cl_obj.id if cl_obj else None,
                 resume_id=primary_resume.id
             )
 
@@ -316,7 +319,7 @@ def dispatch_auto_apply_all_task() -> dict:
             has_preferences = bool(
                 pref_role_str or 
                 pref_loc_str or 
-                candidate.pref_min_salary is not None
+                (candidate.pref_min_salary is not None and candidate.pref_min_salary > 0)
             )
             if not has_preferences:
                 logger.debug(f"Candidate {candidate.id} excluded: no preferences set (role: {candidate.pref_role_type}, location: {candidate.pref_locations}, salary: {candidate.pref_min_salary}).")

@@ -775,24 +775,58 @@ def apply_to_job(
     threshold = job.ai_score_threshold if (job.ai_score_threshold and job.ai_score_threshold > 0) else 70
     app_status = "shortlisted" if ai_score >= threshold else "applied"
 
-    # Resolve cover letter content if cover_letter_id is provided
-    cover_letter_content = payload.cover_letter_url
-    if payload.cover_letter_id:
+    # Resolve cover letter content and link it to the application
+    cover_letter_content = payload.cover_letter_text
+    cover_letter_url = payload.cover_letter_url
+    cl_id = payload.cover_letter_id
+
+    if cl_id:
         from app.models.cover_letter import CoverLetter
         cl = db.query(CoverLetter).filter(
-            CoverLetter.id == payload.cover_letter_id,
+            CoverLetter.id == cl_id,
             CoverLetter.candidate_id == candidate.id
         ).first()
         if not cl:
             raise HTTPException(status_code=404, detail="Cover letter not found.")
+        
+        # If payload contains updated content or url, save it in the database
+        updated = False
+        if payload.cover_letter_text is not None and payload.cover_letter_text != cl.content:
+            cl.content = payload.cover_letter_text
+            updated = True
+        if payload.cover_letter_url is not None and payload.cover_letter_url != cl.cover_letter_url:
+            cl.cover_letter_url = payload.cover_letter_url
+            updated = True
+        if updated:
+            db.add(cl)
+            db.flush()
+            
         cover_letter_content = cl.content
+        cover_letter_url = cl.cover_letter_url
+    elif cover_letter_content or cover_letter_url:
+        # Create a new CoverLetter record in the database
+        from app.models.cover_letter import CoverLetter
+        new_cl = CoverLetter(
+            candidate_id=candidate.id,
+            job_id=job.id,
+            title=f"{job.title} Cover Letter",
+            content=cover_letter_content,
+            cover_letter_url=cover_letter_url,
+            is_default=False
+        )
+        db.add(new_cl)
+        db.flush()
+        cl_id = new_cl.id
 
     # Check if cover letter is mandated for this job posting
-    if job.cover_letter_required and (not cover_letter_content or not cover_letter_content.strip()):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A cover letter is required to apply for this job."
-        )
+    if job.cover_letter_required:
+        has_text = cover_letter_content and cover_letter_content.strip()
+        has_url = cover_letter_url and cover_letter_url.strip()
+        if not has_text and not has_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A cover letter is required to apply for this job."
+            )
 
     # Create application record
     new_app = JobApplication(
@@ -801,6 +835,7 @@ def apply_to_job(
         status=app_status,
         apply_mode="apply",
         cover_letter=cover_letter_content,
+        cover_letter_id=cl_id,
         resume_id=resume.id if resume else None
     )
     
@@ -815,7 +850,8 @@ def apply_to_job(
             job_id=new_app.job_id,
             applied_at=new_app.created_at,
             resume_url=(resume.file_url if resume else None) or payload.resume_url or "",
-            cover_letter_url=cover_letter_content
+            cover_letter_url=s3_service.get_presigned_url(cover_letter_url) if cover_letter_url else None,
+            cover_letter_text=cover_letter_content
         )
     )
 
@@ -1690,7 +1726,11 @@ def get_job_seeker_application_details(
     # Resolve cover letter format
     cover_letter_url = None
     cover_letter_text = None
-    if app.cover_letter:
+    if app.cover_letter_ref:
+        cover_letter_text = app.cover_letter_ref.content
+        if app.cover_letter_ref.cover_letter_url:
+            cover_letter_url = s3_service.get_presigned_url(app.cover_letter_ref.cover_letter_url)
+    elif app.cover_letter:
         if app.cover_letter.strip().startswith(("http://", "https://", "s3://")):
             cover_letter_url = s3_service.get_presigned_url(app.cover_letter)
         else:
@@ -2815,9 +2855,11 @@ def generate_cover_letter_for_job(
         job_id=job.id,
         title=f"{job.title} Cover Letter",
         content=cover_letter_text,
+        cover_letter_url=None,
         is_default=False
     )
     db.add(new_cover_letter)
+    db.flush()
         
     # Increment usage
     candidate.cover_letters_generated_this_month += 1
@@ -2825,7 +2867,11 @@ def generate_cover_letter_for_job(
 
     db.commit()
     
-    return CoverLetterResponse(cover_letter=cover_letter_text)
+    return CoverLetterResponse(
+        cover_letter=cover_letter_text,
+        cover_letter_url=None,
+        cover_letter_id=new_cover_letter.id
+    )
 
 @router.get("/jobs/{job_id}/analyze-fit", response_model=FitAnalysisResponse)
 def analyze_fit_for_job(
@@ -3667,7 +3713,8 @@ def list_cover_letters(
                 job_title=job_title,
                 company_name=company_name,
                 title=cl.title,
-                content=s3_service.get_presigned_url(cl.content) if cl.content else "",
+                content=cl.content,
+                cover_letter_url=s3_service.get_presigned_url(cl.cover_letter_url) if cl.cover_letter_url else None,
                 is_default=cl.is_default,
                 created_at=cl.created_at,
                 updated_at=cl.updated_at,
@@ -3689,8 +3736,7 @@ def create_cover_letter(
     is_default = len(existing) == 0
     
     title = data.title or data.file_name or "Untitled Cover Letter"
-    content = data.content or data.file_url
-    if not content:
+    if not data.content and not data.file_url:
         raise HTTPException(
             status_code=400,
             detail="Either content or file_url must be provided."
@@ -3700,7 +3746,8 @@ def create_cover_letter(
         candidate_id=candidate.id,
         job_id=data.job_id,
         title=title,
-        content=content,
+        content=data.content,
+        cover_letter_url=data.file_url,
         is_default=is_default
     )
     db.add(new_cl)
@@ -3721,7 +3768,8 @@ def create_cover_letter(
         job_title=job_title,
         company_name=company_name,
         title=new_cl.title,
-        content=s3_service.get_presigned_url(new_cl.content) if new_cl.content else "",
+        content=new_cl.content,
+        cover_letter_url=s3_service.get_presigned_url(new_cl.cover_letter_url) if new_cl.cover_letter_url else None,
         is_default=new_cl.is_default,
         created_at=new_cl.created_at,
         updated_at=new_cl.updated_at,
@@ -3746,6 +3794,8 @@ def update_cover_letter(
         cl.title = data.title
     if data.content is not None:
         cl.content = data.content
+    if data.cover_letter_url is not None:
+        cl.cover_letter_url = data.cover_letter_url
         
     db.commit()
     db.refresh(cl)
@@ -3764,7 +3814,8 @@ def update_cover_letter(
         job_title=job_title,
         company_name=company_name,
         title=cl.title,
-        content=s3_service.get_presigned_url(cl.content) if cl.content else "",
+        content=cl.content,
+        cover_letter_url=s3_service.get_presigned_url(cl.cover_letter_url) if cl.cover_letter_url else None,
         is_default=cl.is_default,
         created_at=cl.created_at,
         updated_at=cl.updated_at,
@@ -4445,9 +4496,11 @@ def execute_auto_apply(
         app_status = "shortlisted" if ai_score >= threshold else "applied"
 
         cover_letter_content = None
+        cl_obj = None
         if needs_cl:
             try:
-                cover_letter_content = generate_and_save_cover_letter(candidate, job, primary_resume, db)
+                cl_obj = generate_and_save_cover_letter(candidate, job, primary_resume, db)
+                cover_letter_content = cl_obj.content
             except Exception as ex:
                 logger.error(f"Failed to generate cover letter for job {job.id} for candidate {candidate.id}: {ex}")
                 # Refund credits in memory
@@ -4461,6 +4514,7 @@ def execute_auto_apply(
             status=app_status,
             apply_mode="auto-apply",
             cover_letter=cover_letter_content,
+            cover_letter_id=cl_obj.id if cl_obj else None,
             resume_id=primary_resume.id
         )
         

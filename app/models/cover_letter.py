@@ -14,7 +14,8 @@ class CoverLetter(Base):
     job_id = Column(UUID(as_uuid=True), ForeignKey("job_postings.id", ondelete="SET NULL"), nullable=True)
     
     title = Column(String(255), nullable=False)
-    content = Column(Text, nullable=False)
+    content = Column(Text, nullable=True)
+    cover_letter_url = Column(String(512), nullable=True)
     is_default = Column(Boolean, default=False, nullable=False)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

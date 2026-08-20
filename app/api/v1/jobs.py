@@ -1786,7 +1786,11 @@ def get_applicant_profile(
     # Resolve cover letter format
     cover_letter_url = None
     cover_letter_text = None
-    if app.cover_letter:
+    if app.cover_letter_ref:
+        cover_letter_text = app.cover_letter_ref.content
+        if app.cover_letter_ref.cover_letter_url:
+            cover_letter_url = s3_service.get_presigned_url(app.cover_letter_ref.cover_letter_url)
+    elif app.cover_letter:
         if app.cover_letter.strip().startswith(("http://", "https://", "s3://")):
             cover_letter_url = s3_service.get_presigned_url(app.cover_letter)
         else:

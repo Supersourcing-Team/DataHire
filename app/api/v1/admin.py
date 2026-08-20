@@ -1792,7 +1792,7 @@ def get_job_candidates_pipeline(
         if not candidate:
             continue
 
-        app_type = "Auto Applied" if app.cover_letter else "Manual"
+        app_type = "Auto Applied" if (app.cover_letter or app.cover_letter_id) else "Manual"
 
         primary_resume = next((r for r in candidate.resumes if r.is_primary), None)
         resume_url = s3_service.get_presigned_url(primary_resume.file_url) if primary_resume else None
