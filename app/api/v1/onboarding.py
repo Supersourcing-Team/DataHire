@@ -65,11 +65,20 @@ async def candidate_step_1(
         from app.services.plans_service import PLAN_LIMITS
         tier = candidate.plan_tier or "free"
         limits = PLAN_LIMITS.get_limits(tier, db)
-        existing_resumes_count = db.query(Resume).filter(
+        existing_resumes = db.query(Resume).filter(
             Resume.candidate_id == candidate.id,
             Resume.is_deleted == False
-        ).count()
-        if existing_resumes_count >= limits["saved_resumes_limit"]:
+        ).all()
+        
+        uploaded_resumes_count = sum(1 for r in existing_resumes if not r.is_ai_optimized)
+        
+        if uploaded_resumes_count >= limits["resume_upload_limits"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"You have reached your limit of {limits['resume_upload_limits']} uploaded resumes. Please delete an existing resume to complete onboarding."
+            )
+            
+        if len(existing_resumes) >= limits["saved_resumes_limit"]:
             raise HTTPException(
                 status_code=400,
                 detail=f"You have reached your limit of {limits['saved_resumes_limit']} saved resumes. Please delete an existing resume to complete onboarding."

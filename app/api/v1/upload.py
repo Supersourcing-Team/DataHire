@@ -89,6 +89,14 @@ async def upload_file(
                 Resume.is_deleted == False
             ).all()
             
+            uploaded_resumes_count = sum(1 for r in existing_resumes if not r.is_ai_optimized)
+            
+            if uploaded_resumes_count >= limits["resume_upload_limits"]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"You have reached your limit of {limits['resume_upload_limits']} uploaded resumes. Please delete an existing resume to upload a new one."
+                )
+                
             if len(existing_resumes) >= limits["saved_resumes_limit"]:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,

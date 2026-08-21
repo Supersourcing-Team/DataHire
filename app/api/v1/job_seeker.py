@@ -185,6 +185,7 @@ def get_dashboard_credits(
         cover_letters_limit=limits["monthly_cover_letter_limit"] if limits["monthly_cover_letter_limit"] < 9999 else "Unlimited",
         missing_skills_analysis_enabled=limits["missing_skills_analysis_enabled"],
         saved_resumes_limit=limits["saved_resumes_limit"] if limits["saved_resumes_limit"] < 9999 else "Unlimited",
+        resume_upload_limits=limits["resume_upload_limits"] if limits["resume_upload_limits"] < 9999 else "Unlimited",
         monthly_reset_date=next_month
     )
 
@@ -679,14 +680,23 @@ def apply_to_job(
             )
                 
     if not resume:
-        # Check saved resumes limit
+        # Check limits
         tier = candidate.plan_tier or "free"
         limits = PLAN_LIMITS.get_limits(tier, db)
-        existing_resumes_count = db.query(Resume).filter(
+        existing_resumes = db.query(Resume).filter(
             Resume.candidate_id == candidate.id,
             Resume.is_deleted == False
-        ).count()
-        if existing_resumes_count >= limits["saved_resumes_limit"]:
+        ).all()
+        
+        uploaded_resumes_count = sum(1 for r in existing_resumes if not r.is_ai_optimized)
+        
+        if uploaded_resumes_count >= limits["resume_upload_limits"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"You have reached your limit of {limits['resume_upload_limits']} uploaded resumes. Please delete an existing resume to apply with a new one."
+            )
+            
+        if len(existing_resumes) >= limits["saved_resumes_limit"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"You have reached your limit of {limits['saved_resumes_limit']} saved resumes. Please delete an existing resume to apply with a new one."
@@ -738,11 +748,20 @@ def apply_to_job(
         if resume.is_deleted:
             tier = candidate.plan_tier or "free"
             limits = PLAN_LIMITS.get_limits(tier, db)
-            existing_resumes_count = db.query(Resume).filter(
+            existing_resumes = db.query(Resume).filter(
                 Resume.candidate_id == candidate.id,
                 Resume.is_deleted == False
-            ).count()
-            if existing_resumes_count >= limits["saved_resumes_limit"]:
+            ).all()
+            
+            uploaded_resumes_count = sum(1 for r in existing_resumes if not r.is_ai_optimized)
+            
+            if not resume.is_ai_optimized and uploaded_resumes_count >= limits["resume_upload_limits"]:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"You have reached your limit of {limits['resume_upload_limits']} uploaded resumes. Please delete an existing resume to reuse this one."
+                )
+                
+            if len(existing_resumes) >= limits["saved_resumes_limit"]:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"You have reached your limit of {limits['saved_resumes_limit']} saved resumes. Please delete an existing resume to reuse this one."
@@ -3451,7 +3470,29 @@ def upload_resume(
             db.refresh(existing_resume)
         new_resume = existing_resume
     else:
-        existing_resumes = db.query(Resume).filter(Resume.candidate_id == candidate.id).all()
+        from app.services.plans_service import PLAN_LIMITS
+        tier = candidate.plan_tier or "free"
+        limits = PLAN_LIMITS.get_limits(tier, db)
+        
+        existing_resumes = db.query(Resume).filter(
+            Resume.candidate_id == candidate.id,
+            Resume.is_deleted == False
+        ).all()
+        
+        uploaded_resumes_count = sum(1 for r in existing_resumes if not r.is_ai_optimized)
+        
+        if uploaded_resumes_count >= limits["resume_upload_limits"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"You have reached your limit of {limits['resume_upload_limits']} uploaded resumes. Please delete an existing resume to upload a new one."
+            )
+            
+        if len(existing_resumes) >= limits["saved_resumes_limit"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"You have reached your limit of {limits['saved_resumes_limit']} saved resumes. Please delete an existing resume to upload a new one."
+            )
+            
         is_primary = len(existing_resumes) == 0
         
         from app.services.resume_parser import resume_parser_service
