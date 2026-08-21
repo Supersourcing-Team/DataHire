@@ -791,11 +791,22 @@ def apply_to_job(
         
         # If payload contains updated content or url, save it in the database
         updated = False
-        if payload.cover_letter_text is not None and payload.cover_letter_text != cl.content:
-            cl.content = payload.cover_letter_text
-            updated = True
+        new_cl_content = payload.cover_letter_text
         if payload.cover_letter_url is not None and payload.cover_letter_url != cl.cover_letter_url:
             cl.cover_letter_url = payload.cover_letter_url
+            updated = True
+            if new_cl_content is None:
+                try:
+                    from app.services.cover_letter_service import extract_and_clean_cover_letter
+                    new_cl_content = extract_and_clean_cover_letter(payload.cover_letter_url)
+                except Exception as e:
+                    logger.error(f"Failed to extract cover letter content from {payload.cover_letter_url}: {e}")
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Failed to extract cover letter text from the uploaded file: {str(e)}"
+                    )
+        if new_cl_content is not None and new_cl_content != cl.content:
+            cl.content = new_cl_content
             updated = True
         if updated:
             db.add(cl)
@@ -804,6 +815,16 @@ def apply_to_job(
         cover_letter_content = cl.content
         cover_letter_url = cl.cover_letter_url
     elif cover_letter_content or cover_letter_url:
+        if cover_letter_url and not cover_letter_content:
+            try:
+                from app.services.cover_letter_service import extract_and_clean_cover_letter
+                cover_letter_content = extract_and_clean_cover_letter(cover_letter_url)
+            except Exception as e:
+                logger.error(f"Failed to extract cover letter content from {cover_letter_url}: {e}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to extract cover letter text from the uploaded file: {str(e)}"
+                )
         # Create a new CoverLetter record in the database
         from app.models.cover_letter import CoverLetter
         new_cl = CoverLetter(
@@ -3742,11 +3763,23 @@ def create_cover_letter(
             detail="Either content or file_url must be provided."
         )
         
+    content = data.content
+    if data.file_url and not content:
+        try:
+            from app.services.cover_letter_service import extract_and_clean_cover_letter
+            content = extract_and_clean_cover_letter(data.file_url, data.file_name)
+        except Exception as e:
+            logger.error(f"Failed to extract cover letter content from {data.file_url}: {e}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to extract cover letter text from the uploaded file: {str(e)}"
+            )
+
     new_cl = CoverLetter(
         candidate_id=candidate.id,
         job_id=data.job_id,
         title=title,
-        content=data.content,
+        content=content,
         cover_letter_url=data.file_url,
         is_default=is_default
     )
@@ -3792,10 +3825,21 @@ def update_cover_letter(
         
     if data.title is not None:
         cl.title = data.title
-    if data.content is not None:
-        cl.content = data.content
-    if data.cover_letter_url is not None:
+    new_content = data.content
+    if data.cover_letter_url is not None and data.cover_letter_url != cl.cover_letter_url:
         cl.cover_letter_url = data.cover_letter_url
+        if new_content is None:
+            try:
+                from app.services.cover_letter_service import extract_and_clean_cover_letter
+                new_content = extract_and_clean_cover_letter(data.cover_letter_url)
+            except Exception as e:
+                logger.error(f"Failed to extract cover letter content from {data.cover_letter_url}: {e}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to extract cover letter text from the uploaded file: {str(e)}"
+                )
+    if new_content is not None:
+        cl.content = new_content
         
     db.commit()
     db.refresh(cl)

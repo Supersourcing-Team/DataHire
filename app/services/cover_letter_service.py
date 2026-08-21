@@ -89,3 +89,74 @@ def generate_and_save_cover_letter(candidate: Candidate, job: JobPosting, resume
     db.add(candidate)
     
     return new_cover_letter
+
+def extract_and_clean_cover_letter(file_url: str, file_name: str = None) -> str:
+    """
+    Downloads the cover letter file from the given S3 or HTTP URL, extracts its raw text
+    (supports PDF and DOCX), and uses Gemini (gemini-3.1-flash-lite) to clean and format
+    the core cover letter content.
+    """
+    from app.services.resume_parser import resume_parser_service
+    import google.generativeai as genai
+    
+    # 1. Download file bytes
+    logger.info(f"Downloading cover letter file from URL: {file_url}")
+    try:
+        file_bytes = resume_parser_service.download_file(file_url)
+    except Exception as e:
+        logger.error(f"Failed to download cover letter from {file_url}: {e}")
+        raise RuntimeError(f"Failed to download cover letter file: {str(e)}")
+        
+    # 2. Determine file type and extract raw text
+    ext = ""
+    target_name = file_name or file_url or ""
+    if "." in target_name:
+        ext = target_name.split(".")[-1].lower().split("?")[0]
+        
+    logger.info(f"Extracting raw text for cover letter with extension: {ext}")
+    try:
+        if ext == "docx":
+            raw_text = resume_parser_service.extract_text_from_docx(file_bytes)
+        elif ext == "pdf" or not ext:
+            # Default to PDF extraction
+            raw_text = resume_parser_service.extract_text_from_pdf(file_bytes)
+        else:
+            # For other text files, try decoding, else fallback to PDF parser
+            try:
+                raw_text = file_bytes.decode('utf-8')
+            except Exception:
+                raw_text = resume_parser_service.extract_text_from_pdf(file_bytes)
+    except Exception as e:
+        logger.error(f"Failed to extract raw text from cover letter file: {e}")
+        raise RuntimeError(f"Failed to parse cover letter file structure: {str(e)}")
+        
+    if not raw_text or not raw_text.strip():
+        raise ValueError("The cover letter file is empty or contains no readable text.")
+        
+    # 3. Clean and extract cover letter text via Gemini (gemini-3.1-flash-lite)
+    logger.info("Cleaning raw cover letter text using Gemini...")
+    try:
+        genai.configure(api_key=settings.GEMINI_API_KEY)
+        model = genai.GenerativeModel('gemini-3.1-flash-lite')
+        
+        prompt = f"""
+        You are an expert career assistant and document parser.
+        Your task is to extract the clean, formatted cover letter content from the following raw text of a document.
+        Remove any irrelevant headers, footers, page numbers, metadata, or document artifacts.
+        Output ONLY the clean, formatted body text of the cover letter. Do not include any intro/outro explanations, quotes, or markdown code block markers around your response (unless they are part of the cover letter text itself).
+        
+        --- RAW TEXT ---
+        {raw_text}
+        """
+        
+        response = model.generate_content(prompt)
+        cleaned_content = response.text
+        if cleaned_content:
+            cleaned_content = cleaned_content.strip()
+        else:
+            cleaned_content = raw_text.strip()
+        return cleaned_content
+    except Exception as e:
+        logger.error(f"Gemini cleaning failed: {e}")
+        # Fall back to raw text if Gemini cleaning fails
+        return raw_text.strip()
