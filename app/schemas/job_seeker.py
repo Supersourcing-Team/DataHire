@@ -21,6 +21,7 @@ class CandidateCreditsResponse(BaseModel):
     cover_letters_limit: Union[int, str]
     missing_skills_analysis_enabled: bool
     saved_resumes_limit: Union[int, str]
+    resume_upload_limits: Union[int, str]
     monthly_reset_date: datetime
 
     model_config = ConfigDict(from_attributes=True)

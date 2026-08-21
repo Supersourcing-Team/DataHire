@@ -13,29 +13,32 @@ class DynamicPlanLimits(dict):
                 "free": {
                     "name": "Free",
                     "daily_apply_limit": 0,
-                    "monthly_ai_credits": 150,
-                    "monthly_resume_optimization_limit": 4,
+                    "monthly_ai_credits": 75,
+                    "monthly_resume_optimization_limit": 3,
                     "monthly_cover_letter_limit": 0,
                     "missing_skills_analysis_enabled": False,
                     "saved_resumes_limit": 7,
+                    "resume_upload_limits": 3
                 },
                 "silver": {
                     "name": "Silver",
                     "daily_apply_limit": 3,
                     "monthly_ai_credits": 800,
                     "monthly_resume_optimization_limit": 15,
-                    "monthly_cover_letter_limit": 100,
+                    "monthly_cover_letter_limit": 15,
                     "missing_skills_analysis_enabled": True,
-                    "saved_resumes_limit": 30,
+                    "saved_resumes_limit": 12,
+                    "resume_upload_limits": 5
                 },
                 "gold": {
                     "name": "Gold",
                     "daily_apply_limit": 5,
                     "monthly_ai_credits": 1200,
                     "monthly_resume_optimization_limit": 22,
-                    "monthly_cover_letter_limit": 500,
+                    "monthly_cover_letter_limit": 22,
                     "missing_skills_analysis_enabled": True,
-                    "saved_resumes_limit": 50,
+                    "saved_resumes_limit": 15,
+                    "resume_upload_limits":10
                 },
                 "platinum": {
                     "name": "Platinum",
@@ -45,6 +48,7 @@ class DynamicPlanLimits(dict):
                     "monthly_cover_letter_limit": 1000,
                     "missing_skills_analysis_enabled": True,
                     "saved_resumes_limit": 100,
+                    "resume_upload_limits":20
                 }
             })
         else:
