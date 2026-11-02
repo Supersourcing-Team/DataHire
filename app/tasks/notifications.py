@@ -7,6 +7,7 @@ from app.models.application import JobApplication
 from app.models.notification import Notification, NotificationPreference
 from app.services.sendgrid_service import SendGridService
 from app.services.aws_ses_service import AWSSESService
+from app.services.email_service import EmailService
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +35,18 @@ def send_email_task(self, to_email: str, template_name_or_id: str, template_data
                 subject=subject
             )
         )
-    else:
+    elif settings.EMAIL_PROVIDER == "sendgrid":
         success = asyncio.run(
             SendGridService.send_mail_with_template(
+                to_email=to_email,
+                template_name_or_id=template_name_or_id,
+                template_data=template_data,
+                subject=subject
+            )
+        )
+    else:
+        success = asyncio.run(
+            EmailService.send_mail_with_template(
                 to_email=to_email,
                 template_name_or_id=template_name_or_id,
                 template_data=template_data,

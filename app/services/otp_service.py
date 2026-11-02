@@ -86,8 +86,13 @@ class OTPService:
                 subject=subject
             )
         else:
-            # Fallback to standard SMTP
-            success = EmailService.send_otp_email(to_email=email, otp_code=code, purpose=purpose_label)
+            # Standard SMTP
+            success = await EmailService.send_mail_with_template(
+                to_email=email,
+                template_name_or_id="emails/otp.html",
+                template_data=template_data,
+                subject=subject
+            )
         return success
 
     @staticmethod
