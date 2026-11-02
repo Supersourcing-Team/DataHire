@@ -66,9 +66,23 @@ class ResendService:
                 if response.status_code in (200, 201):
                     logger.info(f"Email successfully sent to {to_email} via Resend")
                     return True
-                else:
-                    logger.error(f"Resend API failed with status {response.status_code}: {response.text}")
-                    return False
+
+                # If domain is not verified on Resend, retry with onboarding@resend.dev
+                if response.status_code == 403 and "domain is not verified" in response.text:
+                    logger.warning(
+                        f"Domain not verified on Resend. Retrying with onboarding@resend.dev for {to_email}..."
+                    )
+                    payload["from"] = f"{from_name} <onboarding@resend.dev>"
+                    retry_resp = await client.post(url, headers=headers, json=payload)
+                    if retry_resp.status_code in (200, 201):
+                        logger.info(f"Email successfully sent to {to_email} via Resend (sandbox)")
+                        return True
+                    else:
+                        logger.error(f"Resend retry failed: {retry_resp.text}")
+                        return False
+
+                logger.error(f"Resend API failed with status {response.status_code}: {response.text}")
+                return False
         except Exception as e:
             logger.error(f"HTTP error occurred while calling Resend API: {str(e)}")
             return False

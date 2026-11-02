@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     REDIS_URL: Optional[str] = None
     
     # Email
-    EMAIL_PROVIDER: str = "sendgrid"
+    EMAIL_PROVIDER: str = "resend"
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587
     SMTP_USER: Optional[str] = None
