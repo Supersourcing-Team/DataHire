@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from pydantic import field_validator
 from typing import Optional
 
 class Settings(BaseSettings):
@@ -36,6 +37,15 @@ class Settings(BaseSettings):
     
     # Redis (for caching)
     REDIS_URL: Optional[str] = None
+
+    @field_validator("REDIS_URL", mode="before")
+    @classmethod
+    def clean_redis_url(cls, v: Optional[str]) -> Optional[str]:
+        if isinstance(v, str):
+            v = v.strip().strip("'\"")
+            if v.startswith("redis-cli -u "):
+                v = v[len("redis-cli -u "):].strip()
+        return v
     
     # Email
     EMAIL_PROVIDER: str = "resend"
