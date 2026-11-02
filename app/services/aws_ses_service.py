@@ -141,8 +141,30 @@ class AWSSESService:
         except ClientError as e:
             error_code = e.response["Error"]["Code"]
             error_msg = e.response["Error"]["Message"]
-            logger.error(f"AWS SES ClientError [{error_code}]: {error_msg} (Recipient: {to_email})")
-            return False
+            logger.error(f"AWS SES ClientError [{error_code}]: {error_msg} (Recipient: {to_email}). Falling back to SMTP...")
+            try:
+                from app.services.email_service import EmailService
+                return EmailService._send_smtp_sync(
+                    to_email=to_email,
+                    html_content=html_content,
+                    subject=subject,
+                    from_email=settings.SMTP_FROM_EMAIL or from_email,
+                    from_name=from_name
+                )
+            except Exception as smtp_err:
+                logger.error(f"SMTP fallback also failed: {smtp_err}")
+                return False
         except Exception as e:
-            logger.error(f"Unexpected error calling AWS SES API: {str(e)} (Recipient: {to_email})")
-            return False
+            logger.error(f"Unexpected error calling AWS SES API: {str(e)} (Recipient: {to_email}). Falling back to SMTP...")
+            try:
+                from app.services.email_service import EmailService
+                return EmailService._send_smtp_sync(
+                    to_email=to_email,
+                    html_content=html_content,
+                    subject=subject,
+                    from_email=settings.SMTP_FROM_EMAIL or from_email,
+                    from_name=from_name
+                )
+            except Exception as smtp_err:
+                logger.error(f"SMTP fallback also failed: {smtp_err}")
+                return False

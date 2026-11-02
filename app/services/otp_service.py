@@ -71,6 +71,7 @@ class OTPService:
             "otp_code": code
         }
 
+        success = False
         if settings.EMAIL_PROVIDER == "ses":
             success = await AWSSESService.send_mail_with_template(
                 to_email=email,
@@ -93,6 +94,20 @@ class OTPService:
                 template_data=template_data,
                 subject=subject
             )
+
+        # Resilient fallback: If delivery via primary provider failed, try SMTP
+        if not success:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Delivery via {settings.EMAIL_PROVIDER} failed for {email}; attempting fallback via SMTP..."
+            )
+            success = await EmailService.send_mail_with_template(
+                to_email=email,
+                template_name_or_id="emails/otp.html",
+                template_data=template_data,
+                subject=subject
+            )
+
         return success
 
     @staticmethod
