@@ -91,11 +91,11 @@ class EmailService:
 
             port = int(settings.SMTP_PORT or 587)
             if port == 465:
-                with smtplib.SMTP_SSL(settings.SMTP_HOST, port, timeout=15) as server:
+                with smtplib.SMTP_SSL(settings.SMTP_HOST, port, timeout=3) as server:
                     server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                     server.send_message(msg)
             else:
-                with smtplib.SMTP(settings.SMTP_HOST, port, timeout=15) as server:
+                with smtplib.SMTP(settings.SMTP_HOST, port, timeout=3) as server:
                     server.starttls()
                     server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                     server.send_message(msg)
