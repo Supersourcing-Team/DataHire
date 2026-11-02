@@ -26,7 +26,17 @@ def send_email_task(self, to_email: str, template_name_or_id: str, template_data
     import asyncio
     logger.info(f"Sending email to {to_email} with template/ID {template_name_or_id} using provider {settings.EMAIL_PROVIDER}")
     
-    if settings.EMAIL_PROVIDER == "ses":
+    if settings.EMAIL_PROVIDER == "resend":
+        from app.services.resend_service import ResendService
+        success = asyncio.run(
+            ResendService.send_mail_with_template(
+                to_email=to_email,
+                template_name_or_id=template_name_or_id,
+                template_data=template_data,
+                subject=subject
+            )
+        )
+    elif settings.EMAIL_PROVIDER == "ses":
         success = asyncio.run(
             AWSSESService.send_mail_with_template(
                 to_email=to_email,

@@ -72,8 +72,9 @@ class OTPService:
         }
 
         success = False
-        if settings.EMAIL_PROVIDER == "ses":
-            success = await AWSSESService.send_mail_with_template(
+        if settings.EMAIL_PROVIDER == "resend":
+            from app.services.resend_service import ResendService
+            success = await ResendService.send_mail_with_template(
                 to_email=email,
                 template_name_or_id="emails/otp.html",
                 template_data=template_data,
@@ -81,6 +82,13 @@ class OTPService:
             )
         elif settings.EMAIL_PROVIDER == "sendgrid":
             success = await SendGridService.send_mail_with_template(
+                to_email=email,
+                template_name_or_id="emails/otp.html",
+                template_data=template_data,
+                subject=subject
+            )
+        elif settings.EMAIL_PROVIDER == "ses":
+            success = await AWSSESService.send_mail_with_template(
                 to_email=email,
                 template_name_or_id="emails/otp.html",
                 template_data=template_data,
@@ -95,18 +103,28 @@ class OTPService:
                 subject=subject
             )
 
-        # Resilient fallback: If delivery via primary provider failed, try SMTP
+        # Resilient fallback: If delivery via primary provider failed, try alternatives
         if not success:
             import logging
-            logging.getLogger(__name__).warning(
-                f"Delivery via {settings.EMAIL_PROVIDER} failed for {email}; attempting fallback via SMTP..."
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"Delivery via {settings.EMAIL_PROVIDER} failed for {email}; attempting fallbacks..."
             )
-            success = await EmailService.send_mail_with_template(
-                to_email=email,
-                template_name_or_id="emails/otp.html",
-                template_data=template_data,
-                subject=subject
-            )
+            if getattr(settings, "RESEND_API_KEY", None) and settings.EMAIL_PROVIDER != "resend":
+                from app.services.resend_service import ResendService
+                success = await ResendService.send_mail_with_template(
+                    to_email=email,
+                    template_name_or_id="emails/otp.html",
+                    template_data=template_data,
+                    subject=subject
+                )
+            if not success and settings.EMAIL_PROVIDER != "smtp":
+                success = await EmailService.send_mail_with_template(
+                    to_email=email,
+                    template_name_or_id="emails/otp.html",
+                    template_data=template_data,
+                    subject=subject
+                )
 
         return success
 
